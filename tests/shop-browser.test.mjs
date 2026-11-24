@@ -48,7 +48,7 @@ after(async () => {
 
 const plain = (text) => String(text).replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
 
-async function phone() {
+async function phone(copies = SPARE_COPIES) {
 	const context = await browser.newContext({serviceWorkers: 'block', viewport: {height: 844, width: 390}});
 
 	await fakeServices(context);
@@ -58,7 +58,7 @@ async function phone() {
 	const errors = [];
 
 	page.on('pageerror', (err) => errors.push(err.message));
-	await seed(page, server.origin, {binders: [], copies: SPARE_COPIES});
+	await seed(page, server.origin, {binders: [], copies});
 
 	return {context, errors, page};
 }
@@ -296,6 +296,35 @@ describe('Shop', () => {
 		await pickShow(page, 'unpriced');
 		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 4);
 		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-bulk.png`});
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a hand-made copy of a catalog card counts with it, and a card with no picture offers one', async () => {
+		const hand = (id, fields) => ({
+			card_id: 'hand_0123456789abcdef0123456789abcdef', catalog: 'custom', created_at: `2026-09-${id.slice(2)}T12:00:00.000Z`, deleted_at: null,
+			id, language: 'en', language_source: 'manual', name_local: 'Homemade Mon', number_local: '7', set_code: 'XYZ', set_name_local: 'Nowhere', updated_at: `2026-09-${id.slice(2)}T12:00:00.000Z`, variant_id: null, ...fields,
+		});
+		// Bulbasaur's one catalog copy and one added by hand before the
+		// catalog listed it (set code tsa1, number 001): one spare. The
+		// hand-made Homemade Mon, two copies, no catalog picture.
+		const copies = [
+			...SPARE_COPIES,
+			hand('h-20', {card_id: 'hand_fedcba9876543210fedcba9876543210', name_local: 'Bulbasaur', number_local: '1', set_code: 'tsa1'}),
+			hand('h-21'),
+			hand('h-22'),
+		];
+		const {context, errors, page} = await phone(copies);
+
+		await openShop(page);
+		await pickShow(page, 'all');
+		assert.equal(await page.locator('.shop-row').count(), 8, 'the six rows, Bulbasaur, and Homemade Mon');
+		assert.equal(await page.locator('#shop-international-tsa1-001-en').count(), 1, 'Bulbasaur has a spare now');
+		assert.match(plain(await page.locator('#shop-international-tsa1-001-en .shop-meta').textContent()), /1 spare$/);
+
+		const homemade = page.locator('.shop-row:has-text("Homemade Mon")');
+
+		assert.equal(await homemade.locator('.shop-add-picture').count(), 1, 'no picture: Add a listing picture');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

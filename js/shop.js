@@ -16,6 +16,7 @@
 import {tileKey} from './bulk-edit.js';
 import {setIdOfCard} from './catalog.js';
 import {isLive} from './collection.js';
+import {isCustom, sameNumber} from './custom-card.js';
 import {extractPrices, fallbackPrice, finishOf, isAsianPrint, usdToBrl, eurToBrl} from './prices.js';
 import {spareEntries} from './wishlist.js';
 
@@ -61,23 +62,36 @@ export const shopKey = (entry) => `${tileKey(entry)}|${finishKey(entry)}`;
 // (js/wishlist.js spareEntries), which are never for sale. Which copies are
 // spares is still decided per card and language, so the copy kept may be
 // of any finish; the spares are then split by finish, one price each.
-export function shopGroups(cards, {held} = {}) {
+//
+// A hand-made copy of a card the catalog lists too counts as a copy of that
+// catalog card (catalogTwins), so a CRI card added by hand before TCGdex
+// listed the set and a copy scanned later are one card with one spare, not
+// two cards with none. codeOf(setId) is the set's printed code
+// (js/catalog.js printedCode).
+export function shopGroups(cards, {codeOf = () => null, held} = {}) {
 	const live = (cards || []).filter((entry) => entry && isLive(entry));
+	const twins = catalogTwins(live, {codeOf});
+	const byId = new Map(live.map((entry) => [entry.id, entry]));
+	// A copy saved with no catalog is an international one, as spareEntries
+	// counts it, so it never splits from its card into a second row.
+	const asCard = (entry) => (twins.has(entry.id) ? {...entry, ...twins.get(entry.id)} : {...entry, catalog: entry.catalog || 'international'});
+	const counted = live.map(asCard);
 	const groups = new Map();
 
-	for (const entry of spareEntries(live, {held})) {
-		const key = shopKey(entry);
+	for (const spare of spareEntries(counted, {held})) {
+		const entry = byId.get(spare.id) || spare;
+		const key = shopKey(spare);
 
 		if (!groups.has(key)) {
 			groups.set(key, {
-				card_id: entry.card_id,
-				catalog: entry.catalog || 'international',
+				card_id: spare.card_id,
+				catalog: spare.catalog || 'international',
 				copies: [],
-				finish_key: finishKey(entry),
+				finish_key: finishKey(spare),
 				key,
-				language: entry.language,
+				language: spare.language,
 				price: null,
-				set_id: setIdOfCard(entry.card_id),
+				set_id: setIdOfCard(spare.card_id),
 				spares: [],
 			});
 		}
@@ -86,7 +100,7 @@ export function shopGroups(cards, {held} = {}) {
 	}
 
 	for (const entry of live) {
-		const group = groups.get(shopKey(entry));
+		const group = groups.get(shopKey(asCard(entry)));
 
 		if (group) {
 			group.copies.push(entry);
@@ -98,6 +112,52 @@ export function shopGroups(cards, {held} = {}) {
 	}
 
 	return [...groups.values()];
+}
+
+// A hand-made copy's number, and the same number without a set code in
+// front ("MEP 012" is 012), for matching it to a catalog card.
+function handNumbers(number) {
+	const text = String(number ?? '').trim();
+	const bare = text.replace(/^[A-Za-z]+[\s-]+(?=\d)/, '');
+
+	return bare && bare !== text ? [text, bare] : [text];
+}
+
+// {<hand-made copy id>: {catalog, card_id}}: each live hand-made copy whose
+// set (its set code as TCGdex's set id or the printed code, or its set name)
+// and number match a catalog copy owned in the same language. Only copies
+// owned are matched, so this needs no catalog read; a hand-made card no
+// catalog copy matches stays itself. The card page's Link (js/custom-card.js
+// linkPatches) still makes the move for good.
+export function catalogTwins(live, {codeOf = () => null} = {}) {
+	const out = new Map();
+	const catalogCopies = live.filter((entry) => !isCustom(entry) && entry.card_id);
+	const fold = (value) => String(value ?? '').trim().toLowerCase();
+
+	for (const hand of live.filter((entry) => isCustom(entry) && entry.number_local)) {
+		const code = fold(hand.set_code);
+		const setName = fold(hand.set_name_local);
+		const numbers = handNumbers(hand.number_local);
+		const twin = catalogCopies.find((entry) => {
+			const setId = setIdOfCard(entry.card_id);
+
+			if (!setId || entry.language !== hand.language) {
+				return false;
+			}
+
+			const setFits = (code && (code === fold(setId) || code === fold(codeOf(setId))))
+				|| (setName && setName === fold(entry.set_name_local));
+			const localId = entry.card_id.slice(setId.length + 1);
+
+			return setFits && numbers.some((number) => sameNumber(number, localId));
+		});
+
+		if (twin) {
+			out.set(hand.id, {card_id: twin.card_id, catalog: twin.catalog || 'international'});
+		}
+	}
+
+	return out;
 }
 
 // The group's sale price: a spare's first, else any copy's, since the
@@ -234,6 +294,21 @@ export function storePicturePath(base) {
 	return url.origin === 'https://assets.tcgdex.net' && /^[a-z]{2}(-[a-z]{2})?\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(path)
 		? `tcgdex/${path}.webp`
 		: null;
+}
+
+// Where one of the owner's own card photos is kept in the shop's bucket
+// when it is a listing's picture (a card the catalog has no picture for, or
+// a hand-made one): own/<photo id>.webp or .jpg, as the photo was saved.
+// supabase/store-own-pictures.sql lets the owner add these. Null for a photo
+// with no usable id.
+export function ownPicturePath(photo) {
+	const id = photo && typeof photo.id === 'string' ? photo.id : '';
+
+	if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) {
+		return null;
+	}
+
+	return `own/${id}.${/\.jpe?g$/i.test(String(photo.path || '')) ? 'jpg' : 'webp'}`;
 }
 
 const text = (value, max) => {

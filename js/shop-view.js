@@ -24,10 +24,10 @@
 //   shop     your spares, priced for sale
 
 import {currentUser} from './auth.js';
-import {entryInfo} from './binders-view.js';
+import {entryInfo, fillRecords} from './binders-view.js';
 import {heldCopies} from './binders.js';
 import {loadedSpeciesNames} from './catalog-views.js';
-import {cardIndex, compareNumbers, indexKey, pricesDue, readPriceRecord, savedCardRecords, viewingLanguage} from './catalog.js';
+import {cardIndex, compareNumbers, importApi, indexKey, pricesDue, printedCode, readPriceRecord, savedCardRecords, saveToCardIndex, setIdOfCard, viewingLanguage} from './catalog.js';
 import {listCards, loadDocument, updateCards} from './collection.js';
 import {BASE, errorText, h} from './dom.js';
 import {formatCount, plural} from './format.js';
@@ -35,10 +35,11 @@ import {languageLabel} from './languages.js';
 import {finishLabel} from './monprice.js';
 import {applyMove, parsePrice, priceForInput, PRICE_FORM_TEXT} from './moves.js';
 import {euroRates, exchangeRates, extractPrices, finishFits, finishOf, formatBrl, savedEuroRates, savedRates} from './prices.js';
-import {PRICE_FILTERS, groupMark, hasCards, listingRows, orderCheck, priceFilter, pricePatches, saleFields, shopGroups, shopTotals, storePicturePath, suggestion, timeLeft, undoPricePatches} from './shop.js';
+import {PRICE_FILTERS, groupMark, hasCards, listingRows, orderCheck, ownPicturePath, priceFilter, pricePatches, saleFields, shopGroups, shopTotals, storePicturePath, suggestion, timeLeft, undoPricePatches} from './shop.js';
 import {checkShopOwner, shopOwnerKnown} from './shop-owner.js';
 import {cancelOrder, markDelivered, markPaid, openOrders, orderErrorText, receiptLink} from './store-orders.js';
-import {publishErrorText, syncListings, uploadPicture} from './store-publish.js';
+import {addPhotoButton, mainSlide, slideSrc} from './photos/index.js';
+import {publishErrorText, syncListings, uploadOwnPicture, uploadPicture} from './store-publish.js';
 import {onSyncStatus, syncStatus} from './sync.js';
 
 const SHOW_KEY = 'cardTracker.shopShow';
@@ -226,6 +227,22 @@ export function shopView(root) {
 		group.info = info;
 		group.publishInfo = sold;
 		group.pictureBase = sold.image ? sold.image.replace(/\/low\.webp$/, '') : null;
+		group.ownPhoto = null;
+
+		// No catalog picture (a hand-made card, a print TCGdex has none
+		// for): the image the card's tiles show instead, the international
+		// print or the owner's own photo (js/photos/index.js mainSlide). A
+		// family member's photo is theirs, so it is never listed.
+		if (!group.pictureBase) {
+			const slide = mainSlide(group.copies, null);
+
+			if (slide.kind === 'twin' && slide.src) {
+				group.pictureBase = slide.src.replace(/\/(low|high)\.webp$/, '');
+			}
+			else if (slide.kind === 'photo' && slide.photo) {
+				group.ownPhoto = slide.photo;
+			}
+		}
 		group.rarity = (record && record.rarity) || null;
 		group.search = searchText(group);
 	}
@@ -399,9 +416,7 @@ export function shopView(root) {
 		}, type: 'checkbox'});
 		const element = h('li', {class: `card shop-row${group.price === null ? ' shop-unpriced' : ''}${dirty ? ' shop-dirty' : ''}${selected.has(group.key) ? ' shop-picked' : ''}`, 'data-key': group.key, id},
 			pick,
-			info.image
-				? h('img', {alt: '', class: 'shop-art', decoding: 'async', loading: 'lazy', onerror: (event) => event.target.replaceWith(h('div', {'aria-hidden': 'true', class: 'shop-art shop-art-none'})), src: info.image})
-				: h('div', {'aria-hidden': 'true', class: 'shop-art shop-art-none'}),
+			artNode(group),
 			h('div', {class: 'shop-body'},
 				h('a', {class: 'shop-name', 'data-link': info.route, href: BASE + info.route}, info.name),
 				h('p', {class: 'shop-finish-line'}, h('span', {class: `shop-finish${named ? '' : ' shop-finish-unset'}`}, finish)),
@@ -411,6 +426,7 @@ export function shopView(root) {
 				markNode(group),
 				suggestionNode(group),
 				form,
+				pictureButton(group),
 				error
 			)
 		);
@@ -418,6 +434,54 @@ export function shopView(root) {
 		rows.set(group.key, element);
 
 		return element;
+	}
+
+	// The row's picture: the catalog's, else what the listing will carry
+	// (the international print, or the owner's photo, read from the photo
+	// store once it is on the phone).
+	function artNode(group) {
+		const none = () => h('div', {'aria-hidden': 'true', class: 'shop-art shop-art-none'});
+		const src = group.info.image || (group.pictureBase ? `${group.pictureBase}/low.webp` : null);
+		const img = (url) => h('img', {alt: '', class: 'shop-art', decoding: 'async', loading: 'lazy', onerror: (event) => event.target.replaceWith(none()), src: url});
+
+		if (src) {
+			return img(src);
+		}
+
+		const frame = none();
+
+		if (group.ownPhoto) {
+			slideSrc({photo: group.ownPhoto}).then((url) => {
+				if (url && frame.isConnected) {
+					frame.replaceWith(img(url));
+				}
+			}).catch(() => {});
+		}
+
+		return frame;
+	}
+
+	// A card with no picture at all gets Add a listing picture: the photo
+	// goes on the card, as card detail's Add photo does, and becomes the
+	// picture its tiles and its HOTARU listing show.
+	function pictureButton(group) {
+		if (group.pictureBase || group.ownPhoto) {
+			return null;
+		}
+
+		const button = addPhotoButton({
+			entries: () => group.copies,
+			label: 'Add a listing picture',
+			onSaved: () => {
+				if (alive) {
+					reload().then(publish);
+				}
+			},
+		});
+
+		button.classList.add('small', 'shop-add-picture');
+
+		return button;
 	}
 
 	function drawList() {
@@ -727,22 +791,24 @@ export function shopView(root) {
 
 			// The pictures still missing, one per card. The finishes of a card
 			// share its picture: one already in the bucket is only named, and
-			// each picture is copied at most once.
-			const missing = priced().filter((group) => group.pictureBase
+			// each picture is copied at most once. A card the catalog has no
+			// picture for takes the owner's photo.
+			const missing = priced().filter((group) => (group.pictureBase || group.ownPhoto)
 				&& group.spares.every((entry) => !(states[entry.id] && states[entry.id].image_path)));
 			const stored = new Set(Object.values(states || {}).map((one) => one && one.image_path).filter(Boolean));
 			const copied = new Map();
 			const uploaded = [];
 
 			for (const group of missing) {
-				const path = storePicturePath(group.pictureBase);
+				const path = group.pictureBase ? storePicturePath(group.pictureBase) : ownPicturePath(group.ownPhoto);
+				const send = () => (group.pictureBase ? uploadPicture(group.pictureBase, path) : uploadOwnPicture(group.ownPhoto, path));
 
 				if (!alive || !path) {
 					continue;
 				}
 
 				if (!stored.has(path) && !copied.has(path)) {
-					copied.set(path, await uploadPicture(group.pictureBase, path).catch(() => false));
+					copied.set(path, await send().catch(() => false));
 				}
 
 				if (stored.has(path) || copied.get(path)) {
@@ -1031,7 +1097,7 @@ export function shopView(root) {
 			return;
 		}
 
-		groups = shopGroups(cards, {held: heldCopies(doc)});
+		groups = shopGroups(cards, {codeOf: printedCode, held: heldCopies(doc)});
 		groups.forEach(describe);
 		// Opened from its address, the Shop can draw before the species
 		// names are read; the searches take the English names when they are.
@@ -1071,6 +1137,45 @@ export function shopView(root) {
 		drawSaveBar();
 	}
 
+	// A record saved before TCGdex had the card's picture (a new set is
+	// listed first and pictured later, as CRI was) keeps no image for good,
+	// since nothing reads a record again once the index has it: the row has
+	// no thumbnail and the listing no picture. The sets of the cards with
+	// none are read again once a visit (js/catalog.js setDetailAgain), and
+	// the pictures found go into the index.
+	async function refreshPictures() {
+		const due = new Map();
+
+		for (const group of groups) {
+			const setId = group.catalog === 'international' && !group.publishInfo.image ? setIdOfCard(group.card_id) : null;
+
+			if (setId && group.language) {
+				due.set(`${group.language}|${setId}`, {lang: group.language, setId});
+			}
+		}
+
+		const records = [];
+
+		for (const {lang, setId} of due.values()) {
+			if (!alive) {
+				return;
+			}
+
+			const set = await importApi.setDetailAgain(lang, setId).catch(() => null);
+
+			for (const card of (set && set.cards) || []) {
+				if (card.image && groups.some((group) => group.card_id === card.id && group.language === lang)) {
+					records.push({catalog: 'international', id: card.id, localizations: {[lang]: {image: card.image, lang, name: card.name, set_name: set.name || null}}});
+				}
+			}
+		}
+
+		if (records.length && alive) {
+			index = await saveToCardIndex(records);
+			await reload();
+		}
+	}
+
 	// The full records of cards never read before, for their suggestions:
 	// read one at a time, the shown rows first, stopping after a few
 	// failures in a row.
@@ -1103,6 +1208,20 @@ export function shopView(root) {
 	(async () => {
 		index = await cardIndex().catch(() => new Map());
 		await reload();
+
+		// Cards this phone has no catalog record for yet (a set new since
+		// My Cards last filled them, or a Shop opened on a computer) would
+		// show a bare ID with no name, set, or picture, so a search for the
+		// name misses them and they publish with no picture: read them now,
+		// as a binder does (js/binders-view.js fillRecords).
+		const filledIndex = await fillRecords(groups.map((group) => ({catalog: group.catalog, cardId: group.card_id})), index, () => alive).catch(() => null);
+
+		if (filledIndex && alive) {
+			index = filledIndex;
+			await reload();
+		}
+
+		await refreshPictures();
 
 		saved = await savedCardRecords(groups.flatMap((group) => group.spares)).catch(() => new Map());
 
