@@ -17,6 +17,12 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-24
 
+- **v106:** set names in a collection that fills itself. `fd9153b`, `4d623a6`
+  - Fixed: choosing sets for a rule collection listed codes such as `international|xy3` in place of set names, and
+    the collection page described the rule the same way. Both now read the set names, as My Cards and binders do.
+  - Suite before release: 157 files, 2,256 pass, 5 fail (scanner timing under load in scan-holder-browser,
+    scan-retry-browser, scan-review-browser, and scan.test; each file passes alone).
+
 - **v105:** the Shop in the header, for the family owner only. `3732096`, `a508448`, `81c8d1b`
   - Shop left Spares: a round bag in the header, between Mine and your picture, opens it from any screen and is
     filled while it is open. Only the family's owner sees it (`js/shop-owner.js`, read from the group overview and
