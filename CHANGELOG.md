@@ -17,6 +17,16 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-24
 
+- **v104:** HOTARU sealed products in the Shop's orders, and one price for ticked cards. `262fc74`, `a6503d7`, `05ae45d`, `e6e3290`
+  - Orders with sealed products show them marked Sealed. A sealed product is never missing from the collection;
+    Payment received logs only the cards of an order in Trades, naming the sealed products in the note, and an order
+    of sealed products alone logs nothing.
+  - Shop: tick cards and Fill N selected gives them one price; ticks survive a search; Select all shown and Clear
+    selection sit by the price field.
+  - `supabase/store-sealed.sql` (sealed products, the owner's save and list, the public store_sealed, and the order
+    calls naming each item's kind), verified in a Postgres 16 container; not yet run in the live project.
+  - Suite before release: 156 files, 2,258 pass, 0 fail.
+
 - **v103:** HOTARU orders in the Shop. `2e77bbb`, `6cf7ed1`, `1d4ec3b`
   - The Shop's Orders section lists every order waiting for payment and every paid one still to hand over: buyer,
     phone, note, cards, total, time left, and the buyer's Pix receipt when sent. Payment received marks the order paid
