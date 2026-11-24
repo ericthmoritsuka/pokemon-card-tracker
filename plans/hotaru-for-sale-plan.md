@@ -7,8 +7,10 @@ visible For sale mark he takes off to keep it. He then agreed that the mark *is*
 marked means on HOTARU, unmarked means it stays his (reconfirmed to the orchestrator session). A For
 sale mark on one specific copy beats the favorite star.
 
-Builds on v107 (`shopGroups(cards, {held})`, copies in a binder are not spares) and v108 (favorite
-cards are not spares, and the `forSale` hook in `spareEntries`). Nothing changes on the server:
+Builds on v107 (`shopGroups(cards, {held})`, copies in a binder are not spares), v108 (favorite
+cards are not spares, and the `forSale` hook in `spareEntries`), and v109's per-finish groups
+(`shop-finish-prices`: a Shop group is one card, language, and finish, keyed by `tileKey` plus the
+finish identity, `variant_id` or `raw:<finish_raw>`, each with its own price). Nothing changes on the server:
 `store_sync` already takes the whole set of listed copies by copy id.
 
 ## 1. The Mark
@@ -34,13 +36,15 @@ not know `for_sale` keeps it, and the merge takes it field by field (`js/merge.j
 
 ## 2. The Listed Set
 
-For one card in one language, with a price:
+For one card, language, and finish (one Shop group), with a price:
 
 ```
 listed = (spares where for_sale !== false) ∪ (copies where for_sale === true)
 ```
 
-`shopGroups` makes a group for a card and language that has spares **or** any copy marked `true`,
+Spares stay decided per card and language (`spareEntries`); each spare then falls in its own
+finish's group. `shopGroups` makes a group for a card, language, and finish that has spares **or**
+any copy marked `true`,
 and gives it `listed` beside `spares`. `listingRows`, `groupMark`, and the Shop's counts read
 `listed`; "N spares" stays as text. A group with no spares and only marked copies is a non-spare
 sale. v108's `forSale` predicate is how `spareEntries` lets a marked favorite through.
@@ -57,7 +61,7 @@ only if the order is cancelled.
 
 - **Card page, Your copies:** a For sale switch on each copy's edit sheet (`js/copy-sheet.js`
   openEditSheet), with a line under it when it matters: "Your only copy", "In <binder>, page 3,
-  pocket 5", or "A favorite card". When the card has no price yet, a Price field sits beside it.
+  pocket 5", or "A favorite card". When its finish has no price yet, a Price field sits beside it.
 - **My Cards tiles and binder pockets:** a small "For sale" tag when any copy of the tile or the
   pocket's copy is listed, in the header's gold, so a card about to be sold is never a surprise.
 - **Shop:** each row says "2 of 3 copies for sale"; the filter gains **For sale, not a spare**.
@@ -72,8 +76,8 @@ Shop to that card with its price field focused when it has none.
 
 A Shop button opens the catalog search; picking a card opens its page with the Add sheet already
 open in a **For sale** mode: language, finish, condition, how many, an optional price paid
-(`purchase_price`), and the sale price. Saving adds the copies marked `true` and prices the card's
-copies in that language (`pricePatches`), so the card is on HOTARU in one step and in My Cards like
+(`purchase_price`), and the sale price. Saving adds the copies marked `true` and prices that
+finish's group, the card's copies in that language and finish (`pricePatches`), so the card is on HOTARU in one step and in My Cards like
 any other.
 
 ## 6. Selling
@@ -84,7 +88,8 @@ and every binder, list, and total.
 ## 7. Tests
 
 Unit (`tests/shop.test.mjs`): the three states, a marked favorite and binder copy listed, a `false`
-spare withheld, a group made by a marked copy alone, `listingRows` and `groupMark` on `listed`.
+spare withheld, a group made by a marked copy alone, a marked holo and a plain spare of one card in
+separate finish groups with their own prices, `listingRows` and `groupMark` on `listed`.
 Browser: the switch on the card page, the tile and pocket tags, Sell a card I own, Add and sell,
 taking the mark off a reserved copy, starring a card with a marked copy (the marked copy stays
 listed), and an older-app edit keeping the field.
