@@ -13,7 +13,8 @@
 --
 -- To check it worked: Table Editor lists store_orders and store_order_items;
 -- Database, Functions lists place_order, listing_status, attach_receipt,
--- store_orders_open, mark_paid, mark_delivered, and cancel_order; Storage lists store-receipts,
+-- order_status, store_orders_open, mark_paid, mark_delivered, and
+-- cancel_order; Storage lists store-receipts,
 -- marked Private.
 --
 -- The rules (Eric, 2026-11-24):
@@ -358,6 +359,60 @@ begin
 end;
 $$;
 
+-- My orders, without an account (Eric, 2026-11-24): a buyer's browser keeps
+-- the receipt token of each order it placed, and a private link carries one
+-- to another device. For each token asked about, the order's code, status,
+-- total, times, and cards, as a JSON array; an unknown token is left out.
+-- The token is unguessable, so this shows an order to its buyer only.
+create or replace function public.order_status(tokens uuid[])
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+	result jsonb;
+begin
+	if tokens is null or cardinality(tokens) > 50 then
+		raise exception 'Ask about 1 to 50 orders.' using errcode = '22023';
+	end if;
+
+	perform private.release_expired();
+
+	select coalesce(jsonb_agg(jsonb_build_object(
+		'code', o.code,
+		'created_at', o.created_at,
+		'delivered_at', o.delivered_at,
+		'items', (
+			select coalesce(jsonb_agg(jsonb_build_object(
+				'condition', l.condition,
+				'finish', l.finish,
+				'image_path', l.image_path,
+				'language', l.language,
+				'name', l.name,
+				'number', l.number,
+				'price_brl', i.price_brl,
+				'set_name', l.set_name
+			) order by l.set_name, l.number, l.name), '[]')
+			from public.store_order_items i
+			join public.store_listings l on l.id = i.listing_id
+			where i.order_id = o.id
+		),
+		'paid_at', o.paid_at,
+		'receipt_at', o.receipt_at,
+		'reserved_until', o.reserved_until,
+		'status', o.status,
+		'token', o.receipt_token,
+		'total', o.total
+	) order by o.created_at desc), '[]')
+	into result
+	from public.store_orders o
+	where o.receipt_token = any (tokens);
+
+	return result;
+end;
+$$;
+
 -- Storage keeps its files as rows of storage.objects. A visitor may add a
 -- file under an open order's token, and never read, replace, or delete one;
 -- the owner reads them all, and deletes them when cleaning up.
@@ -531,6 +586,7 @@ revoke all on function public.listing_status(text[]) from public;
 revoke all on function public.place_order(text[], text, text, text) from public;
 revoke all on function public.receipt_upload_open(text) from public;
 revoke all on function public.attach_receipt(uuid, text) from public;
+revoke all on function public.order_status(uuid[]) from public;
 revoke all on function public.store_orders_open() from public, anon;
 revoke all on function public.mark_paid(text) from public, anon;
 revoke all on function public.mark_delivered(text) from public, anon;
@@ -541,6 +597,7 @@ grant execute on function public.listing_status(text[]) to anon, authenticated;
 grant execute on function public.place_order(text[], text, text, text) to anon, authenticated;
 grant execute on function public.receipt_upload_open(text) to anon, authenticated;
 grant execute on function public.attach_receipt(uuid, text) to anon, authenticated;
+grant execute on function public.order_status(uuid[]) to anon, authenticated;
 grant execute on function public.store_orders_open() to authenticated;
 grant execute on function public.mark_paid(text) to authenticated;
 grant execute on function public.mark_delivered(text) to authenticated;
