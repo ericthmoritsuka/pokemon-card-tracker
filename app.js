@@ -24,6 +24,8 @@
 //                             (js/moves-view.js)
 //   stats, family/<userId>/stats  Stats for the collection, from My Cards
 //                             (js/stats-view.js)
+//   shop                      The Shop: spares priced for HOTARU, from
+//                             Spares (js/shop-view.js)
 //   family/<userId>[/lists[/<id>]]  A family member's cards or checklists,
 //                             view only (js/shell.js holds the lens)
 //
@@ -53,6 +55,7 @@ import {scanReportAccountViews, scanReportRoutes} from './js/scan-reports-view.j
 import {startReportSync} from './js/scan/reports.js';
 import {scanView} from './js/scan/routes.js';
 import {startSettings} from './js/settings.js';
+import {shopAccountViews, shopRoutes} from './js/shop-view.js';
 import {statsAccountViews, statsRoutes} from './js/stats-view.js';
 import {tradeAccountViews, tradeRoutes} from './js/trade-view.js';
 import {closeSheets} from './js/sheet.js';
@@ -89,11 +92,12 @@ const ROUTES = [
 	...tradeRoutes,
 	...movesRoutes,
 	...statsRoutes,
+	...shopRoutes,
 ];
 
 // Routes whose screen depends on who is signed in, redrawn on sign-in and
 // sign-out.
-const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, unplacedCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...COLLECTIONS_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews, ...movesAccountViews, ...goalAccountViews, ...scanReportAccountViews, ...statsAccountViews]);
+const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, unplacedCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...COLLECTIONS_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews, ...movesAccountViews, ...goalAccountViews, ...scanReportAccountViews, ...statsAccountViews, ...shopAccountViews]);
 
 const DEFAULT_ROUTE = 'cards';
 

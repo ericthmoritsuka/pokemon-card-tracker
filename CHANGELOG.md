@@ -5,9 +5,13 @@ https://ericthmoritsuka.github.io/pokemon-card-tracker/ (tap Reload when the app
 version is installed). **Planned** means it is designed in `DESIGN.md` but not built yet. Times
 are Recife time. Each line ends with its commit.
 
-## In Progress (2026-11-23)
+## In Progress (2026-11-24)
 
-- Nothing being built. Waiting on Eric: new binder page photos to recheck the page scan on a real phone.
+- Selling spares on HOTARU (`plans/hotaru-catalog-plan.md`, branch `hotaru-catalog-plan`). Step 1 built on branch
+  `store-prices`, not released: the Shop screen (route `shop`, from Spares) where each card's sale price is typed by
+  hand, with private TCGplayer and Cardmarket suggestions in reais, Priced and Not priced filters, and Price all shown.
+  Next: step 2, publishing priced spares to Supabase.
+- Waiting on Eric: new binder page photos to recheck the page scan on a real phone.
 - Still designed, not built: pack openings, graded cards, Michi art editing, and the tombstone purge (DESIGN.md).
 
 ## Live

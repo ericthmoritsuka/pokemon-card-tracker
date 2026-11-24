@@ -1186,7 +1186,7 @@ export function dedupeWishes(wishes) {
 // random ids and a v22 phone's import ids for the same rows still meet.
 
 // What a person sets on a copy; the newest non-empty value is kept.
-const USER_FIELDS = ['condition', 'purchase_price', 'purchase_currency', 'storage', 'grader', 'grade', 'cert_number', 'graded_price', 'notes', 'opening_id'];
+const USER_FIELDS = ['condition', 'purchase_price', 'purchase_currency', 'storage', 'grader', 'grade', 'cert_number', 'graded_price', 'notes', 'opening_id', 'sale_price'];
 
 // What the import set; taken from the most recently edited copy.
 const IMPORT_FIELDS = ['card_id', 'catalog', 'variant_id', 'finish_raw', 'fallback', 'language', 'language_source', 'name_local', 'set_name_local', 'photo_path'];

@@ -112,7 +112,7 @@ const wantOf = (entry) => ({
 // What a copy holds of its own and Start over does not copy to the new
 // copies (Eric, 2026-10-30): grade, price, favorite, condition, Stored in,
 // and pack opening.
-const DETAIL_FIELDS = ['grader', 'grade', 'cert_number', 'graded_price', 'purchase_price', 'price_manual', 'is_favorite', 'condition', 'storage', 'opening_id'];
+const DETAIL_FIELDS = ['grader', 'grade', 'cert_number', 'graded_price', 'purchase_price', 'price_manual', 'is_favorite', 'condition', 'storage', 'opening_id', 'sale_price'];
 
 const hasDetails = (entry) => DETAIL_FIELDS.some((key) => entry[key] !== undefined && entry[key] !== null && entry[key] !== '' && entry[key] !== false);
 

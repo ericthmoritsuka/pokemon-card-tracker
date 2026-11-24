@@ -1,0 +1,191 @@
+// The Shop: Eric's private staging page for selling his spares on HOTARU
+// (plans/hotaru-catalog-plan.md, section 5). Each card has one sale price,
+// typed by hand; only a priced card is published, and the suggestions
+// beside it never leave this screen. Worked out without the page, so node
+// can test it; js/shop-view.js draws it.
+//
+// A shop group is one card in one language that has spares, like a Spares
+// tile: {key, catalog, card_id, language, spares, copies, price}. spares are
+// the copies spareEntries picks; copies are every live copy of the card in
+// that language, keeper included. The sale price is saved on every copy, so
+// a change of keeper (a new favorite) never leaves a spare unpriced, and
+// only the spares are ever published.
+
+import {tileKey} from './bulk-edit.js';
+import {setIdOfCard} from './catalog.js';
+import {isLive} from './collection.js';
+import {extractPrices, fallbackPrice, finishOf, isAsianPrint, usdToBrl, eurToBrl} from './prices.js';
+import {spareEntries} from './wishlist.js';
+
+// A suggestion is rounded up to the next R$ 0,50 (Eric, 2026-11-24).
+export const SALE_STEP = 0.5;
+
+// The sale price on a copy: a positive amount to the cent, or null.
+export function salePrice(entry) {
+	const value = entry && entry.sale_price;
+
+	return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null;
+}
+
+// Up to the next step, never below one step: R$ 2,10 is R$ 2,50, R$ 2,50
+// stays, R$ 0,20 is R$ 0,50. Null for no amount.
+export function roundUpToStep(brl, step = SALE_STEP) {
+	if (typeof brl !== 'number' || !Number.isFinite(brl) || brl <= 0) {
+		return null;
+	}
+
+	// The small allowance keeps R$ 2,50 computed as 2.5000000001 at R$ 2,50.
+	return Math.max(step, Math.ceil(brl / step - 1e-9) * step);
+}
+
+// The groups that have spares, in no particular order. cards are the
+// person's copies, live or not.
+export function shopGroups(cards) {
+	const live = (cards || []).filter((entry) => entry && isLive(entry));
+	const groups = new Map();
+
+	for (const entry of spareEntries(live)) {
+		const key = tileKey(entry);
+
+		if (!groups.has(key)) {
+			groups.set(key, {
+				card_id: entry.card_id,
+				catalog: entry.catalog || 'international',
+				copies: [],
+				key,
+				language: entry.language,
+				price: null,
+				set_id: setIdOfCard(entry.card_id),
+				spares: [],
+			});
+		}
+
+		groups.get(key).spares.push(entry);
+	}
+
+	for (const entry of live) {
+		const group = groups.get(tileKey(entry));
+
+		if (group) {
+			group.copies.push(entry);
+		}
+	}
+
+	for (const group of groups.values()) {
+		group.price = groupPrice(group);
+	}
+
+	return [...groups.values()];
+}
+
+// The group's sale price: a spare's first, else any copy's, since the
+// price is saved on all of them and a copy added later has none yet.
+export function groupPrice(group) {
+	for (const entry of [...group.spares, ...group.copies]) {
+		const price = salePrice(entry);
+
+		if (price !== null) {
+			return price;
+		}
+	}
+
+	return null;
+}
+
+// [{id, patch}] giving every copy of the groups the price, or clearing it
+// with null. Copies that already hold it are left alone, so they are not
+// stamped as edited.
+export function pricePatches(groups, price) {
+	const value = price === null ? null : Math.round(price * 100) / 100;
+	const patches = [];
+
+	for (const group of groups) {
+		for (const entry of group.copies) {
+			if ((salePrice(entry) ?? null) !== value) {
+				patches.push({id: entry.id, patch: {sale_price: value}});
+			}
+		}
+	}
+
+	return patches;
+}
+
+// Undo's patches for pricePatches: each copy back to the price it has now.
+export function undoPricePatches(groups, patches) {
+	const byId = new Map(groups.flatMap((group) => group.copies).map((entry) => [entry.id, entry]));
+
+	return patches.map(({id}) => ({id, patch: {sale_price: salePrice(byId.get(id))}}));
+}
+
+// One market's price for a copy, from the card's full record: its own
+// finish's, else another finish's (prices.js fallbackPrice). market is
+// 'tcgplayer' (US$, market price) or 'cardmarket' (€, trend).
+function marketAmount(entry, record, market) {
+	const field = market === 'tcgplayer' ? 'marketPrice' : 'trend';
+	const finishes = extractPrices(record);
+	const own = finishOf(entry, finishes);
+	const prices = own && own[market] && own[market][field] !== null ? own[market] : (fallbackPrice(record, market, finishes) || {}).prices;
+	const value = prices ? prices[field] : null;
+
+	return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+// What the Shop suggests for a group, private to Eric's screen:
+// {tcgplayer, cardmarket, use}, each in reais or null. tcgplayer is
+// TCGplayer's market price and cardmarket Cardmarket's trend, converted
+// with the saved rates ({brlPerUsd}, {brlPerEur}); use is the higher of the
+// two rounded up to the next R$ 0,50, what the Use button types. A Japanese,
+// Korean, or Chinese print gets none: TCGdex's prices are not known to be
+// for it (DESIGN.md section 10, "The language gap"). record is the card's
+// full TCGdex record, or null when it is not on the phone yet.
+export function suggestion(group, record, {euroRates = null, rates = null} = {}) {
+	const none = {cardmarket: null, tcgplayer: null, use: null};
+	const entry = group && group.spares[0];
+
+	if (!entry || !record || isAsianPrint(entry)) {
+		return none;
+	}
+
+	const usd = marketAmount(entry, record, 'tcgplayer');
+	const eur = marketAmount(entry, record, 'cardmarket');
+	const tcgplayer = usd === null ? null : usdToBrl(usd, rates);
+	const cardmarket = eur === null ? null : eurToBrl(eur, euroRates);
+	const known = [tcgplayer, cardmarket].filter((value) => typeof value === 'number');
+
+	return {cardmarket, tcgplayer, use: known.length ? roundUpToStep(Math.max(...known)) : null};
+}
+
+// The Shop's own filters, beside its search: 'all', 'unpriced', or
+// 'priced'.
+export const PRICE_FILTERS = ['all', 'unpriced', 'priced'];
+
+export function priceFilter(groups, show) {
+	if (show === 'unpriced') {
+		return groups.filter((group) => group.price === null);
+	}
+
+	if (show === 'priced') {
+		return groups.filter((group) => group.price !== null);
+	}
+
+	return groups;
+}
+
+// {groups, priced, spares, value}: how many cards and spare copies the Shop
+// holds, how many cards are priced, and what the priced spares would bring.
+export function shopTotals(groups) {
+	let priced = 0;
+	let spares = 0;
+	let value = 0;
+
+	for (const group of groups) {
+		spares += group.spares.length;
+
+		if (group.price !== null) {
+			priced++;
+			value += group.price * group.spares.length;
+		}
+	}
+
+	return {groups: groups.length, priced, spares, value: Math.round(value * 100) / 100};
+}

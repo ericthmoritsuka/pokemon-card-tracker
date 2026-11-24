@@ -399,6 +399,9 @@ const ENTRY_FIELDS = [
 	// A hand-made card's printed number and set code (js/custom-card.js);
 	// its name and set name are name_local and set_name_local.
 	'number_local', 'set_code',
+	// The price the owner sells the card for on HOTARU, in reais, typed on
+	// the Shop screen (js/shop.js). null clears it.
+	'sale_price',
 ];
 
 function pick(fields) {

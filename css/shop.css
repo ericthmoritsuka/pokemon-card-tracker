@@ -1,0 +1,100 @@
+/* The Shop screen (js/shop-view.js): Eric's spares priced for HOTARU. */
+
+.shop-intro,
+.shop-summary {
+	margin: 0 0 var(--space-2);
+}
+
+.shop-controls {
+	display: grid;
+	gap: var(--space-2);
+	margin-bottom: var(--space-2);
+}
+
+.shop-search {
+	width: 100%;
+}
+
+.shop-selects {
+	display: grid;
+	gap: var(--space-2);
+	grid-template-columns: 1fr 1fr;
+}
+
+.shop-select {
+	min-width: 0;
+	width: 100%;
+}
+
+.shop-bulk,
+.shop-price {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+}
+
+.shop-bulk {
+	margin-bottom: var(--space-2);
+}
+
+.shop-price-input {
+	flex: 0 1 7.5rem;
+	min-width: 5.5rem;
+}
+
+.shop-list {
+	display: grid;
+	gap: var(--space-2);
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.shop-row {
+	align-items: start;
+	display: grid;
+	gap: var(--space-2);
+	grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.shop-art {
+	aspect-ratio: 63 / 88;
+	border-radius: 4px;
+	display: block;
+	object-fit: cover;
+	width: 64px;
+}
+
+.shop-art-none {
+	background: rgba(127, 127, 127, 0.15);
+}
+
+.shop-body {
+	display: grid;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+.shop-body p {
+	margin: 0;
+}
+
+.shop-name {
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.shop-state {
+	font-weight: 600;
+}
+
+.shop-unpriced .shop-state {
+	font-weight: 400;
+	opacity: 0.8;
+}
+
+.shop-suggestion {
+	font-size: 0.9em;
+	opacity: 0.85;
+}
