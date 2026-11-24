@@ -13,7 +13,7 @@
 --
 -- To check it worked: Table Editor lists store_orders and store_order_items;
 -- Database, Functions lists place_order, listing_status, attach_receipt,
--- mark_paid, mark_delivered, and cancel_order; Storage lists store-receipts,
+-- store_orders_open, mark_paid, mark_delivered, and cancel_order; Storage lists store-receipts,
 -- marked Private.
 --
 -- The rules (Eric, 2026-11-24):
@@ -379,6 +379,64 @@ create policy "store-receipts: owner deletes" on storage.objects
 
 -- ------------------------------------------------------- the owner's calls
 
+-- The orders the Shop screen shows its owner: every order waiting for
+-- payment and every paid one not handed over yet, oldest first, each with
+-- its cards. Expired orders let their cards go first. A JSON array of
+-- {id, code, name, phone, note, total, status, created_at, reserved_until,
+-- paid_at, receipt_path, receipt_at, items: [{listing_id, price_brl, name,
+-- set_name, number, language, condition, finish}]}.
+create or replace function public.store_orders_open()
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+	result jsonb;
+begin
+	if not private.is_store_owner() then
+		raise exception 'Only the shop owner can do this.' using errcode = '42501';
+	end if;
+
+	perform private.release_expired();
+
+	select coalesce(jsonb_agg(jsonb_build_object(
+		'code', o.code,
+		'created_at', o.created_at,
+		'id', o.id,
+		'items', (
+			select coalesce(jsonb_agg(jsonb_build_object(
+				'condition', l.condition,
+				'finish', l.finish,
+				'language', l.language,
+				'listing_id', i.listing_id,
+				'name', l.name,
+				'number', l.number,
+				'price_brl', i.price_brl,
+				'set_name', l.set_name
+			) order by l.set_name, l.number, l.name), '[]')
+			from public.store_order_items i
+			join public.store_listings l on l.id = i.listing_id
+			where i.order_id = o.id
+		),
+		'name', o.name,
+		'note', o.note,
+		'paid_at', o.paid_at,
+		'phone', o.phone,
+		'receipt_at', o.receipt_at,
+		'receipt_path', o.receipt_path,
+		'reserved_until', o.reserved_until,
+		'status', o.status,
+		'total', o.total
+	) order by o.created_at), '[]')
+	into result
+	from public.store_orders o
+	where o.status = 'pending' or (o.status = 'paid' and o.delivered_at is null);
+
+	return result;
+end;
+$$;
+
 -- Payment received: the order is paid and its cards sold, for good. Refused
 -- unless the order is still pending (an expired one has let its cards go).
 create or replace function public.mark_paid(order_code text)
@@ -473,6 +531,7 @@ revoke all on function public.listing_status(text[]) from public;
 revoke all on function public.place_order(text[], text, text, text) from public;
 revoke all on function public.receipt_upload_open(text) from public;
 revoke all on function public.attach_receipt(uuid, text) from public;
+revoke all on function public.store_orders_open() from public, anon;
 revoke all on function public.mark_paid(text) from public, anon;
 revoke all on function public.mark_delivered(text) from public, anon;
 revoke all on function public.cancel_order(text) from public, anon;
@@ -482,6 +541,7 @@ grant execute on function public.listing_status(text[]) to anon, authenticated;
 grant execute on function public.place_order(text[], text, text, text) to anon, authenticated;
 grant execute on function public.receipt_upload_open(text) to anon, authenticated;
 grant execute on function public.attach_receipt(uuid, text) to anon, authenticated;
+grant execute on function public.store_orders_open() to authenticated;
 grant execute on function public.mark_paid(text) to authenticated;
 grant execute on function public.mark_delivered(text) to authenticated;
 grant execute on function public.cancel_order(text) to authenticated;
