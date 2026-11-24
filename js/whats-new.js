@@ -23,6 +23,15 @@ export const RELEASES = [
 	{
 		date: '2026-11-24',
 		items: [
+			'A copy in a binder is never a spare: three copies with two in binders are one spare, the loose one.',
+			'In a binder made from a list, only the copy on top of a pocket is in use; the copies under it stay spares.',
+			'The Shop offers only loose spares to HOTARU, so a card in a binder is no longer listed for sale.',
+		],
+		version: 'v107',
+	},
+	{
+		date: '2026-11-24',
+		items: [
 			'A collection that fills itself lists your sets by name when you choose them, not by a code such as international|xy3.',
 			'Its description on the collection page names the sets the same way.',
 		],
