@@ -277,6 +277,37 @@ export const shopSetCode = (catalog, setId) => printedSetCode(catalog, setId)
 	|| (catalog === 'international' && Object.hasOwn(OLDER_CODES, setId) && OLDER_CODES[setId])
 	|| null;
 
+// The Shop's set filter marks a set the way its cards do (Eric, 2026-11-24:
+// he sorts his cards by what is printed on them). English cards print only a
+// pictorial set symbol up to Sword & Shield, and a code ("SVI EN") from
+// Scarlet & Violet on (Pokebeach, 2023). So a Scarlet & Violet or Mega
+// Evolution set shows its code, and an older Western set its symbol, from
+// the set list (setFacts). A gallery subset (swsh9tg, swsh12.5gg, the
+// swsh4.5sv Shiny Vault) has no symbol of its own on TCGdex; its cards carry
+// the main set's. With no symbol known, the code shows, as it does when the
+// symbol's image fails to load. Japanese, Korean, and Chinese sets get none.
+const CODE_SERIES = new Set(['me', 'sv']);
+const GALLERY = /^(swsh\d+(?:\.5)?)(?:gg|sv|tg)$/;
+
+// {id: {serie, symbol}} from a set list (setList data), for shopSetMark.
+export const setFacts = (series) => new Map((series || []).flatMap((serie) => (serie.sets || []).map((set) => [set.id, {serie: serie.id, symbol: set.symbol || null}])));
+
+// {code, symbol}: the code to show, and the symbol's image address, each or
+// null. facts is setFacts of the English set list, or an empty Map.
+export function shopSetMark(catalog, setId, facts = new Map()) {
+	if (catalog !== 'international' || !setId) {
+		return {code: null, symbol: null};
+	}
+
+	const gallery = GALLERY.exec(setId);
+	const own = facts.get(setId) || null;
+	const host = gallery ? facts.get(gallery[1]) || null : own;
+	const serie = (own && own.serie) || (host && host.serie) || null;
+	const symbol = host && host.symbol && !CODE_SERIES.has(serie) ? logoImage(host.symbol) : null;
+
+	return {code: shopSetCode(catalog, setId), symbol};
+}
+
 // A Western set's English logo, for a language TCGdex has no logo for
 // (2026-11-20: Fagulhas Impetuosas, Fogo Branco, Raio Preto, and EX O
 // Retorno da Equipe Rocket have none in Portuguese). TCGdex's English logos
@@ -306,6 +337,10 @@ async function loadSetList(lang) {
 			logo: set.logo || englishLogo(lang, serie.id, set.id),
 			name: set.name,
 			releaseRank: rank.has(set.id) ? rank.get(set.id) : null,
+			// The set symbol's base address (logoImage adds .webp), for the
+			// Shop's set filter. A list saved before this field gains it
+			// when it is next refreshed.
+			symbol: set.symbol || null,
 		})),
 	}));
 }

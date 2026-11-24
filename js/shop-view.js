@@ -27,7 +27,7 @@ import {currentUser} from './auth.js';
 import {entryInfo} from './binders-view.js';
 import {heldCopies} from './binders.js';
 import {loadedSpeciesNames} from './catalog-views.js';
-import {cardIndex, compareNumbers, indexKey, pricesDue, readPriceRecord, savedCardRecords, shopSetCode, viewingLanguage} from './catalog.js';
+import {cardIndex, compareNumbers, indexKey, pricesDue, readPriceRecord, savedCardRecords, setFacts, setList, shopSetMark, viewingLanguage} from './catalog.js';
 import {listCards, loadDocument, updateCards} from './collection.js';
 import {BASE, errorText, h} from './dom.js';
 import {formatCount, plural} from './format.js';
@@ -35,6 +35,7 @@ import {languageLabel} from './languages.js';
 import {applyMove, parsePrice, priceForInput, PRICE_FORM_TEXT} from './moves.js';
 import {euroRates, exchangeRates, extractPrices, finishOf, formatBrl, savedEuroRates, savedRates} from './prices.js';
 import {PRICE_FILTERS, groupMark, hasCards, listingRows, orderCheck, priceFilter, pricePatches, saleFields, shopGroups, shopTotals, storePicturePath, suggestion, timeLeft, undoPricePatches} from './shop.js';
+import {setPicker} from './set-picker.js';
 import {checkShopOwner, shopOwnerKnown} from './shop-owner.js';
 import {announceOrders, cancelOrder, markDelivered, markPaid, openOrders, orderErrorText, receiptLink} from './store-orders.js';
 import {publishErrorText, syncListings, uploadPicture} from './store-publish.js';
@@ -150,7 +151,14 @@ export function shopView(root) {
 
 	const summary = h('p', {class: 'muted shop-summary', id: 'shop-summary'}, 'Reading your spares…');
 	const search = h('input', {'aria-label': 'Search your spares', class: 'search shop-search', id: 'shop-search', placeholder: 'Search your spares', type: 'search'});
-	const setSelect = h('select', {'aria-label': 'Set', class: 'shop-select', id: 'shop-set'});
+	// The set filter shows symbols, so it is a listbox (js/set-picker.js);
+	// the facts behind them (setFacts) come from the English set list once.
+	const setSelect = setPicker({id: 'shop-set', label: 'Set', onChange: (value) => {
+		setFilter = value;
+		drawList();
+	}});
+	let facts = new Map();
+	let factsAsked = false;
 	const raritySelect = h('select', {'aria-label': 'Rarity', class: 'shop-select', id: 'shop-rarity'});
 	const filter = h('div', {'aria-label': 'Show', class: 'segmented', id: 'shop-filter', role: 'radiogroup'},
 		PRICE_FILTERS.map((value) => h('label', null,
@@ -202,10 +210,6 @@ export function shopView(root) {
 		query = search.value;
 		drawList();
 	});
-	setSelect.addEventListener('change', () => {
-		setFilter = setSelect.value;
-		drawList();
-	});
 	raritySelect.addEventListener('change', () => {
 		rarityFilter = raritySelect.value;
 		drawList();
@@ -218,7 +222,7 @@ export function shopView(root) {
 		summary,
 		publishLine,
 		ordersBox,
-		h('div', {class: 'shop-controls'}, search, filter, h('div', {class: 'shop-selects'}, setSelect, raritySelect)),
+		h('div', {class: 'shop-controls'}, search, filter, h('div', {class: 'shop-selects'}, setSelect.node, raritySelect)),
 		bulk,
 		bulkError,
 		list,
@@ -268,18 +272,20 @@ export function shopView(root) {
 		);
 	}
 
-	// A set's option leads with its printed code, "(CRI) Caos Ascendente"
-	// (Eric, 2026-11-24: he keeps his cards apart by set), and stays sorted
-	// by name. A set with no known code shows its name alone.
+	// A set's option shows what its cards print (Eric, 2026-11-24: he keeps
+	// his cards apart by set): an older Western set's symbol, a newer set's
+	// code, "(CRI) Caos Ascendente" (js/catalog.js shopSetMark), and stays
+	// sorted by name. A set with neither shows its name alone.
 	function drawSelects() {
+		askFacts();
+
 		const sets = new Map();
 
 		for (const group of groups) {
 			if (group.set_id && !sets.has(group.set_id)) {
 				const name = group.info.setName || group.set_id;
-				const code = shopSetCode(group.catalog, group.set_id);
 
-				sets.set(group.set_id, {label: code ? `(${code}) ${name}` : name, name});
+				sets.set(group.set_id, {...shopSetMark(group.catalog, group.set_id, facts), text: name, value: group.set_id});
 			}
 		}
 
@@ -293,8 +299,29 @@ export function shopView(root) {
 			rarityFilter = '';
 		}
 
-		fillSelect(setSelect, 'Every set', [...sets].sort((a, b) => a[1].name.localeCompare(b[1].name)).map(([id, set]) => [id, set.label]), setFilter);
+		setSelect.setOptions([{code: null, symbol: null, text: 'Every set', value: ''}, ...[...sets.values()].sort((a, b) => a.text.localeCompare(b.text))], setFilter);
 		fillSelect(raritySelect, 'Every rarity', rarities.map((rarity) => [rarity, rarity]), rarityFilter);
+	}
+
+	// The English set list, saved or fetched, for the symbols: the only
+	// one that has every older set. Without it the codes show.
+	function askFacts() {
+		if (factsAsked || !groups.some((group) => group.catalog === 'international')) {
+			return;
+		}
+
+		factsAsked = true;
+
+		const take = (data) => {
+			if (alive) {
+				facts = setFacts(data);
+				drawSelects();
+			}
+		};
+
+		setList('en', take).then(({data}) => take(data)).catch(() => {
+			// The codes stand in.
+		});
 	}
 
 	function drawSummary() {
