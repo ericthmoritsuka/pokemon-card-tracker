@@ -89,7 +89,7 @@ describe('which copy goes out', () => {
 		assert.deepEqual(result.copies, []);
 		assert.deepEqual(result.suggested, []);
 		assert.deepEqual(ids(result.candidates).sort(), ['k1', 'k2']);
-		assert.equal(T.outLine(result), 'A favorite, so no copy goes unless you pick it.');
+		assert.equal(T.outLine(result), 'A favorite: pick a copy only if it really goes, and Save asks before it is logged.');
 
 		// A hand pick settles it.
 		const session = tray([{}]);

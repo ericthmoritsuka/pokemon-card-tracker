@@ -297,19 +297,28 @@ const NONE_HELD = new Set();
 
 // A favorite card is never a spare (Eric, 2026-11-24: "a card I don't trade
 // or sell for anything"): when any live copy carries the star, every copy
-// of that card, in every language, is kept, however many there are and
-// wherever they sit, and a copy added later is kept too. The star is the
-// card page's (js/catalog-views.js favoriteControl), which marks the card
-// as a favorite when any copy is, in any language, so the rule reads it
-// the same way. Before held: a favorite in a binder and a loose duplicate
+// of that card, in every language and every finish, is kept, however many
+// there are and wherever they sit, and a copy added later is kept too. The
+// star is the card page's (js/catalog-views.js favoriteControl), which marks
+// the card as a favorite when any copy is, in any language, so the rule
+// reads it the same way. An Asian print is its own card record, so it has
+// its own star. Before held: a favorite in a binder and a loose duplicate
 // leave no spare.
-const cardKey = (entry) => `${entryCatalog(entry)}|${entry.card_id}`;
+export const favoriteKey = (entry) => `${entryCatalog(entry)}|${entry.card_id}`;
 
 export function favoriteCards(cards) {
 	return new Set((cards || [])
 		.filter((entry) => entry && isLive(entry) && entry.is_favorite === true)
-		.map(cardKey));
+		.map(favoriteKey));
 }
+
+// The one way past the star (Eric, 2026-11-24): a copy explicitly marked
+// For sale is offered even on a favorite card, as the spare rule's forSale
+// option. To sell a favorite he takes the star off, or marks one copy (one
+// language, one finish) For sale. The mark is not built yet, so no copy
+// carries it; when it is, this reads the copy's mark, and the copies of a
+// favorite card that carry it are spares, whatever held says.
+export const markedForSale = () => false;
 
 // How many spares of an item the cards hold. A spare is every copy beyond
 // the first of the same card in the same language, whatever its variant
@@ -320,7 +329,7 @@ export function favoriteCards(cards) {
 // and the copy kept is a different one where there is one (one normal and
 // one reverse holo in PT: the reverse holo can go). The count is
 // spareCopiesFor's, below.
-export const sparesFor = (item, cards, {held = NONE_HELD} = {}) => spareCopiesFor(item, cards, {held}).length;
+export const sparesFor = (item, cards, {forSale = markedForSale, held = NONE_HELD} = {}) => spareCopiesFor(item, cards, {forSale, held}).length;
 
 // Which copy a person keeps: a favorite first, then the one added first.
 const keeperOrder = (a, b) => Number(b.is_favorite === true) - Number(a.is_favorite === true)
@@ -330,15 +339,25 @@ const keeperOrder = (a, b) => Number(b.is_favorite === true) - Number(a.is_favor
 // The live copies that are spares (the Trade view, js/trade-view.js, the
 // Shop, js/shop.js, and the copies a trade takes first: the trades log's
 // cards out picker and the scanner's Trade or sale mode). A favorite card
-// has none (favoriteCards, above). In each other card and language, the
+// has none but the copies marked For sale (favoriteCards and markedForSale,
+// above). In each other card and language, the
 // copies in a binder (held) are kept, and when none is, the keeper is (the
 // one added first); every other copy is a spare, the same count sparesFor
 // gives.
-export function spareEntries(cards, {held = NONE_HELD} = {}) {
+export function spareEntries(cards, {forSale = markedForSale, held = NONE_HELD} = {}) {
 	const favorites = favoriteCards(cards);
 	const groups = new Map();
+	const marked = [];
 
-	for (const entry of (cards || []).filter((one) => one && isLive(one) && !favorites.has(cardKey(one)))) {
+	for (const entry of (cards || []).filter((one) => one && isLive(one))) {
+		if (favorites.has(favoriteKey(entry))) {
+			if (forSale(entry)) {
+				marked.push(entry);
+			}
+
+			continue;
+		}
+
 		const key = `${entryCatalog(entry)}|${entry.card_id}|${entry.language}`;
 
 		groups.set(key, [...(groups.get(key) || []), entry]);
@@ -352,21 +371,22 @@ export function spareEntries(cards, {held = NONE_HELD} = {}) {
 		spares.push(...(loose.length < group.length ? loose : loose.slice(1)));
 	}
 
-	return spares;
+	return [...spares, ...marked];
 }
 
 // The spare copies that fit an item: as many as sparesFor counts, and the
-// ones a trade would give. A favorite card offers none (favoriteCards,
-// above), whatever language the item names. In each language the item
+// ones a trade would give. A favorite card offers only its copies marked
+// For sale that fit (favoriteCards and markedForSale, above), whatever
+// language the item names. In each language the item
 // accepts, the copies in
 // a binder (held) are kept; when none is, one copy is kept, a copy the item
 // does not take where there is one (a normal kept, a wished reverse holo
 // offered), else the keeper My Cards keeps (a favorite, then the one added
 // first); the copies offered are the rest that fit, best kept last, so the
 // first offered is the one to give.
-export function spareCopiesFor(item, cards, {held = NONE_HELD} = {}) {
-	if (favoriteCards(cards).has(cardKey(item))) {
-		return [];
+export function spareCopiesFor(item, cards, {forSale = markedForSale, held = NONE_HELD} = {}) {
+	if (favoriteCards(cards).has(favoriteKey(item))) {
+		return (cards || []).filter((entry) => forSale(entry) && copyFits(item, entry));
 	}
 
 	const byLanguage = new Map();
@@ -403,9 +423,9 @@ export function spareCopiesFor(item, cards, {held = NONE_HELD} = {}) {
 // copies that fit it: [{item, copies}]. Called both ways round: your spares
 // against their wishlist, and their spares against yours. held: the copies
 // in the cards' owner's binders, as for spareCopiesFor.
-export function tradeIdeas(wishlist, cards, {held = NONE_HELD} = {}) {
+export function tradeIdeas(wishlist, cards, {forSale = markedForSale, held = NONE_HELD} = {}) {
 	return sortWishes((wishlist || []).filter(isWanted))
-		.map((item) => ({copies: spareCopiesFor(item, cards, {held}), item}))
+		.map((item) => ({copies: spareCopiesFor(item, cards, {forSale, held}), item}))
 		.filter((idea) => idea.copies.length);
 }
 
