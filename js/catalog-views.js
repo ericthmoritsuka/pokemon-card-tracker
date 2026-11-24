@@ -2023,7 +2023,7 @@ export function cardView(root, {lang, cardId}) {
 		copies.append(movesSlot);
 
 		// Under a member's copies, how many they could spare.
-		const spare = spareLine(live);
+		const spare = spareLine(live, placed);
 
 		if (spare) {
 			copies.append(spare);
@@ -2052,9 +2052,10 @@ export function cardView(root, {lang, cardId}) {
 	}
 
 	// On a member's card, the copies beyond one of each language they could
-	// trade (js/wishlist.js sparesFor), else null.
-	function spareLine(live) {
-		const spares = readOnly ? sparesFor({card_id: cardId, catalog: catalogFor(lang)}, live) : 0;
+	// trade (js/wishlist.js sparesFor), else null. placed: where their copies
+	// are in their binders, since a copy in a binder is not a spare.
+	function spareLine(live, placed) {
+		const spares = readOnly ? sparesFor({card_id: cardId, catalog: catalogFor(lang)}, live, {held: placed}) : 0;
 
 		return spares ? h('p', {class: 'muted copies-spares', id: 'copies-spares'}, `${memberLabel(member)} has ${spares} ${spares === 1 ? 'spare' : 'spares'}`) : null;
 	}

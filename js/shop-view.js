@@ -25,6 +25,7 @@
 
 import {currentUser} from './auth.js';
 import {entryInfo} from './binders-view.js';
+import {listBinders, placements} from './binders.js';
 import {loadedSpeciesNames} from './catalog-views.js';
 import {cardIndex, compareNumbers, indexKey, pricesDue, readPriceRecord, savedCardRecords, viewingLanguage} from './catalog.js';
 import {listCards, loadDocument, updateCards} from './collection.js';
@@ -1001,13 +1002,13 @@ export function shopView(root) {
 	document.addEventListener('visibilitychange', ordersOnReturn);
 
 	async function reload() {
-		const cards = await listCards();
+		const [cards, binders] = await Promise.all([listCards(), listBinders()]);
 
 		if (!alive) {
 			return;
 		}
 
-		groups = shopGroups(cards);
+		groups = shopGroups(cards, {held: placements(binders)});
 		groups.forEach(describe);
 		// Opened from its address, the Shop can draw before the species
 		// names are read; the searches take the English names when they are.

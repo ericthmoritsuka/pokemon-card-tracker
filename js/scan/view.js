@@ -1010,7 +1010,7 @@ export function scanView(root) {
 			where = new Map();
 		}
 
-		spareIds = new Set(spareEntries(ownCards).map((entry) => entry.id));
+		spareIds = new Set(spareEntries(ownCards, {held: T.inPockets(where)}).map((entry) => entry.id));
 
 		try {
 			placeholders = await waitingPlaceholderList();

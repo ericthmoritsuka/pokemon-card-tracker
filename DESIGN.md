@@ -148,6 +148,10 @@ Trade is a query, not a stored collection, so it stays correct after a card is t
 without anyone remembering to update it. A spare is every copy beyond the first of the same card
 in the same language: a PT and an EN copy are both keepers, while a second PT copy is a spare
 whatever its variant. *(Decided by Eric, 2026-10-01.)* In Eric's export that is 276 spares across 165 cards.
+A copy in a hand-made binder's pocket is never a spare, and it is the copy kept: three Salamences,
+one in the 30 anos binder, one in Hoenn, and one loose, are one spare, and the Shop offers only the
+loose one to HOTARU. *(Eric, 2026-11-24.)* A binder made from a list only shows copies, so it holds
+none, and neither does a binder's tray.
 
 **Every scan is a session; there is no single or batch mode.**
 One scan opens the confirm sheet with the duplicate prompt. "Scan next" drops that card into the
@@ -3842,7 +3846,9 @@ trade"). Trade stays a query (section 3), never a stored list.
 - A spare is every copy beyond the first of the same card in the same language, whatever its
   finish, counted with the same function a family wishlist uses (`sparesFor`, `js/wishlist.js`).
   The copy kept is a favorite if one is marked, otherwise the one added first; the rest are the
-  spares. The default of one kept copy per card and language is not a setting.
+  spares. A copy in a hand-made binder's pocket is never a spare and is kept in place of that one
+  (section 3), so a loose copy beside it is a spare. The default of one kept copy per card and
+  language is not a setting.
 - One tile per card and language. The `×N` badge counts spares; the line under the name reads
   "2 spares" with the spares' conditions, the finish badge keeps its corner, and the price is
   the tile's usual one.

@@ -9,11 +9,12 @@
 // js/shell.js draws the view-only strip and the "Mine" switcher.
 
 import {currentUser} from './auth.js';
+import {listBinders, placements} from './binders.js';
 import {offerCardList} from './card-swipe.js';
 import {cardImage, viewingLanguage} from './catalog.js';
 import {listCards, onChange} from './collection.js';
 import {BASE, errorText, go, h, listsSwitch} from './dom.js';
-import {memberCards} from './family.js';
+import {memberDocumentKept} from './family.js';
 import {setPendingMove} from './moves.js';
 import {formatCount, plural} from './format.js';
 import {CATALOG_LANGUAGES, catalogFor, languageChip, languageLabel} from './languages.js';
@@ -729,9 +730,11 @@ export function familyWishlistView(root, {userId}) {
 
 		let result;
 		let cards;
+		// Your copies in your binders, which are not spares.
+		let held;
 
 		try {
-			[result, cards] = await Promise.all([memberWishlist(userId), listCards()]);
+			[result, cards, held] = await Promise.all([memberWishlist(userId), listCards(), listBinders().then(placements)]);
 		}
 		catch (err) {
 			body.replaceChildren(h('div', {class: 'notice', role: 'alert'}, h('p', null, `This wishlist could not be read. ${errorText(err)}`)));
@@ -769,7 +772,7 @@ export function familyWishlistView(root, {userId}) {
 			return;
 		}
 
-		const withSpares = items.filter((item) => sparesFor(item, cards) > 0).length;
+		const withSpares = items.filter((item) => sparesFor(item, cards, {held}) > 0).length;
 
 		summary.textContent = `${plural(items.length, 'card', 'cards')} wanted.${withSpares ? ` You have spares of ${formatCount(withSpares)}.` : ''}`;
 		list.replaceChildren(...items.map((item) => {
@@ -777,7 +780,7 @@ export function familyWishlistView(root, {userId}) {
 
 			load(item, viewing).then((found) => {
 				if (alive) {
-					row.replaceWith(itemRow(item, found, {records, spares: sparesFor(item, cards), viewing}));
+					row.replaceWith(itemRow(item, found, {records, spares: sparesFor(item, cards, {held}), viewing}));
 				}
 			});
 
@@ -904,9 +907,10 @@ export function tradeIdeasView(root, {userId}) {
 		let result;
 		let mine;
 		let wishes;
+		let myHeld;
 
 		try {
-			[result, mine, wishes] = await Promise.all([memberWishlist(userId), listCards(), listWishlist()]);
+			[result, mine, wishes, myHeld] = await Promise.all([memberWishlist(userId), listCards(), listWishlist(), listBinders().then(placements)]);
 		}
 		catch (err) {
 			body.replaceChildren(h('div', {class: 'notice', role: 'alert'}, h('p', null, `The trade ideas could not be worked out. ${errorText(err)}`)));
@@ -935,13 +939,15 @@ export function tradeIdeasView(root, {userId}) {
 		note.hidden = !(fromCache && at);
 		note.textContent = fromCache && at ? `${name}'s wishlist as saved on this phone ${savedAt(at)}. Connect to see changes since.` : '';
 
-		const giving = tradeIdeas(member.wishlist, mine);
+		const giving = tradeIdeas(member.wishlist, mine, {held: myHeld});
 		let getting = [];
 		let theirs = null;
 
 		try {
-			theirs = await memberCards(userId);
-			getting = tradeIdeas(wishes, theirs);
+			const theirDoc = await memberDocumentKept(userId);
+
+			theirs = (Array.isArray(theirDoc.cards) ? theirDoc.cards : []).filter((entry) => entry && !entry.deleted_at);
+			getting = tradeIdeas(wishes, theirs, {held: placements(theirDoc.binders || [])});
 		}
 		catch (err) {
 			getNote.hidden = false;

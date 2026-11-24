@@ -39,12 +39,13 @@ export function roundUpToStep(brl, step = SALE_STEP) {
 }
 
 // The groups that have spares, in no particular order. cards are the
-// person's copies, live or not.
-export function shopGroups(cards) {
+// person's copies, live or not; held, the copies in their binders
+// (js/wishlist.js spareEntries), which are never for sale.
+export function shopGroups(cards, {held} = {}) {
 	const live = (cards || []).filter((entry) => entry && isLive(entry));
 	const groups = new Map();
 
-	for (const entry of spareEntries(live)) {
+	for (const entry of spareEntries(live, {held})) {
 		const key = tileKey(entry);
 
 		if (!groups.has(key)) {

@@ -14,8 +14,9 @@
 //   family/<id>/trade      a family member's spares, read only
 
 import {currentUser} from './auth.js';
+import {placements} from './binders.js';
 import {cardsScreen} from './cards-view.js';
-import {listCards, onChange} from './collection.js';
+import {loadDocument, onChange} from './collection.js';
 import {BASE, h} from './dom.js';
 import {whenMemberName} from './family.js';
 import {memberDocument} from './sync.js';
@@ -40,23 +41,26 @@ function metaFor(group) {
 const emptyNode = (mine) => () => h('div', {class: 'card empty-state', id: 'trade-empty'},
 	h('div', {'aria-hidden': 'true', class: 'empty-art'}),
 	h('p', {class: 'big'}, mine ? 'No spares yet' : 'No spares'),
-	h('p', {class: 'muted'}, 'A spare is a copy beyond the first of the same card in the same language. A Portuguese and an English copy of a card are both kept; a second Portuguese copy is a spare, whatever its finish.'),
+	h('p', {class: 'muted'}, 'A spare is a copy beyond the first of the same card in the same language. A Portuguese and an English copy of a card are both kept; a second Portuguese copy is a spare, whatever its finish. A copy in a binder is never a spare.'),
 	h('p', {class: 'muted'}, mine ? 'Cards you own twice show up here, ready to trade.' : 'Cards they own twice show up here.'),
 	h('a', {class: 'button', 'data-link': 'cards', href: `${BASE}cards`}, 'Back to My Cards')
 );
+
+// A document's spares: its copies less the ones in its binders.
+const docSpares = (doc) => spareEntries((doc && doc.cards) || [], {held: placements((doc && doc.binders) || [])});
 
 export function tradeView(root) {
 	return cardsScreen(root, {
 		emptyNode: emptyNode(true),
 		emptyText: () => 'No spares yet.',
 		label: 'your spares',
-		load: async () => spareEntries(await listCards()),
+		load: async () => docSpares(await loadDocument()),
 		metaFor,
 		offered: OFFERED,
 		placeholder: 'Search my spares',
 		storageKey: CHOICE_KEY,
 		title: 'Spares',
-		watch: (reload) => onChange((doc, info) => reload(doc && Array.isArray(doc.cards) ? {...doc, cards: spareEntries(doc.cards)} : doc, info)),
+		watch: (reload) => onChange((doc, info) => reload(doc && Array.isArray(doc.cards) ? {...doc, cards: docSpares(doc)} : doc, info)),
 	});
 }
 
@@ -95,7 +99,7 @@ export function familyTradeView(root, {userId}) {
 
 			records = (doc && doc.card_info) || [];
 
-			return spareEntries((doc && doc.cards) || []);
+			return docSpares(doc);
 		},
 		loadRecords: () => records,
 		metaFor,
