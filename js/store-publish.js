@@ -62,3 +62,41 @@ export async function uploadPicture(base, path, {read = relayRead} = {}) {
 
 	return !error;
 }
+
+// Takes a favorite card off HOTARU the moment it is starred (Eric,
+// 2026-11-24): store_withdraw (supabase/store-withdraw.sql) withdraws the
+// available listings among ids, the copies' IDs, and leaves a reserved or
+// sold one alone. Resolves to the IDs withdrawn; throws supabase-js's error.
+export async function withdrawListings(ids) {
+	if (!ids || !ids.length) {
+		return [];
+	}
+
+	const client = await getClient();
+	const {data, error} = await client.rpc('store_withdraw', {ids: [...ids].slice(0, 2000)});
+
+	if (error) {
+		throw error;
+	}
+
+	return data || [];
+}
+
+// What the card page says when the withdrawal did not happen. Before
+// store-withdraw.sql is run (PostgREST's PGRST202, or Postgres' 42883),
+// and offline, the Shop's next publish still withdraws the card, since it
+// is no longer a spare (js/wishlist.js favoriteCards).
+export function withdrawNoticeText(error) {
+	const code = error && error.code;
+	const message = String((error && error.message) || '');
+
+	if (code === 'PGRST202' || code === '42883' || /store_withdraw/.test(message)) {
+		return 'Starred. It leaves HOTARU the next time you open the Shop online.';
+	}
+
+	if (code === '42501' || /shop owner/i.test(message)) {
+		return 'Starred. Only the shop owner can take it off HOTARU.';
+	}
+
+	return `Starred, but it could not be taken off HOTARU yet. It leaves the next time you open the Shop online. ${message}`.trim();
+}

@@ -226,6 +226,57 @@ describe('Shop publishing', () => {
 		await context.close();
 	});
 
+	test('starring a card takes its listings off HOTARU at once, and says so before store-withdraw.sql is run (Eric, 2026-11-24)', async () => {
+		const {context, errors, page, store} = await ownerPhone();
+		const asked = [];
+		let missing = false;
+
+		// store_withdraw as supabase/store-withdraw.sql answers it: the
+		// available singles among ids are withdrawn and named.
+		await page.route('**/rest/v1/rpc/store_withdraw', async (route) => {
+			const {ids} = route.request().postDataJSON();
+
+			asked.push([...ids].sort());
+
+			if (missing) {
+				return route.fulfill({body: JSON.stringify({code: 'PGRST202', details: null, hint: null, message: 'Could not find the function public.store_withdraw(ids) in the schema cache'}), contentType: 'application/json', status: 404});
+			}
+
+			const gone = ids.filter((id) => store.listings.has(id) && store.listings.get(id).status === 'available').sort();
+
+			for (const id of gone) {
+				store.listings.get(id).status = 'withdrawn';
+			}
+
+			return route.fulfill({body: JSON.stringify(gone), contentType: 'application/json', status: 200});
+		});
+
+		await openShop(page);
+		await page.fill(`${CHARMANDER_EN} .shop-price-input`, '2,30');
+		await page.click('#shop-save-all');
+		await waitLine(page, /^On HOTARU: 1 card, 2 spares\.$/);
+
+		// The star: the priced copies are asked for, the two listed ones go.
+		await page.goto(`${server.origin}${BASE}cards/en/tsa1-004`);
+		await page.locator('#favorite-toggle[aria-pressed="false"]').waitFor(TIMEOUT);
+		await page.click('#favorite-toggle');
+		await page.waitForFunction(() => [...document.querySelectorAll('.toast-text')].some((node) => /taken off HOTARU/.test(node.textContent)), null, TIMEOUT);
+		assert.equal(plain(await page.locator('.toast-text', {hasText: 'HOTARU'}).last().textContent()), 'Starred and taken off HOTARU (2 copies).');
+		assert.deepEqual(asked, [['c-02', 'c-03', 'c-04']], 'the Charmander EN copies, which carry the sale price; PT has none');
+		assert.deepEqual([...store.listings.values()].map((row) => row.status), ['withdrawn', 'withdrawn']);
+
+		// Before the SQL is run: the Shop's next publish is the safety net.
+		missing = true;
+		await page.click('#favorite-toggle');
+		await page.locator('#favorite-toggle[aria-pressed="false"]').waitFor(TIMEOUT);
+		await page.click('#favorite-toggle');
+		await page.waitForFunction(() => [...document.querySelectorAll('.toast-text')].some((node) => /next time you open the Shop/.test(node.textContent)), null, TIMEOUT);
+		assert.equal(plain(await page.locator('.toast-text', {hasText: 'next time'}).last().textContent()), 'Starred. It leaves HOTARU the next time you open the Shop online.');
+		assert.equal(asked.length, 2, 'taking the star off asks nothing');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('a signed-in member who is not the shop owner is told so', async () => {
 		const {context, errors, page, store} = await ownerPhone({owner: false});
 

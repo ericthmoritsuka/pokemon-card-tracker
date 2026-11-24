@@ -154,11 +154,26 @@ loose one to HOTARU. *(Eric, 2026-11-24.)* In a binder made from a list, a pocke
 of its Pokémon, but only the copy on top (the hand pick, else the stored default) is in use there; the
 copies under it stay spares as usual. A binder's tray holds none (`heldCopies`, `js/binders.js`).
 A favorite card is never a spare: Eric's favorites are cards he does not trade or sell for anything,
-so when any live copy carries the star, every copy of the card, in every language, is kept, however
-many there are and wherever they sit, and a copy added later is kept too. It leaves Spares, Trade
-ideas, and the Shop (so the next Publish withdraws it from HOTARU), and the scanner's Trade or sale
-mode never sends one out by itself: it asks, suggesting no copy. *(Eric, 2026-11-24;
-`favoriteCards`, `js/wishlist.js`.)*
+so when any live copy carries the star, every copy of the card, in every language and every finish,
+is kept, however many there are and wherever they sit, and a copy added later is kept too. It leaves
+Spares, Trade ideas, and the Shop. *(Eric, 2026-11-24; `favoriteCards`, `js/wishlist.js`.)*
+
+- *An Asian print is its own card, with its own star.* Starring one print offers the other in one
+  tap, "Also star the Japanese print" (or "the international print"), when this phone knows a
+  confident or confirmed international twin (section 5) that he owns copies of. The tap writes the
+  star onto those copies, so the rule stays the same on every phone and in family views.
+- *Off HOTARU at once.* Starring a card the shop owner has priced withdraws its available listings
+  (`store_withdraw`, `supabase/store-withdraw.sql`), so no order can arrive for a favorite; a
+  reserved or sold copy is left alone. Until that file is run, or offline, the card page says the
+  card leaves HOTARU the next time the Shop opens online, whose publish withdraws it anyway.
+- *Going out needs his yes.* The scanner's Trade or sale mode never chooses a copy of a favorite
+  by itself: it asks, suggesting none. Picking a copy is not consent: Save in the trades log names
+  each favorite going out, and nothing is logged unless he taps "Sell it anyway" (or Trade, Give);
+  Keep it, Escape, or Back logs nothing.
+- *For sale beats the star* (planned, v110): a copy explicitly marked For sale, in one language
+  and one finish, is offered even on a favorite card; to sell a favorite he takes the star off or
+  marks one copy. The spare rule takes a `forSale` predicate for it (`markedForSale`), which marks
+  no copy until the mark exists.
 
 **Every scan is a session; there is no single or batch mode.**
 One scan opens the confirm sheet with the duplicate prompt. "Scan next" drops that card into the
