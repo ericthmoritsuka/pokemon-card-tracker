@@ -17,6 +17,14 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-24
 
+- **v102:** save every Shop price at once. `25c700e`, `4a625ea`, `2383479`
+  - Typing a price saves nothing by itself: changed cards are marked, and the bar above the tabs saves them all at
+    once, with one Undo, or discards them. Enter moves to the next card; typed prices survive leaving the Shop. A
+    typing slip stops the whole save and says where. Price all shown became Fill all shown, which fills the fields.
+  - Toasts no longer pile up: a key replaces a screen's earlier toast, and at most three show (`js/shell.js`).
+  - Suite before release: 155 files, 2,243 pass; placeholder-fill and value-history-browser failed once each and
+    passed alone (10/10 and 3/3).
+
 - **v101:** price spares for HOTARU on the Shop screen. `96251f3`, `1af63a3`, `fec392f`
   - Shop (route `shop`, from Spares): each card with spares gets one sale price typed by hand, with private TCGplayer
     and Cardmarket suggestions in reais and Use, which rounds the higher up to the next R$ 0,50. All, Not priced, and
