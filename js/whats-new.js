@@ -21,6 +21,15 @@ import {toast} from './shell.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-24',
+		items: [
+			'Shop, from Spares: give each spare card the price you sell it for on HOTARU. The TCGplayer and Cardmarket suggestions beside it are for you only.',
+			'Price all shown gives one price to every card your search and filters show, such as every common in a set, with Undo.',
+			'A priced card goes on the HOTARU catalog with its picture, and clearing the price takes it off. Each card says when it is on HOTARU or reserved.',
+		],
+		version: 'v101',
+	},
+	{
 		date: '2026-11-23',
 		items: [
 			'Trade ideas with each family member: your spares on their wishlist, and their spares on yours, on one screen.',
