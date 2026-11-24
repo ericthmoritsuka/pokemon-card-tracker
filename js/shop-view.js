@@ -26,13 +26,14 @@
 import {currentUser} from './auth.js';
 import {entryInfo} from './binders-view.js';
 import {cardIndex, compareNumbers, indexKey, pricesDue, readPriceRecord, savedCardRecords, viewingLanguage} from './catalog.js';
-import {listCards, updateCards} from './collection.js';
+import {listCards, loadDocument, updateCards} from './collection.js';
 import {BASE, backWords, errorText, h} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {languageLabel} from './languages.js';
-import {parsePrice, priceForInput, PRICE_FORM_TEXT} from './moves.js';
+import {applyMove, parsePrice, priceForInput, PRICE_FORM_TEXT} from './moves.js';
 import {euroRates, exchangeRates, extractPrices, finishOf, formatBrl, savedEuroRates, savedRates} from './prices.js';
-import {PRICE_FILTERS, groupMark, listingRows, priceFilter, pricePatches, shopGroups, shopTotals, storePicturePath, suggestion, undoPricePatches} from './shop.js';
+import {PRICE_FILTERS, groupMark, listingRows, orderCheck, priceFilter, pricePatches, saleFields, shopGroups, shopTotals, storePicturePath, suggestion, timeLeft, undoPricePatches} from './shop.js';
+import {cancelOrder, markDelivered, markPaid, openOrders, orderErrorText, receiptLink} from './store-orders.js';
 import {publishErrorText, syncListings, uploadPicture} from './store-publish.js';
 import {onSyncStatus, syncStatus} from './sync.js';
 
@@ -122,6 +123,15 @@ export function shopView(root) {
 	const drafts = new Map(Object.entries(readDrafts()).filter(([, text]) => typeof text === 'string'));
 	let saving = false;
 	const publishLine = h('p', {'aria-live': 'polite', class: 'muted shop-publish', id: 'shop-publish'});
+	// HOTARU's orders (step 5): those waiting for payment and the paid ones
+	// still to hand over, with the document they are checked against, the
+	// question an order is asking (paid or cancel), and the orders whose
+	// call is running.
+	let orders = [];
+	let orderDoc = null;
+	const asking = new Map();
+	const working = new Set();
+	const ordersBox = h('section', {'aria-labelledby': 'shop-orders-title', class: 'shop-orders', hidden: true, id: 'shop-orders'});
 
 	const summary = h('p', {class: 'muted shop-summary', id: 'shop-summary'}, 'Reading your spares…');
 	const search = h('input', {'aria-label': 'Search your spares', class: 'search shop-search', id: 'shop-search', placeholder: 'Search your spares', type: 'search'});
@@ -179,6 +189,7 @@ export function shopView(root) {
 		h('p', {class: 'muted shop-intro'}, 'Price your spares for HOTARU. Only cards with a price will be offered, and the suggestions stay on this screen.'),
 		summary,
 		publishLine,
+		ordersBox,
 		h('div', {class: 'shop-controls'}, search, filter, h('div', {class: 'shop-selects'}, setSelect, raritySelect)),
 		bulk,
 		bulkError,
@@ -690,6 +701,243 @@ export function shopView(root) {
 		}
 	}
 
+	// ------------------------------------------------------------ orders
+
+	async function loadOrders() {
+		if (!currentUser() || !navigator.onLine) {
+			ordersBox.hidden = true;
+
+			return;
+		}
+
+		try {
+			const [found, doc] = await Promise.all([openOrders(), loadDocument()]);
+
+			if (!alive) {
+				return;
+			}
+
+			orders = found;
+			orderDoc = doc;
+			drawOrders();
+		}
+		catch (err) {
+			if (!alive) {
+				return;
+			}
+
+			// A family member who is not the shop's owner sees no orders.
+			if (err && err.code === '42501') {
+				ordersBox.hidden = true;
+
+				return;
+			}
+
+			ordersBox.hidden = false;
+			ordersBox.replaceChildren(h('h3', {id: 'shop-orders-title'}, 'Orders'), h('p', {class: 'muted', role: 'status'}, orderErrorText(err)));
+		}
+	}
+
+	const itemLine = (item) => [item.name, item.number ? `#${item.number}` : null, item.set_name, item.language ? languageLabel(item.language) : null, item.condition].filter(Boolean).join(' · ');
+
+	function orderCard(order) {
+		const {logged, missing} = orderCheck(order, orderDoc);
+		const pending = order.status === 'pending';
+		const busy = working.has(order.code);
+		const question = asking.get(order.code);
+		const ask = (value) => {
+			if (value) {
+				asking.set(order.code, value);
+			}
+			else {
+				asking.delete(order.code);
+			}
+
+			drawOrders();
+		};
+		let actions;
+
+		if (question === 'paid') {
+			actions = [
+				h('p', {class: 'shop-order-ask'}, `${formatBrl(order.total)} from ${order.name} is in your account?`),
+				h('button', {class: 'primary', disabled: busy, onclick: () => paid(order), type: 'button'}, 'Yes, received'),
+				h('button', {disabled: busy, onclick: () => ask(null), type: 'button'}, 'Back'),
+			];
+		}
+		else if (question === 'cancel') {
+			actions = [
+				h('p', {class: 'shop-order-ask'}, `Cancel ${order.code}? Its cards go back on HOTARU.`),
+				h('button', {disabled: busy, onclick: () => cancel(order), type: 'button'}, 'Cancel order'),
+				h('button', {disabled: busy, onclick: () => ask(null), type: 'button'}, 'Back'),
+			];
+		}
+		else if (pending) {
+			actions = [
+				h('button', {class: 'primary', disabled: busy || missing.length > 0, onclick: () => ask('paid'), type: 'button'}, 'Payment received'),
+				h('button', {disabled: busy, onclick: () => ask('cancel'), type: 'button'}, 'Cancel order'),
+			];
+		}
+		else {
+			actions = [
+				logged ? null : h('button', {class: 'primary', disabled: busy, onclick: () => logSale(order), type: 'button'}, 'Log the sale'),
+				h('button', {class: logged ? 'primary' : '', disabled: busy, onclick: () => delivered(order), type: 'button'}, 'Delivered'),
+			];
+		}
+
+		return h('article', {class: `card shop-order shop-order-${order.status}`, 'data-code': order.code, id: `order-${order.code}`},
+			h('h4', {class: 'shop-order-head'}, `${order.code} · ${order.name}`),
+			h('p', {class: 'shop-order-who'},
+				h('a', {href: `tel:${String(order.phone).replace(/[^\d+]/g, '')}`}, order.phone),
+				order.note ? ` · ${order.note}` : null),
+			h('p', {class: 'shop-order-state'}, pending ? `Waiting for payment · ${timeLeft(order.reserved_until)}` : 'Paid · to hand over'),
+			order.receipt_path
+				? h('p', {class: 'shop-order-receipt'}, 'Receipt sent ', h('button', {class: 'link-button', onclick: () => openReceipt(order), type: 'button'}, 'Receipt'))
+				: (pending ? h('p', {class: 'muted shop-order-receipt'}, 'No receipt yet') : null),
+			h('ul', {class: 'shop-order-items'}, (order.items || []).map((item) => h('li', null, `${itemLine(item)} · ${formatBrl(item.price_brl)}`))),
+			h('p', {class: 'shop-order-total'}, `Total ${formatBrl(order.total)}`),
+			missing.length && pending
+				? h('p', {class: 'status shop-order-missing', role: 'alert'}, `${plural(missing.length, 'copy', 'copies')} of this order ${missing.length === 1 ? 'is' : 'are'} no longer in your cards. Cancel the order, or add ${missing.length === 1 ? 'it' : 'them'} back.`)
+				: null,
+			!pending && !logged ? h('p', {class: 'status shop-order-missing'}, 'Paid, but the sale is not in your Trades yet.') : null,
+			h('div', {class: 'shop-order-actions'}, ...actions.filter(Boolean))
+		);
+	}
+
+	function drawOrders() {
+		ordersBox.hidden = false;
+
+		const waiting = orders.filter((order) => order.status === 'pending').length;
+
+		ordersBox.replaceChildren(
+			h('h3', {id: 'shop-orders-title'}, orders.length ? `Orders (${formatCount(orders.length)})` : 'Orders'),
+			orders.length
+				? h('p', {class: 'muted'}, waiting ? `${plural(waiting, 'order', 'orders')} waiting for payment.` : 'Nothing waiting for payment.')
+				: h('p', {class: 'muted', id: 'shop-orders-none'}, 'No open orders.'),
+			...orders.map(orderCard)
+		);
+	}
+
+	async function run(order, action) {
+		working.add(order.code);
+		drawOrders();
+
+		try {
+			await action();
+		}
+		finally {
+			working.delete(order.code);
+			asking.delete(order.code);
+
+			// The buttons were drawn while the call ran, disabled.
+			if (alive) {
+				drawOrders();
+			}
+		}
+	}
+
+	// The sale, logged under the order's ID: a second try finds it there and
+	// logs nothing (js/moves.js planMove).
+	async function logSale(order) {
+		await run(order, async () => {
+			try {
+				await applyMove(saleFields(order), {id: order.id});
+				toast(`${order.code}: sale logged in your Trades.`);
+			}
+			catch (err) {
+				if (!(err && err.logged)) {
+					toast(`${order.code} is paid, but the sale was not logged. ${errorText(err)}`);
+				}
+			}
+
+			await reload();
+			await loadOrders();
+			publish();
+		});
+	}
+
+	// Payment received: HOTARU first, so an order that expired meanwhile
+	// changes nothing here; then the sale, which takes the copies out of the
+	// collection and so out of the spares.
+	async function paid(order) {
+		let done = false;
+
+		await run(order, async () => {
+			try {
+				await markPaid(order.code);
+				done = true;
+			}
+			catch (err) {
+				toast(`${order.code} was not marked paid. ${orderErrorText(err)}`);
+				await loadOrders();
+			}
+		});
+
+		if (done) {
+			await logSale(order);
+		}
+	}
+
+	async function cancel(order) {
+		await run(order, async () => {
+			try {
+				await cancelOrder(order.code);
+				toast(`${order.code} cancelled. Its cards are back on HOTARU.`);
+			}
+			catch (err) {
+				toast(`${order.code} was not cancelled. ${orderErrorText(err)}`);
+			}
+
+			await loadOrders();
+			publish();
+		});
+	}
+
+	async function delivered(order) {
+		await run(order, async () => {
+			try {
+				await markDelivered(order.code);
+				toast(`${order.code} delivered.`);
+			}
+			catch (err) {
+				toast(`${order.code} was not marked delivered. ${orderErrorText(err)}`);
+			}
+
+			await loadOrders();
+		});
+	}
+
+	function openReceipt(order) {
+		// Opened now, while the tap still counts, and pointed at the link once
+		// it arrives.
+		const tab = window.open('', '_blank');
+
+		receiptLink(order.receipt_path)
+			.then((url) => {
+				if (tab) {
+					tab.location.href = url;
+				}
+				else {
+					window.location.href = url;
+				}
+			})
+			.catch((err) => {
+				if (tab) {
+					tab.close();
+				}
+
+				toast(`The receipt did not open. ${errorText(err)}`);
+			});
+	}
+
+	// Orders change on another phone or on HOTARU: read again on return.
+	const ordersOnReturn = () => {
+		if (document.visibilityState === 'visible') {
+			loadOrders();
+		}
+	};
+
+	document.addEventListener('visibilitychange', ordersOnReturn);
+
 	async function reload() {
 		const cards = await listCards();
 
@@ -771,6 +1019,7 @@ export function shopView(root) {
 
 		if (alive) {
 			publish();
+			loadOrders();
 			await fillRecords();
 		}
 
@@ -788,6 +1037,7 @@ export function shopView(root) {
 	return () => {
 		alive = false;
 		window.removeEventListener('beforeunload', warnUnsaved);
+		document.removeEventListener('visibilitychange', ordersOnReturn);
 
 		if (stopWaiting) {
 			stopWaiting();

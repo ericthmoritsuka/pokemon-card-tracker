@@ -11,14 +11,17 @@ import {
 	groupMark,
 	groupPrice,
 	listingRows,
+	orderCheck,
 	priceFilter,
 	pricePatches,
 	roundUpToStep,
+	saleFields,
 	salePrice,
 	shopGroups,
 	shopTotals,
 	storePicturePath,
 	suggestion,
+	timeLeft,
 	undoPricePatches,
 } from '../js/shop.js';
 
@@ -169,5 +172,34 @@ describe('publishing', () => {
 		assert.equal(groupMark(group, {x: {status: 'available'}, y: {status: 'available'}}), 'published');
 		assert.equal(groupMark(group, {x: {status: 'available'}}), 'pending');
 		assert.equal(groupMark(group, {x: {status: 'reserved'}, y: {status: 'available'}}), 'reserved');
+	});
+});
+
+describe('orders', () => {
+	const order = {code: 'HTR-0007', id: 'order-uuid', items: [{listing_id: 'a', price_brl: 2}, {listing_id: 'bb', price_brl: 3}], name: 'Ana', total: '5.00'};
+
+	test('time left rounds up to the minute, and says Expired past it', () => {
+		const now = Date.parse('2026-11-24T12:00:00Z');
+
+		assert.equal(timeLeft('2026-11-26T11:30:00Z', now), '47 h left');
+		assert.equal(timeLeft('2026-11-24T12:35:00Z', now), '35 min left');
+		assert.equal(timeLeft('2026-11-24T12:00:30Z', now), '1 min left');
+		assert.equal(timeLeft('2026-11-24T11:59:00Z', now), 'Expired');
+		assert.equal(timeLeft('nonsense', now), 'Expired');
+	});
+
+	test('an order names the copies no longer live here, and whether its sale is logged', () => {
+		const doc = {cards: [copy('a'), copy('bb', {deleted_at: '2026-11-20T00:00:00Z'})], moves: []};
+
+		assert.deepEqual(orderCheck(order, doc), {logged: false, missing: ['bb']});
+		assert.equal(orderCheck(order, {...doc, moves: [{id: 'order-uuid'}]}).logged, true);
+		assert.equal(orderCheck(order, {...doc, moves: [{deleted_at: 'x', id: 'order-uuid'}]}).logged, false, 'an undone sale is not logged');
+		assert.deepEqual(orderCheck(order, null), {logged: false, missing: ['a', 'bb']});
+	});
+
+	test('the sale takes the order\'s copies, buyer, total, and code', () => {
+		assert.deepEqual(saleFields(order, {now: new Date(2026, 10, 24, 15)}), {
+			currency: 'BRL', date: '2026-11-24', kind: 'sold', note: 'HOTARU HTR-0007', out: ['a', 'bb'], price: 5, who: 'Ana',
+		});
 	});
 });

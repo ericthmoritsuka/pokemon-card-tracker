@@ -284,6 +284,7 @@ const SHELL = [
 	'js/shop.js',
 	'js/shop-view.js',
 	'js/store-publish.js',
+	'js/store-orders.js',
 	'js/custom-card.js',
 	'js/custom-card-view.js',
 	'js/format.js',

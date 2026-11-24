@@ -279,3 +279,49 @@ export function groupMark(group, states) {
 
 	return statuses.every((status) => status === 'available') ? 'published' : 'pending';
 }
+
+// ----------------------------------------------------------------- orders
+
+// How long a pending order still holds its cards: "47 h left", "35 min
+// left", or "Expired" (supabase/store-orders.sql lets it go on the next
+// call).
+export function timeLeft(reservedUntil, now = Date.now()) {
+	const ms = Date.parse(reservedUntil) - now;
+
+	if (!Number.isFinite(ms) || ms <= 0) {
+		return 'Expired';
+	}
+
+	const minutes = Math.ceil(ms / 60000);
+
+	return minutes >= 60 ? `${Math.floor(minutes / 60)} h left` : `${minutes} min left`;
+}
+
+// What an order means for the collection on this phone: missing, its
+// copies that are no longer live here (traded or removed meanwhile), and
+// logged, whether its sale is in the moves already. A sale is logged under
+// the order's own ID, so it is never logged twice (js/moves.js planMove).
+export function orderCheck(order, doc) {
+	const live = new Set(((doc && doc.cards) || []).filter((entry) => entry && isLive(entry)).map((entry) => entry.id));
+	const moves = (doc && Array.isArray(doc.moves) ? doc.moves : []);
+
+	return {
+		logged: moves.some((move) => move && move.id === order.id && !move.deleted_at),
+		missing: (order.items || []).map((item) => item.listing_id).filter((id) => !live.has(id)),
+	};
+}
+
+// The sale a paid order logs (js/moves.js applyMove, with the order's ID).
+export function saleFields(order, {now = new Date()} = {}) {
+	const date = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join('-');
+
+	return {
+		currency: 'BRL',
+		date,
+		kind: 'sold',
+		note: `HOTARU ${order.code}`,
+		out: (order.items || []).map((item) => item.listing_id),
+		price: Number(order.total),
+		who: order.name,
+	};
+}
