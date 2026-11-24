@@ -205,6 +205,35 @@ describe('Shop', () => {
 		await context.close();
 	});
 
+	test('saving again replaces the Shop\'s toast, and no screen shows more than three toasts', async () => {
+		const {context, errors, page} = await phone();
+
+		await openShop(page);
+		await pickShow(page, 'all');
+		await type(page, CHARMANDER_EN, '2');
+		await saveAll(page);
+		await page.locator('.toast:has-text("1 price saved.")').waitFor(TIMEOUT);
+		await type(page, CHARIZARD, '9');
+		await saveAll(page);
+		await page.waitForFunction(() => [...document.querySelectorAll('.toast')].map((toast) => toast.querySelector('.toast-text').textContent).join('|') === '1 price saved.' && document.querySelectorAll('.toast').length === 1);
+		assert.match(await state(page, CHARIZARD), /^For sale at R\$ 9,00 each$/, 'the second save is the one shown');
+
+		// Any five toasts at once leave the latest three.
+		const texts = await page.evaluate(async () => {
+			const shell = await import('/pokemon-card-tracker/js/shell.js');
+
+			for (const n of [1, 2, 3, 4, 5]) {
+				shell.toast(`Toast ${n}`, {timeout: 0});
+			}
+
+			return [...document.querySelectorAll('.toast .toast-text')].map((node) => node.textContent);
+		});
+
+		assert.deepEqual(texts, ['Toast 3', 'Toast 4', 'Toast 5']);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('Fill all shown types one price into every card the search shows, saved with the bar', async () => {
 		const {context, errors, page} = await phone();
 

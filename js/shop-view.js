@@ -91,7 +91,8 @@ function keepDrafts(drafts) {
 
 const fold = (text) => String(text || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-const toast = (message, options) => import('./shell.js').then((shell) => shell.toast(message, options)).catch(() => {
+// Every Shop toast shares one key, so only the latest shows.
+const toast = (message, options) => import('./shell.js').then((shell) => shell.toast(message, {...options, key: 'shop'})).catch(() => {
 	// No toast area: the row itself shows the change.
 });
 

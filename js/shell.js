@@ -79,16 +79,31 @@ let ownerHandle = null;
 
 // ------------------------------------------------------------- toasts
 
+// At most this many toasts show at once; a new one beyond it takes the
+// oldest away, so a run of saves never covers the screen (Eric,
+// 2026-11-24: saving prices one by one stacked a toast for each).
+export const MAX_TOASTS = 3;
+
 // A short message above the tab bar. It floats over the page, so nothing
-// shifts when it comes and goes. timeout 0 keeps it until it is closed.
-export function toast(message, {action = null, actionLabel = null, timeout = 5000} = {}) {
+// shifts when it comes and goes. timeout 0 keeps it until it is closed. A
+// key replaces the toast shown with the same key, so a screen that toasts
+// each save shows only its latest.
+export function toast(message, {action = null, actionLabel = null, key = null, timeout = 5000} = {}) {
 	const box = document.getElementById('toasts');
 
 	if (!box) {
 		return null;
 	}
 
-	const item = h('div', {class: 'toast', role: 'status'}, h('span', {class: 'toast-text'}, message));
+	if (key) {
+		for (const old of box.querySelectorAll('.toast')) {
+			if (old.dataset.toastKey === key) {
+				old.remove();
+			}
+		}
+	}
+
+	const item = h('div', {class: 'toast', 'data-toast-key': key, role: 'status'}, h('span', {class: 'toast-text'}, message));
 	const close = () => item.remove();
 
 	if (actionLabel && action) {
@@ -100,6 +115,12 @@ export function toast(message, {action = null, actionLabel = null, timeout = 500
 
 	item.append(h('button', {'aria-label': 'Dismiss', class: 'toast-close', onclick: close, type: 'button'}, '×'));
 	box.append(item);
+
+	const shown = box.querySelectorAll('.toast');
+
+	for (let i = 0; i < shown.length - MAX_TOASTS; i++) {
+		shown[i].remove();
+	}
 
 	if (timeout) {
 		setTimeout(close, timeout);
