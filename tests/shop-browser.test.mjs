@@ -1,6 +1,6 @@
 // Browser tests for the Shop screen (js/shop-view.js, Eric, 2026-11-24):
-// opened by its address (the header's Shop is the family owner's), one row per card and language with
-// spares, prices typed as drafts and saved together from the bar above the
+// opened by its address (the header's Shop is the family owner's), one row per finish of a card
+// and language with spares, each with its own price (Eric, 2026-11-24), prices typed as drafts and saved together from the bar above the
 // tabs (Eric: "enter the prices and press save at the end"), drafts that
 // survive a search and a trip away, Enter to the next field, Discard, a
 // typing slip that stops the save, Fill all shown, Undo, and the prices
@@ -29,6 +29,9 @@ const SHOTS = process.env.SHOTS || '/tmp';
 const TIMEOUT = {timeout: 20000};
 const CHARMANDER_EN = '#shop-international-tsa1-004-en';
 const CHARIZARD = '#shop-international-tsa1-006-en';
+// Charmander EN's spares are c-04, with no finish set, and c-03, a Reverse
+// holo: two rows, two prices.
+const CHARMANDER_EN_REVERSE = '#shop-international-tsa1-004-en-raw-Reverse-Holofoil';
 
 let server;
 let browser;
@@ -86,15 +89,19 @@ async function saveAll(page) {
 }
 
 describe('Shop', () => {
-	test('lists each card and language with spares, none priced at first, and no bar', async () => {
+	test('lists each finish of a card and language with spares, none priced at first, and no bar', async () => {
 		const {context, errors, page} = await phone();
 
 		await openShop(page);
 		assert.equal(new URL(page.url()).pathname, `${BASE}shop`);
 		await pickShow(page, 'all');
-		assert.equal(await page.locator('.shop-row').count(), 5, 'the five Spares tiles');
-		assert.match(await summary(page), /^0 of 5 cards priced, 6 spares in all\.$/);
-		assert.match(plain(await page.locator(`${CHARMANDER_EN} .shop-meta`).textContent()), /2 spares$/);
+		assert.equal(await page.locator('.shop-row').count(), 6, 'the five Spares tiles, Charmander EN split by finish');
+		assert.match(await summary(page), /^0 of 6 cards priced, 6 spares in all\.$/);
+		assert.match(plain(await page.locator(`${CHARMANDER_EN} .shop-meta`).textContent()), /1 spare$/);
+		assert.match(plain(await page.locator(`${CHARMANDER_EN_REVERSE} .shop-meta`).textContent()), /1 spare$/);
+		assert.equal(plain(await page.locator(`${CHARMANDER_EN} .shop-finish`).textContent()), 'Normal');
+		assert.equal(plain(await page.locator(`${CHARMANDER_EN_REVERSE} .shop-finish`).textContent()), 'Reverse Holofoil', 'named by its word, not the card\'s only printing');
+		assert.equal(await page.getAttribute(`${CHARMANDER_EN_REVERSE} .shop-price-input`, 'aria-label'), 'Sale price for Charmander, Reverse Holofoil');
 		assert.match(await state(page, CHARMANDER_EN), /^Not priced/);
 		assert.equal(await page.locator('.shop-row:has-text("Bulbasaur")').count(), 0, 'one copy is no spare');
 		assert.equal(await page.getByText('Ver na Liga').count(), 0, 'no Liga link in the Shop');
@@ -117,7 +124,7 @@ describe('Shop', () => {
 
 		// Enter moves on to the next card's field.
 		await page.press(`${CHARMANDER_EN} .shop-price-input`, 'Enter');
-		assert.equal(await page.evaluate(() => document.activeElement.closest('.shop-row').id), 'shop-international-tsa1-004-pt');
+		assert.equal(await page.evaluate(() => document.activeElement.closest('.shop-row').id), 'shop-international-tsa1-004-en-raw-Reverse-Holofoil', 'the same card\'s next finish');
 
 		await type(page, CHARIZARD, '150');
 		assert.equal(plain(await page.locator('#shop-save-all').textContent()), 'Save 2 prices');
@@ -127,14 +134,15 @@ describe('Shop', () => {
 		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 2);
 		assert.equal(plain(await page.locator('#shop-save-all').textContent()), 'Save 2 prices');
 		await page.fill('#shop-search', '');
-		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 5);
+		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 6);
 		assert.equal(await page.locator(`${CHARIZARD} .shop-price-input`).inputValue(), '150');
 		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-drafts.png`});
 
 		await saveAll(page);
 		assert.match(await state(page, CHARMANDER_EN), /^For sale at R\$ 2,30 each$/);
 		assert.match(await state(page, CHARIZARD), /^For sale at R\$ 150,00 each$/);
-		assert.match(await summary(page), /^2 of 5 cards priced, 6 spares in all\. The priced spares come to R\$ 154,60\.$/);
+		assert.match(await summary(page), /^2 of 6 cards priced, 6 spares in all\. The priced spares come to R\$ 152,30\.$/);
+		assert.match(await state(page, CHARMANDER_EN_REVERSE), /^Not priced/, 'the other finish keeps its own price');
 		await page.locator('.toast:has-text("2 prices saved.")').waitFor(TIMEOUT);
 
 		await page.reload();
@@ -174,7 +182,7 @@ describe('Shop', () => {
 		await page.click('#shop-discard');
 		assert.ok(await page.locator('#shop-savebar').isHidden());
 		assert.equal(await page.locator(`${CHARMANDER_EN} .shop-price-input`).inputValue(), '');
-		assert.match(await summary(page), /^0 of 5 cards priced/);
+		assert.match(await summary(page), /^0 of 6 cards priced/);
 
 		// Typing the saved value back is no change.
 		await type(page, CHARMANDER_EN, '1');
@@ -196,11 +204,11 @@ describe('Shop', () => {
 		assert.match(await page.locator(`${CHARMANDER_EN} .form-error`).textContent(), /Type the price as 30,50/);
 		assert.match(plain(await page.locator('#shop-save-status').textContent()), /^1 price needs fixing first\. Nothing was saved\.$/);
 		assert.equal(await page.evaluate(() => document.activeElement.closest('.shop-row').id), 'shop-international-tsa1-004-en');
-		assert.match(await summary(page), /^0 of 5 cards priced/, 'Charizard was not saved either');
+		assert.match(await summary(page), /^0 of 6 cards priced/, 'Charizard was not saved either');
 
 		await type(page, CHARMANDER_EN, '2');
 		await saveAll(page);
-		assert.match(await summary(page), /^2 of 5 cards priced/);
+		assert.match(await summary(page), /^2 of 6 cards priced/);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
@@ -247,7 +255,7 @@ describe('Shop', () => {
 		await page.check(`${PIKACHU} .shop-pick`);
 		assert.equal(plain(await page.locator('#shop-bulk-set').textContent()), 'Fill 2 selected', 'the hidden Charmander stays ticked');
 		await page.fill('#shop-search', '');
-		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 5);
+		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 6);
 		assert.ok(await page.locator(`${CHARMANDER_EN} .shop-pick`).isChecked());
 		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-selected.png`});
 		await page.fill('#shop-bulk-price', '3');
@@ -259,9 +267,9 @@ describe('Shop', () => {
 		assert.equal(fields['shop-international-tsb2-025-en'], '3,00');
 		assert.equal(Object.values(fields).filter((value) => value).length, 2, 'only the ticked cards');
 		assert.equal(await page.locator('.shop-pick:checked').count(), 0, 'the ticks are cleared after filling');
-		assert.equal(plain(await page.locator('#shop-bulk-set').textContent()), 'Fill all 5 shown');
+		assert.equal(plain(await page.locator('#shop-bulk-set').textContent()), 'Fill all 6 shown');
 		await saveAll(page);
-		assert.match(await summary(page), /^2 of 5 cards priced/);
+		assert.match(await summary(page), /^2 of 6 cards priced/);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
@@ -277,7 +285,7 @@ describe('Shop', () => {
 		await page.fill('#shop-bulk-price', '1');
 		await page.click('#shop-bulk-set');
 		assert.deepEqual(await page.locator('.shop-row .shop-price-input').evaluateAll((inputs) => inputs.map((input) => input.value)), ['1,00', '1,00']);
-		assert.match(await summary(page), /^0 of 5 cards priced/, 'filled, not saved');
+		assert.match(await summary(page), /^0 of 6 cards priced/, 'filled, not saved');
 		assert.equal(plain(await page.locator('#shop-save-all').textContent()), 'Save 2 prices');
 		await saveAll(page);
 
@@ -286,7 +294,7 @@ describe('Shop', () => {
 		assert.deepEqual(states, ['For sale at R$ 1,00 each', 'For sale at R$ 1,00 each']);
 		await page.fill('#shop-search', '');
 		await pickShow(page, 'unpriced');
-		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 3);
+		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 4);
 		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-bulk.png`});
 		assert.deepEqual(errors, []);
 		await context.close();

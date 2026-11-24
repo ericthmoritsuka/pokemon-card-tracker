@@ -30,6 +30,7 @@ const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
 const SHOTS = process.env.SHOTS || '/tmp';
 const TIMEOUT = {timeout: 20000};
 const CHARMANDER_EN = '#shop-international-tsa1-004-en';
+const CHARMANDER_EN_REVERSE = '#shop-international-tsa1-004-en-raw-Reverse-Holofoil';
 const PICTURE = 'https://assets.tcgdex.net/en/tsa/tsa1/004';
 
 let server;
@@ -183,23 +184,27 @@ describe('Shop publishing', () => {
 		await context.close();
 	});
 
-	test('a saved price publishes the spares, with the picture copied once, and a cleared one withdraws them but keeps a reserved copy', async () => {
+	test('each finish publishes its spares at its own price, with the picture copied once, and a cleared one withdraws them but keeps a reserved copy', async () => {
 		const {context, errors, page, store} = await ownerPhone();
 
 		await openShop(page);
 		await waitLine(page, /^Nothing on HOTARU yet/);
 		assert.equal(store.listings.size, 0);
 
+		// Charmander EN has three copies; the first added is kept. Of its two
+		// spares, c-03 is a Reverse holo and c-04 has no finish set, so each
+		// is a row with its own price (Eric, 2026-11-24).
+		assert.equal(plain(await page.locator(`${CHARMANDER_EN_REVERSE} .shop-finish`).textContent()), 'Reverse Holofoil');
 		await page.fill(`${CHARMANDER_EN} .shop-price-input`, '2,30');
+		await page.fill(`${CHARMANDER_EN_REVERSE} .shop-price-input`, '6');
 		await page.click('#shop-save-all');
-		await waitLine(page, /^On HOTARU: 1 card, 2 spares\.$/);
+		await waitLine(page, /^On HOTARU: 2 cards, 2 spares\.$/);
 
-		// Charmander EN has three copies; the first added is kept.
 		const rows = [...store.listings.values()].sort((a, b) => a.id.localeCompare(b.id));
 
-		assert.deepEqual(rows.map((row) => [row.id, row.status, row.price_brl, row.language, row.name]), [
-			['c-03', 'available', 2.3, 'en', 'Charmander'],
-			['c-04', 'available', 2.3, 'en', 'Charmander'],
+		assert.deepEqual(rows.map((row) => [row.id, row.status, row.price_brl, row.language, row.name, row.finish]), [
+			['c-03', 'available', 6, 'en', 'Charmander', 'Reverse Holofoil'],
+			['c-04', 'available', 2.3, 'en', 'Charmander', 'Normal'],
 		]);
 		assert.deepEqual(rows.map((row) => row.condition), ['Played', 'Near Mint']);
 		assert.deepEqual(rows.map((row) => row.image_path), ['tcgdex/en/tsa/tsa1/004.webp', 'tcgdex/en/tsa/tsa1/004.webp']);
@@ -212,11 +217,18 @@ describe('Shop publishing', () => {
 		// new picture.
 		store.listings.get('c-03').status = 'reserved';
 		await openShop(page);
-		await page.locator(`${CHARMANDER_EN} .shop-mark`).waitFor(TIMEOUT);
-		assert.equal(plain(await page.locator(`${CHARMANDER_EN} .shop-mark`).textContent()), 'Reserved by an order');
+		await page.locator(`${CHARMANDER_EN_REVERSE} .shop-mark`).waitFor(TIMEOUT);
+		assert.equal(plain(await page.locator(`${CHARMANDER_EN_REVERSE} .shop-mark`).textContent()), 'Reserved by an order');
+		assert.equal(plain(await page.locator(`${CHARMANDER_EN} .shop-mark`).textContent()), 'On HOTARU', 'the other finish is not held');
 		assert.equal(store.uploads.length, 1);
 
-		// Clearing the price withdraws the free copy only.
+		// Clearing the reverse's price withdraws nothing of the other finish,
+		// and keeps the reserved copy; clearing the other withdraws it.
+		await page.click(`${CHARMANDER_EN_REVERSE} .shop-clear`);
+		await page.click('#shop-save-all');
+		await waitLine(page, /^On HOTARU: 1 card, 1 spare\.$/);
+		assert.equal(store.listings.get('c-03').status, 'reserved');
+		assert.equal(store.listings.get('c-04').status, 'available');
 		await page.click(`${CHARMANDER_EN} .shop-clear`);
 		await page.click('#shop-save-all');
 		await waitLine(page, /^Nothing on HOTARU yet/);

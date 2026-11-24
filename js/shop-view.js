@@ -32,8 +32,9 @@ import {listCards, loadDocument, updateCards} from './collection.js';
 import {BASE, errorText, h} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {languageLabel} from './languages.js';
+import {finishLabel} from './monprice.js';
 import {applyMove, parsePrice, priceForInput, PRICE_FORM_TEXT} from './moves.js';
-import {euroRates, exchangeRates, extractPrices, finishOf, formatBrl, savedEuroRates, savedRates} from './prices.js';
+import {euroRates, exchangeRates, extractPrices, finishFits, finishOf, formatBrl, savedEuroRates, savedRates} from './prices.js';
 import {PRICE_FILTERS, groupMark, hasCards, listingRows, orderCheck, priceFilter, pricePatches, saleFields, shopGroups, shopTotals, storePicturePath, suggestion, timeLeft, undoPricePatches} from './shop.js';
 import {checkShopOwner, shopOwnerKnown} from './shop-owner.js';
 import {cancelOrder, markDelivered, markPaid, openOrders, orderErrorText, receiptLink} from './store-orders.js';
@@ -235,7 +236,7 @@ export function shopView(root) {
 	function searchText(group) {
 		const {info} = group;
 
-		return fold([info.search, info.name, info.setName, info.number, group.card_id, languageLabel(group.language)].join(' '));
+		return fold([info.search, info.name, info.setName, info.number, group.card_id, languageLabel(group.language), finishName(group.spares[0], group)].filter(Boolean).join(' '));
 	}
 
 	const recordOf = (group) => saved.get(`${group.catalog}|${group.card_id}`) || null;
@@ -310,7 +311,8 @@ export function shopView(root) {
 		return mark ? h('p', {class: `shop-mark shop-mark-${mark}`}, MARKS[mark]) : null;
 	}
 
-	const rowId = (group) => `shop-${group.key.replace(/[^a-z0-9]+/gi, '-')}`;
+	// A row with no finish set keeps the ID it had before finishes were split.
+	const rowId = (group) => `shop-${group.key.replace(/[^a-z0-9]+/gi, '-').replace(/-+$/, '')}`;
 
 	// The text a row's field shows: its draft, else its saved price.
 	const fieldText = (group) => (drafts.has(group.key) ? drafts.get(group.key) : priceForInput(group.price));
@@ -353,7 +355,10 @@ export function shopView(root) {
 		const {info} = group;
 		const id = rowId(group);
 		const dirty = drafts.has(group.key);
-		const input = h('input', {'aria-describedby': `${id}-error`, 'aria-label': `Sale price for ${info.name}`, autocomplete: 'off', class: 'search shop-price-input', enterkeyhint: 'next', id: `${id}-price`, inputmode: 'decimal', placeholder: 'Not priced', type: 'text', value: fieldText(group)});
+		// Each finish is its own row and price, so every row names its finish.
+		const named = finishName(group.spares[0], group);
+		const finish = named || 'Finish not set';
+		const input = h('input', {'aria-describedby': `${id}-error`, 'aria-label': `Sale price for ${info.name}, ${finish}`, autocomplete: 'off', class: 'search shop-price-input', enterkeyhint: 'next', id: `${id}-price`, inputmode: 'decimal', placeholder: 'Not priced', type: 'text', value: fieldText(group)});
 		const error = h('p', {class: 'form-error', hidden: true, id: `${id}-error`, role: 'alert'});
 		const found = suggestion(group, recordOf(group), {euroRates: euroRate, rates});
 		const fill = (text) => {
@@ -381,7 +386,7 @@ export function shopView(root) {
 			clear);
 
 		const meta = [info.number ? `#${info.number}` : null, info.setName, languageLabel(group.language), group.rarity, plural(group.spares.length, 'spare', 'spares')].filter(Boolean).join(' · ');
-		const pick = h('input', {'aria-label': `Select ${info.name}`, checked: selected.has(group.key), class: 'shop-pick', id: `${id}-pick`, onchange: (event) => {
+		const pick = h('input', {'aria-label': `Select ${info.name}, ${finish}`, checked: selected.has(group.key), class: 'shop-pick', id: `${id}-pick`, onchange: (event) => {
 			if (event.target.checked) {
 				selected.add(group.key);
 			}
@@ -399,6 +404,7 @@ export function shopView(root) {
 				: h('div', {'aria-hidden': 'true', class: 'shop-art shop-art-none'}),
 			h('div', {class: 'shop-body'},
 				h('a', {class: 'shop-name', 'data-link': info.route, href: BASE + info.route}, info.name),
+				h('p', {class: 'shop-finish-line'}, h('span', {class: `shop-finish${named ? '' : ' shop-finish-unset'}`}, finish)),
 				h('p', {class: 'muted shop-meta'}, meta),
 				h('p', {class: 'shop-state'}, group.price !== null ? `For sale at ${formatBrl(group.price)} each` : 'Not priced: not offered'),
 				h('p', {class: 'shop-draft', hidden: !dirty}, 'Changed, not saved yet'),
@@ -607,12 +613,17 @@ export function shopView(root) {
 	}
 
 	// A copy's finish as the catalog names it: the card's listed finish, else
-	// the word the import kept.
+	// the word the import kept. A card's only printing is taken for any copy
+	// (finishOf), but a copy whose word says otherwise, such as a Reverse
+	// holo on a card listed only as Normal, is named by its word, as My Cards
+	// names it (js/cards-view.js), so its row and its HOTARU listing are not
+	// taken for the Normal's.
 	function finishName(entry, group) {
 		const record = recordOf(group);
-		const finish = record ? finishOf(entry, extractPrices(record)) : null;
+		const matched = record ? finishOf(entry, extractPrices(record)) : null;
+		const found = matched && finishFits(entry, matched) ? matched : null;
 
-		return (finish && finish.label) || entry.finish_raw || null;
+		return (found && found.label) || (entry.finish_raw ? finishLabel(entry.finish_raw) : null);
 	}
 
 	const priced = () => groups.filter((group) => group.price !== null);
@@ -714,15 +725,27 @@ export function shopView(root) {
 
 			drawMarks();
 
-			// The pictures still missing, one per card.
+			// The pictures still missing, one per card. The finishes of a card
+			// share its picture: one already in the bucket is only named, and
+			// each picture is copied at most once.
 			const missing = priced().filter((group) => group.pictureBase
 				&& group.spares.every((entry) => !(states[entry.id] && states[entry.id].image_path)));
+			const stored = new Set(Object.values(states || {}).map((one) => one && one.image_path).filter(Boolean));
+			const copied = new Map();
 			const uploaded = [];
 
 			for (const group of missing) {
 				const path = storePicturePath(group.pictureBase);
 
-				if (alive && path && await uploadPicture(group.pictureBase, path).catch(() => false)) {
+				if (!alive || !path) {
+					continue;
+				}
+
+				if (!stored.has(path) && !copied.has(path)) {
+					copied.set(path, await uploadPicture(group.pictureBase, path).catch(() => false));
+				}
+
+				if (stored.has(path) || copied.get(path)) {
 					uploaded.push({...group, picturePath: path});
 				}
 			}
@@ -1027,7 +1050,9 @@ export function shopView(root) {
 		});
 		groups.sort((a, b) => (a.info.setName || '').localeCompare(b.info.setName || '')
 			|| compareNumbers(a.info.number || '', b.info.number || '')
-			|| a.language.localeCompare(b.language));
+			|| a.language.localeCompare(b.language)
+			// A card's finishes sit together, by name.
+			|| (finishName(a.spares[0], a) || '').localeCompare(finishName(b.spares[0], b) || ''));
 		// A draft for a card that is no longer a spare, or that now says what
 		// is saved (another phone saved it), is dropped.
 		for (const [key, text] of drafts) {

@@ -1,15 +1,17 @@
 // The Shop: Eric's private staging page for selling his spares on HOTARU
-// (plans/hotaru-catalog-plan.md, section 5). Each card has one sale price,
-// typed by hand; only a priced card is published, and the suggestions
-// beside it never leave this screen. Worked out without the page, so node
-// can test it; js/shop-view.js draws it.
+// (plans/hotaru-catalog-plan.md, section 5). Each finish of a card has its
+// own sale price, typed by hand (Eric, 2026-11-24: a reverse holo or a holo
+// sells for more than the plain card); only a priced finish is published,
+// and the suggestions beside it never leave this screen. Worked out without
+// the page, so node can test it; js/shop-view.js draws it.
 //
-// A shop group is one card in one language that has spares, like a Spares
-// tile: {key, catalog, card_id, language, spares, copies, price}. spares are
-// the copies spareEntries picks; copies are every live copy of the card in
-// that language, keeper included. The sale price is saved on every copy, so
-// a change of keeper (a new favorite) never leaves a spare unpriced, and
-// only the spares are ever published.
+// A shop group is one finish of one card in one language that has spares:
+// {key, catalog, card_id, language, finish_key, spares, copies, price}.
+// spares are the copies of that finish spareEntries picks; copies are every
+// live copy of the card in that language and finish, keeper included. The
+// sale price is saved on every copy of the finish, so a change of keeper (a
+// new favorite) never leaves a spare unpriced, and only the spares are ever
+// published.
 
 import {tileKey} from './bulk-edit.js';
 import {setIdOfCard} from './catalog.js';
@@ -38,21 +40,40 @@ export function roundUpToStep(brl, step = SALE_STEP) {
 	return Math.max(step, Math.ceil(brl / step - 1e-9) * step);
 }
 
+// A copy's finish as it is stored, for telling finishes apart without the
+// card's record: its variant ID, else the monprice word an unmatched import
+// or a hand-made card keeps, else '' for a copy whose finish was never set
+// (js/copy-sheet.js finishValue reads the same two fields).
+export function finishKey(entry) {
+	if (entry && entry.variant_id) {
+		return `v:${entry.variant_id}`;
+	}
+
+	return entry && entry.finish_raw ? `raw:${entry.finish_raw}` : '';
+}
+
+// The Shop group a copy belongs to: its card and language, as a Spares tile
+// (js/bulk-edit.js tileKey), and its finish.
+export const shopKey = (entry) => `${tileKey(entry)}|${finishKey(entry)}`;
+
 // The groups that have spares, in no particular order. cards are the
 // person's copies, live or not; held, the copies in their binders
-// (js/wishlist.js spareEntries), which are never for sale.
+// (js/wishlist.js spareEntries), which are never for sale. Which copies are
+// spares is still decided per card and language, so the copy kept may be
+// of any finish; the spares are then split by finish, one price each.
 export function shopGroups(cards, {held} = {}) {
 	const live = (cards || []).filter((entry) => entry && isLive(entry));
 	const groups = new Map();
 
 	for (const entry of spareEntries(live, {held})) {
-		const key = tileKey(entry);
+		const key = shopKey(entry);
 
 		if (!groups.has(key)) {
 			groups.set(key, {
 				card_id: entry.card_id,
 				catalog: entry.catalog || 'international',
 				copies: [],
+				finish_key: finishKey(entry),
 				key,
 				language: entry.language,
 				price: null,
@@ -65,7 +86,7 @@ export function shopGroups(cards, {held} = {}) {
 	}
 
 	for (const entry of live) {
-		const group = groups.get(tileKey(entry));
+		const group = groups.get(shopKey(entry));
 
 		if (group) {
 			group.copies.push(entry);
