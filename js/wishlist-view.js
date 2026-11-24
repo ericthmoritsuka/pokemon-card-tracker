@@ -9,10 +9,10 @@
 // js/shell.js draws the view-only strip and the "Mine" switcher.
 
 import {currentUser} from './auth.js';
-import {listBinders, placements} from './binders.js';
+import {heldCopies} from './binders.js';
 import {offerCardList} from './card-swipe.js';
 import {cardImage, viewingLanguage} from './catalog.js';
-import {listCards, onChange} from './collection.js';
+import {listCards, loadDocument, onChange} from './collection.js';
 import {BASE, errorText, go, h, listsSwitch} from './dom.js';
 import {memberDocumentKept} from './family.js';
 import {setPendingMove} from './moves.js';
@@ -730,11 +730,11 @@ export function familyWishlistView(root, {userId}) {
 
 		let result;
 		let cards;
-		// Your copies in your binders, which are not spares.
+		// Your copies in use in your binders, which are not spares.
 		let held;
 
 		try {
-			[result, cards, held] = await Promise.all([memberWishlist(userId), listCards(), listBinders().then(placements)]);
+			[result, cards, held] = await Promise.all([memberWishlist(userId), listCards(), loadDocument().then(heldCopies)]);
 		}
 		catch (err) {
 			body.replaceChildren(h('div', {class: 'notice', role: 'alert'}, h('p', null, `This wishlist could not be read. ${errorText(err)}`)));
@@ -910,7 +910,7 @@ export function tradeIdeasView(root, {userId}) {
 		let myHeld;
 
 		try {
-			[result, mine, wishes, myHeld] = await Promise.all([memberWishlist(userId), listCards(), listWishlist(), listBinders().then(placements)]);
+			[result, mine, wishes, myHeld] = await Promise.all([memberWishlist(userId), listCards(), listWishlist(), loadDocument().then(heldCopies)]);
 		}
 		catch (err) {
 			body.replaceChildren(h('div', {class: 'notice', role: 'alert'}, h('p', null, `The trade ideas could not be worked out. ${errorText(err)}`)));
@@ -947,7 +947,7 @@ export function tradeIdeasView(root, {userId}) {
 			const theirDoc = await memberDocumentKept(userId);
 
 			theirs = (Array.isArray(theirDoc.cards) ? theirDoc.cards : []).filter((entry) => entry && !entry.deleted_at);
-			getting = tradeIdeas(wishes, theirs, {held: placements(theirDoc.binders || [])});
+			getting = tradeIdeas(wishes, theirs, {held: heldCopies(theirDoc)});
 		}
 		catch (err) {
 			getNote.hidden = false;

@@ -45,6 +45,7 @@ import {customCardView} from './custom-card-view.js';
 import {artistLink, setGoalControl} from './goals-view.js';
 import {cardDexIds, pokemonCardsRoute} from './pokemon-cards.js';
 import {addToBinderButton} from './binder-hand.js';
+import {heldCopies} from './binders.js';
 import {cardHistory, historyLine, setPendingMove} from './moves.js';
 
 // Card art lives in js/tile.js with the badges; this name stays for the
@@ -2023,7 +2024,7 @@ export function cardView(root, {lang, cardId}) {
 		copies.append(movesSlot);
 
 		// Under a member's copies, how many they could spare.
-		const spare = spareLine(live, placed);
+		const spare = spareLine(live, heldCopies(memberDoc));
 
 		if (spare) {
 			copies.append(spare);
@@ -2052,10 +2053,10 @@ export function cardView(root, {lang, cardId}) {
 	}
 
 	// On a member's card, the copies beyond one of each language they could
-	// trade (js/wishlist.js sparesFor), else null. placed: where their copies
-	// are in their binders, since a copy in a binder is not a spare.
-	function spareLine(live, placed) {
-		const spares = readOnly ? sparesFor({card_id: cardId, catalog: catalogFor(lang)}, live, {held: placed}) : 0;
+	// trade (js/wishlist.js sparesFor), else null. held: the copies in use
+	// in their binders (js/binders.js heldCopies), which are not spares.
+	function spareLine(live, held) {
+		const spares = readOnly ? sparesFor({card_id: cardId, catalog: catalogFor(lang)}, live, {held}) : 0;
 
 		return spares ? h('p', {class: 'muted copies-spares', id: 'copies-spares'}, `${memberLabel(member)} has ${spares} ${spares === 1 ? 'spare' : 'spares'}`) : null;
 	}

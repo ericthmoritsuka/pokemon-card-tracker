@@ -16,10 +16,10 @@
 // camera says how many are in the tray. With Record every scan on (Phone
 // check), each scan is kept in the scan log (js/scan/log.js).
 
-import {createBinder, deleteBinder, handBinders, listBinders, placements, placeOnPage, updateBinder, waitingPlaceholderList} from '../binders.js';
+import {createBinder, deleteBinder, handBinders, heldCopies, listBinders, placements, placeOnPage, updateBinder, waitingPlaceholderList} from '../binders.js';
 import {afterAdding, undoAdding} from '../placeholder-fill.js';
 import {setPendingMove} from '../moves.js';
-import {addCards, deleteCard, listCards, onChange} from '../collection.js';
+import {addCards, deleteCard, listCards, loadDocument, onChange} from '../collection.js';
 import {cardIndex, saveToCardIndex, viewingLanguage} from '../catalog.js';
 import {BASE, go, h} from '../dom.js';
 import {flagLanguageName} from '../flags.js';
@@ -406,6 +406,8 @@ export function scanView(root) {
 	const LABEL_SETTLE_MS = 60000;
 	let where = new Map();
 	let spareIds = new Set();
+	// The copies in use in a binder (js/binders.js heldCopies), never spares.
+	let heldIds = new Set();
 	let outResults = new Map();
 	let owned = new Map();
 	let family = [];
@@ -1001,16 +1003,20 @@ export function scanView(root) {
 			ownState = 'failed';
 		}
 
-		// For the trade tray's cards going out: where each copy is, and which
-		// are spares.
+		// For the trade tray's cards going out: where each copy is, which are
+		// in use in a binder, and which are spares.
 		try {
-			where = T.copyWhere(await listBinders());
+			const doc = await loadDocument();
+
+			where = T.copyWhere(doc.binders || []);
+			heldIds = heldCopies(doc);
 		}
 		catch {
 			where = new Map();
+			heldIds = new Set();
 		}
 
-		spareIds = new Set(spareEntries(ownCards, {held: T.inPockets(where)}).map((entry) => entry.id));
+		spareIds = new Set(spareEntries(ownCards, {held: heldIds}).map((entry) => entry.id));
 
 		try {
 			placeholders = await waitingPlaceholderList();
@@ -1181,7 +1187,7 @@ export function scanView(root) {
 	// The trade tray (js/scan/trade-sheets.js tradeColumns) in place of the
 	// Add tray's tiles, and Log <n> cards in place of Done.
 	function drawTrade() {
-		outResults = T.outCopies(session, ownCards, {known: ownState, where});
+		outResults = T.outCopies(session, ownCards, {held: heldIds, known: ownState, where});
 
 		const sum = T.tradeSummary(session, outResults);
 		// Short: the columns count the cards on each side.

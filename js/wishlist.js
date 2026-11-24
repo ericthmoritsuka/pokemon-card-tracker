@@ -287,12 +287,12 @@ export const ownedCopies = (item, cards) => (cards || []).filter((entry) => copy
 
 // A copy in a binder's pocket is never a spare (Eric, 2026-11-24: three
 // Salamences, one in the 30 anos binder, one in Hoenn, one loose, are one
-// spare, not two). held: the copies in a pocket, anything with has(entry
-// id), such as js/binders.js placements(); left out, no copy is held. A
-// held copy is also the copy kept, so a card with a copy in a binder keeps
-// no other: one in Hoenn and one loose leaves the loose one a spare. Only
-// hand-made binders hold copies, since a binder made from a list only shows
-// them (js/binder-rules.js).
+// spare, not two). held: the copies in use in a pocket, anything with
+// has(entry id), from js/binders.js heldCopies: a hand-made binder's copies
+// and the copy on top of each pocket of a binder made from a list, not the
+// copies under it. Left out, no copy is held. A held copy is also the copy
+// kept, so a card with a copy in a binder keeps no other: one in Hoenn and
+// one loose leaves the loose one a spare.
 const NONE_HELD = new Set();
 
 // How many spares of an item the cards hold. A spare is every copy beyond
