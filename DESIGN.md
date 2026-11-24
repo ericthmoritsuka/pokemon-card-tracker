@@ -4393,6 +4393,25 @@ set them again. A merge copies every field of a copy, and an edit changes a copy
 in place, so `left_via` and `came_via` survive an older phone's save; it shows the copies as any
 other. A copy an older phone changed after it came in counts as changed, so Undo keeps it.
 
+**The Shop on HOTARU** (Eric, 2026-11-24; the full plan is `plans/hotaru-catalog-plan.md`). The
+Shop prices the spares Eric sells on HOTARU, and only a priced spare is listed. Which copies are
+spares is decided per card and language, as above, but **each finish has its own row and price**:
+a reverse holo or a holo sells for more than the plain card (`js/shop.js` `shopKey`, card,
+language, and finish). A finish is told apart by what the copy stores, its variant ID, else its
+monprice word (`finish_raw`), else none set. On HOTARU each finish is its own listing, and every
+finish but plain Normal carries a tag on its picture. A hand-made copy of a card the catalog lists
+counts as a copy of that card (`catalogTwins`), and a card the catalog has no picture for is listed
+with the owner's own photo (`own/<photo id>` in the store bucket).
+
+*Known limitation, not a bug:* a hand-made copy stores its finish as a monprice word and a scanned
+one as a variant ID, so a hand-made reverse holo and a scanned reverse holo of the same card are
+two Shop rows, both named Reverse holo, each with its own price, and HOTARU shows them as one
+listing with two buy lines. Nothing is lost. The card page's **Link** moves the hand-made copy onto
+the catalog card but keeps its word (`js/custom-card.js` `linkPatches` leaves `finish_raw`), so the
+rows join only once the copy's finish is picked from the catalog's printings on its sheet, which
+stores the variant ID and clears the word (`js/copy-sheet.js`). Merging by finish name would guess
+across the two finish systems, so the Shop does not. *(Decided 2026-11-24.)*
+
 ### Stats
 
 **A Stats screen for the collection** (2026-11-19, from a survey of other trackers). `stats` shows

@@ -115,7 +115,20 @@ export async function uploadOwnPicture(photo, path, {url = photoUrl} = {}) {
 		return false;
 	}
 
-	const blob = await (await fetch(objectUrl)).blob();
+	// A read that fails, or brings nothing, is no photo: nothing is sent, and
+	// the listing stays without a picture, as for a photo not found.
+	const response = await fetch(objectUrl).catch(() => null);
+
+	if (!response || !response.ok) {
+		return false;
+	}
+
+	const blob = await response.blob();
+
+	if (!blob.size) {
+		return false;
+	}
+
 	const client = await getClient();
 	const {error} = await client.storage.from(STORE_BUCKET).upload(path, blob, {
 		cacheControl: '31536000',
