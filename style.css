@@ -2478,12 +2478,13 @@ progress {
 	border-radius: var(--radius-pill);
 	color: var(--header-text);
 	display: inline-block;
-	flex: 0 1 auto;
+	/* "Mine" never shrinks; only a long member name is cut short. */
+	flex: 0 0 auto;
 	line-height: 38px;
 	font: var(--type-label);
 	font-size: 0.875rem;
 	gap: var(--space-1);
-	max-width: 40%;
+	max-width: 9rem;
 	min-height: 40px;
 	overflow: hidden;
 	padding: 0 var(--space-3);
@@ -2503,24 +2504,22 @@ progress {
 	color: var(--owned-ink);
 }
 
-/* Shop: the family owner's way to the HOTARU Shop (js/shop-owner.js). Under
-   360 px, with the "Mine" switcher beside it, only the bag shows. */
+/* Shop: the family owner's way to the HOTARU Shop (js/shop-owner.js). A
+   bag in a circle the avatar's size at every width, so it never pushes the
+   title or the "Mine" switcher out of room; the word stays for screen
+   readers. Filled while the Shop is open. */
 .shop-link {
 	align-items: center;
 	border: 1px solid var(--header-line);
-	border-radius: var(--radius-pill);
+	border-radius: 50%;
 	color: var(--header-text);
 	display: inline-flex;
 	flex: 0 0 auto;
-	font: var(--type-label);
-	font-size: 0.875rem;
-	gap: var(--space-1);
+	height: 44px;
 	justify-content: center;
-	min-height: 40px;
-	min-width: 40px;
-	padding: 0 var(--space-3);
+	padding: 0;
 	text-decoration: none;
-	white-space: nowrap;
+	width: 44px;
 }
 
 .shop-link[aria-current="page"] {
@@ -2532,28 +2531,30 @@ progress {
 .shop-link-icon {
 	fill: none;
 	flex: none;
-	height: 20px;
+	height: 22px;
 	stroke: currentColor;
 	stroke-linecap: round;
 	stroke-linejoin: round;
 	stroke-width: 1.8;
-	width: 20px;
+	width: 22px;
 }
 
-@media (max-width: 359px) {
-	.owner-switch:not([hidden]) ~ .shop-link {
-		padding: 0 var(--space-2);
-	}
+.shop-link-text {
+	border: 0;
+	clip: rect(0 0 0 0);
+	height: 1px;
+	margin: -1px;
+	overflow: hidden;
+	position: absolute;
+	white-space: nowrap;
+	width: 1px;
+}
 
-	.owner-switch:not([hidden]) ~ .shop-link .shop-link-text {
-		border: 0;
-		clip: rect(0 0 0 0);
-		height: 1px;
-		margin: -1px;
-		overflow: hidden;
-		position: absolute;
-		white-space: nowrap;
-		width: 1px;
+/* Under 380 px, with the "Mine" switcher and Shop beside it, the title is
+   worth more than the app icon. */
+@media (max-width: 379px) {
+	.top:has(#owner-switch:not([hidden])) .brand-mark {
+		display: none;
 	}
 }
 
