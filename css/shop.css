@@ -112,3 +112,23 @@
 	font-weight: 400;
 	opacity: 0.8;
 }
+
+/* Prices typed and not saved yet: the row is marked, and the bar above the
+   tabs saves or discards them all. .actions shows as a grid, so the hidden
+   bar needs saying so. */
+.shop-dirty {
+	box-shadow: inset 3px 0 0 var(--accent, currentColor);
+}
+
+.shop-draft {
+	font-size: 0.9em;
+	font-weight: 600;
+}
+
+.shop-savebar[hidden] {
+	display: none;
+}
+
+.shop-save-status:empty {
+	display: none;
+}

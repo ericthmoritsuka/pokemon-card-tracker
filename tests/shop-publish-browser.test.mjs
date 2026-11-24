@@ -191,7 +191,7 @@ describe('Shop publishing', () => {
 		assert.equal(store.listings.size, 0);
 
 		await page.fill(`${CHARMANDER_EN} .shop-price-input`, '2,30');
-		await page.click(`${CHARMANDER_EN} .shop-save`);
+		await page.click('#shop-save-all');
 		await waitLine(page, /^On HOTARU: 1 card, 2 spares\.$/);
 
 		// Charmander EN has three copies; the first added is kept.
@@ -218,6 +218,7 @@ describe('Shop publishing', () => {
 
 		// Clearing the price withdraws the free copy only.
 		await page.click(`${CHARMANDER_EN} .shop-clear`);
+		await page.click('#shop-save-all');
 		await waitLine(page, /^Nothing on HOTARU yet/);
 		assert.equal(store.listings.get('c-03').status, 'reserved');
 		assert.equal(store.listings.get('c-04').status, 'withdrawn');

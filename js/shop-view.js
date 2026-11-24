@@ -10,9 +10,15 @@
 // supabase/store.sql), with each card's name in its copies' language and its
 // picture copied once into the shop's public bucket.
 //
-// Pricing many at once: search and filter the rows, then Price all shown,
-// for "every 30th Anniversary common is R$ 1,00". The numbers are
-// js/shop.js; styles are css/shop.css.
+// Typing a price saves nothing by itself (Eric, 2026-11-24: "enter the
+// prices and press save at the end"). Each typed price is a draft, kept on
+// this tab (sessionStorage) so a search, a filter, or a trip to a card page
+// and Back keeps it; Enter moves to the next card's field. The bar above the
+// tabs saves every draft in one write, with one Undo, or discards them. A
+// draft that cannot be read stops the whole save and says where. Fill all
+// shown types one price into every card the search and filters show, for
+// "every 30th Anniversary common is R$ 1,00", as drafts too. The numbers
+// are js/shop.js; styles are css/shop.css.
 //
 // Route (app.js ROUTES):
 //   shop     your spares, priced for sale
@@ -31,6 +37,8 @@ import {publishErrorText, syncListings, uploadPicture} from './store-publish.js'
 import {onSyncStatus, syncStatus} from './sync.js';
 
 const SHOW_KEY = 'cardTracker.shopShow';
+// The prices typed and not saved yet, {<group key>: <text as typed>}.
+const DRAFTS_KEY = 'cardTracker.shopDrafts';
 const SHOW_LABELS = {all: 'All', priced: 'Priced', unpriced: 'Not priced'};
 // Reading the prices of cards never read before stops after this many
 // failures in a row (offline, or TCGdex failing), as My Cards' pass does.
@@ -53,6 +61,31 @@ function keepShow(value) {
 	}
 	catch {
 		// Not kept; the next visit starts at Not priced.
+	}
+}
+
+function readDrafts() {
+	try {
+		const value = JSON.parse(sessionStorage.getItem(DRAFTS_KEY) || '{}');
+
+		return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+	}
+	catch {
+		return {};
+	}
+}
+
+function keepDrafts(drafts) {
+	try {
+		if (drafts.size) {
+			sessionStorage.setItem(DRAFTS_KEY, JSON.stringify(Object.fromEntries(drafts)));
+		}
+		else {
+			sessionStorage.removeItem(DRAFTS_KEY);
+		}
+	}
+	catch {
+		// Not kept past this screen; the bar still saves them.
 	}
 }
 
@@ -84,6 +117,9 @@ export function shopView(root) {
 	let publishAgain = false;
 	// Waiting for the sync to settle before publishing, and its listener.
 	let stopWaiting = null;
+	// The prices typed and not saved yet, by group key, as typed.
+	const drafts = new Map(Object.entries(readDrafts()).filter(([, text]) => typeof text === 'string'));
+	let saving = false;
 	const publishLine = h('p', {'aria-live': 'polite', class: 'muted shop-publish', id: 'shop-publish'});
 
 	const summary = h('p', {class: 'muted shop-summary', id: 'shop-summary'}, 'Reading your spares…');
@@ -101,14 +137,27 @@ export function shopView(root) {
 		))
 	);
 	const bulkInput = h('input', {'aria-label': 'Price for every card shown', autocomplete: 'off', class: 'search shop-price-input', id: 'shop-bulk-price', inputmode: 'decimal', placeholder: '1,00', type: 'text'});
-	const bulkButton = h('button', {class: 'small', id: 'shop-bulk-set', type: 'submit'}, 'Price all shown');
+	const bulkButton = h('button', {class: 'small', id: 'shop-bulk-set', type: 'submit'}, 'Fill all shown');
 	const bulkError = h('p', {class: 'form-error', hidden: true, id: 'shop-bulk-error', role: 'alert'});
 	const bulk = h('form', {class: 'shop-bulk', id: 'shop-bulk', onsubmit: (event) => {
 		event.preventDefault();
-		priceShown();
+		fillShown();
 	}}, h('label', {class: 'shop-bulk-label', for: 'shop-bulk-price'}, 'R$'), bulkInput, bulkButton);
 	const list = h('ul', {'aria-label': 'Your spares', class: 'shop-list', id: 'shop-list'});
 	const empty = h('p', {class: 'muted', hidden: true, id: 'shop-empty'});
+	const saveStatus = h('p', {'aria-live': 'polite', class: 'status shop-save-status', id: 'shop-save-status'});
+	const discardButton = h('button', {id: 'shop-discard', onclick: () => discard(), type: 'button'}, 'Discard');
+	const saveButton = h('button', {class: 'primary', id: 'shop-save-all', onclick: () => saveAll(), type: 'button'}, 'Save');
+	const saveBar = h('div', {class: 'actions shop-savebar', hidden: true, id: 'shop-savebar'}, saveStatus, discardButton, saveButton);
+	// Closing the tab with prices typed and not saved asks first.
+	const warnUnsaved = (event) => {
+		if (drafts.size) {
+			event.preventDefault();
+			event.returnValue = '';
+		}
+	};
+
+	window.addEventListener('beforeunload', warnUnsaved);
 
 	search.addEventListener('input', () => {
 		query = search.value;
@@ -133,7 +182,8 @@ export function shopView(root) {
 		bulk,
 		bulkError,
 		list,
-		empty
+		empty,
+		saveBar
 	);
 
 	// Each group's name, set, and rarity, worked out once per load.
@@ -226,45 +276,78 @@ export function shopView(root) {
 		return mark ? h('p', {class: `shop-mark shop-mark-${mark}`}, MARKS[mark]) : null;
 	}
 
+	const rowId = (group) => `shop-${group.key.replace(/[^a-z0-9]+/gi, '-')}`;
+
+	// The text a row's field shows: its draft, else its saved price.
+	const fieldText = (group) => (drafts.has(group.key) ? drafts.get(group.key) : priceForInput(group.price));
+
+	// Keeps what was typed as a draft, or drops the draft when it says what
+	// is saved already.
+	function setDraft(group, text) {
+		const typed = parsePrice(text);
+		const same = !typed.error && typed.value === group.price;
+
+		if (same) {
+			drafts.delete(group.key);
+		}
+		else {
+			drafts.set(group.key, text);
+		}
+
+		keepDrafts(drafts);
+
+		const element = rows.get(group.key);
+
+		if (element) {
+			element.classList.toggle('shop-dirty', !same);
+			element.querySelector('.shop-draft').hidden = same;
+			element.querySelector('.form-error').hidden = true;
+		}
+
+		drawSaveBar();
+	}
+
+	// Enter goes to the next card's field, then to Save.
+	function nextField(input) {
+		const fields = [...list.querySelectorAll('.shop-price-input')];
+		const next = fields[fields.indexOf(input) + 1];
+
+		(next || (saveBar.hidden ? input : saveButton)).focus();
+	}
+
 	function row(group) {
 		const {info} = group;
-		const id = `shop-${group.key.replace(/[^a-z0-9]+/gi, '-')}`;
-		const input = h('input', {'aria-describedby': `${id}-error`, 'aria-label': `Sale price for ${info.name}`, autocomplete: 'off', class: 'search shop-price-input', id: `${id}-price`, inputmode: 'decimal', placeholder: 'Not priced', type: 'text', value: priceForInput(group.price)});
+		const id = rowId(group);
+		const dirty = drafts.has(group.key);
+		const input = h('input', {'aria-describedby': `${id}-error`, 'aria-label': `Sale price for ${info.name}`, autocomplete: 'off', class: 'search shop-price-input', enterkeyhint: 'next', id: `${id}-price`, inputmode: 'decimal', placeholder: 'Not priced', type: 'text', value: fieldText(group)});
 		const error = h('p', {class: 'form-error', hidden: true, id: `${id}-error`, role: 'alert'});
 		const found = suggestion(group, recordOf(group), {euroRates: euroRate, rates});
+		const fill = (text) => {
+			input.value = text;
+			setDraft(group, text);
+			input.focus();
+		};
 		const use = found.use !== null
-			? h('button', {class: 'small shop-use', onclick: () => {
-				input.value = priceForInput(found.use);
-				input.focus();
-			}, type: 'button'}, `Use ${formatBrl(found.use)}`)
+			? h('button', {class: 'small shop-use', onclick: () => fill(priceForInput(found.use)), type: 'button'}, `Use ${formatBrl(found.use)}`)
 			: null;
-		const clear = group.price !== null
-			? h('button', {class: 'small shop-clear', onclick: () => savePrice([group], null, {label: info.name}), type: 'button'}, 'Clear')
-			: null;
-		const form = h('form', {class: 'shop-price', onsubmit: (event) => {
-			event.preventDefault();
+		const clear = h('button', {class: 'small shop-clear', onclick: () => fill(''), type: 'button'}, 'Clear');
 
-			const typed = parsePrice(input.value);
-
-			if (typed.error) {
-				error.textContent = typed.error;
-				error.hidden = false;
-				input.focus();
-
-				return;
+		input.addEventListener('input', () => setDraft(group, input.value));
+		input.addEventListener('keydown', (event) => {
+			if (event.key === 'Enter') {
+				event.preventDefault();
+				nextField(input);
 			}
+		});
 
-			error.hidden = true;
-			savePrice([group], typed.value, {label: info.name});
-		}},
-		h('span', {'aria-hidden': 'true', class: 'shop-currency'}, 'R$'),
-		input,
-		h('button', {class: 'small primary shop-save', type: 'submit'}, 'Save'),
-		use,
-		clear);
+		const form = h('div', {class: 'shop-price'},
+			h('span', {'aria-hidden': 'true', class: 'shop-currency'}, 'R$'),
+			input,
+			use,
+			clear);
 
 		const meta = [info.number ? `#${info.number}` : null, info.setName, languageLabel(group.language), group.rarity, plural(group.spares.length, 'spare', 'spares')].filter(Boolean).join(' · ');
-		const element = h('li', {class: `card shop-row${group.price === null ? ' shop-unpriced' : ''}`, 'data-key': group.key, id},
+		const element = h('li', {class: `card shop-row${group.price === null ? ' shop-unpriced' : ''}${dirty ? ' shop-dirty' : ''}`, 'data-key': group.key, id},
 			info.image
 				? h('img', {alt: '', class: 'shop-art', decoding: 'async', loading: 'lazy', onerror: (event) => event.target.replaceWith(h('div', {'aria-hidden': 'true', class: 'shop-art shop-art-none'})), src: info.image})
 				: h('div', {'aria-hidden': 'true', class: 'shop-art shop-art-none'}),
@@ -272,6 +355,7 @@ export function shopView(root) {
 				h('a', {class: 'shop-name', 'data-link': info.route, href: BASE + info.route}, info.name),
 				h('p', {class: 'muted shop-meta'}, meta),
 				h('p', {class: 'shop-state'}, group.price !== null ? `For sale at ${formatBrl(group.price)} each` : 'Not priced: not offered'),
+				h('p', {class: 'shop-draft', hidden: !dirty}, 'Changed, not saved yet'),
 				markNode(group),
 				suggestionNode(group),
 				form,
@@ -295,7 +379,7 @@ export function shopView(root) {
 			: show === 'unpriced' && !query && !setFilter && !rarityFilter
 				? 'Every spare is priced.'
 				: 'No spares match.';
-		bulkButton.textContent = visible.length ? `Price all ${formatCount(visible.length)} shown` : 'Price all shown';
+		bulkButton.textContent = visible.length ? `Fill all ${formatCount(visible.length)} shown` : 'Fill all shown';
 		bulkButton.disabled = !visible.length;
 	}
 
@@ -310,11 +394,9 @@ export function shopView(root) {
 				continue;
 			}
 
-			const typed = element.querySelector('.shop-price-input').value;
 			const hadFocus = element.contains(document.activeElement);
 			const fresh = row(group);
 
-			fresh.querySelector('.shop-price-input').value = typed;
 			element.replaceWith(fresh);
 
 			if (hadFocus) {
@@ -323,39 +405,115 @@ export function shopView(root) {
 		}
 	}
 
-	async function savePrice(targets, price, {label}) {
-		const patches = pricePatches(targets, price);
+	function drawSaveBar() {
+		const n = drafts.size;
 
-		if (!patches.length) {
-			toast(price === null ? `${label} has no price.` : `${label} is already ${formatBrl(price)}.`);
+		saveBar.hidden = !n;
+		saveButton.textContent = n === 1 ? 'Save 1 price' : `Save ${formatCount(n)} prices`;
+		saveButton.disabled = saving;
+		discardButton.disabled = saving;
+
+		if (!saving) {
+			saveStatus.textContent = '';
+		}
+	}
+
+	// Saves every draft in one write, or none: a draft that cannot be read
+	// stops the save, says so in its row, and takes the focus there.
+	async function saveAll() {
+		if (saving || !drafts.size) {
+			return;
+		}
+
+		const byKey = new Map(groups.map((group) => [group.key, group]));
+		const changes = [];
+		const bad = [];
+
+		for (const [key, text] of drafts) {
+			const group = byKey.get(key);
+
+			if (!group) {
+				// No longer a spare: nothing to price.
+				drafts.delete(key);
+				continue;
+			}
+
+			const typed = parsePrice(text);
+
+			if (typed.error) {
+				bad.push(group);
+			}
+			else {
+				changes.push({group, price: typed.value});
+			}
+		}
+
+		if (bad.length) {
+			for (const group of bad) {
+				const element = rows.get(group.key);
+
+				if (element) {
+					const error = element.querySelector('.form-error');
+
+					error.textContent = PRICE_FORM_TEXT;
+					error.hidden = false;
+				}
+			}
+
+			const first = bad.map((group) => rows.get(group.key)).find(Boolean);
+
+			saveStatus.textContent = `${bad.length === 1 ? '1 price needs' : `${formatCount(bad.length)} prices need`} fixing first${first ? '' : ': clear the search and filters to see them'}. Nothing was saved.`;
+
+			if (first) {
+				first.querySelector('.shop-price-input').focus();
+			}
 
 			return;
 		}
 
-		const undo = undoPricePatches(targets, patches);
+		const patches = changes.flatMap(({group, price}) => pricePatches([group], price));
+		const undo = undoPricePatches(changes.map(({group}) => group), patches);
+		const n = changes.length;
+
+		saving = true;
+		drawSaveBar();
+		saveStatus.textContent = 'Saving…';
 
 		try {
-			await updateCards(patches);
+			if (patches.length) {
+				await updateCards(patches);
+			}
 		}
 		catch (err) {
-			toast(`Price not saved. ${errorText(err)}`);
+			saving = false;
+			drawSaveBar();
+			saveStatus.textContent = `Not saved. ${errorText(err)}`;
 
 			return;
 		}
 
+		drafts.clear();
+		keepDrafts(drafts);
+		saving = false;
 		await reload();
 		publish();
 
-		const words = price === null ? `${label}: price cleared.` : `${label}: ${formatBrl(price)}.`;
-
-		toast(words, {
-			action: () => updateCards(undo).then(reload).then(publish).catch((err) => toast(`Price not put back. ${errorText(err)}`)),
+		toast(n === 1 ? '1 price saved.' : `${formatCount(n)} prices saved.`, {
+			action: () => updateCards(undo).then(reload).then(publish).catch((err) => toast(`Prices not put back. ${errorText(err)}`)),
 			actionLabel: 'Undo',
 			timeout: 8000,
 		});
 	}
 
-	function priceShown() {
+	function discard() {
+		drafts.clear();
+		keepDrafts(drafts);
+		drawList();
+		drawSaveBar();
+	}
+
+	// Types one price into every card shown, as drafts.
+	function fillShown() {
 		const typed = parsePrice(bulkInput.value);
 		const visible = shown();
 
@@ -368,7 +526,19 @@ export function shopView(root) {
 		}
 
 		bulkError.hidden = true;
-		savePrice(visible, typed.value, {label: plural(visible.length, 'card', 'cards')});
+
+		for (const group of visible) {
+			if (group.price === typed.value) {
+				drafts.delete(group.key);
+			}
+			else {
+				drafts.set(group.key, priceForInput(typed.value));
+			}
+		}
+
+		keepDrafts(drafts);
+		drawList();
+		drawSaveBar();
 	}
 
 	// A copy's finish as the catalog names it: the card's listed finish, else
@@ -531,9 +701,22 @@ export function shopView(root) {
 		groups.sort((a, b) => (a.info.setName || '').localeCompare(b.info.setName || '')
 			|| compareNumbers(a.info.number || '', b.info.number || '')
 			|| a.language.localeCompare(b.language));
+		// A draft for a card that is no longer a spare, or that now says what
+		// is saved (another phone saved it), is dropped.
+		for (const [key, text] of drafts) {
+			const group = groups.find((one) => one.key === key);
+			const typed = parsePrice(text);
+
+			if (!group || (!typed.error && typed.value === group.price)) {
+				drafts.delete(key);
+			}
+		}
+
+		keepDrafts(drafts);
 		drawSummary();
 		drawSelects();
 		drawList();
+		drawSaveBar();
 	}
 
 	// The full records of cards never read before, for their suggestions:
@@ -603,6 +786,7 @@ export function shopView(root) {
 
 	return () => {
 		alive = false;
+		window.removeEventListener('beforeunload', warnUnsaved);
 
 		if (stopWaiting) {
 			stopWaiting();
