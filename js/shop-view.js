@@ -27,7 +27,7 @@ import {currentUser} from './auth.js';
 import {entryInfo} from './binders-view.js';
 import {heldCopies} from './binders.js';
 import {loadedSpeciesNames} from './catalog-views.js';
-import {cardIndex, compareNumbers, indexKey, pricesDue, readPriceRecord, savedCardRecords, viewingLanguage} from './catalog.js';
+import {cardIndex, compareNumbers, indexKey, pricesDue, printedSetCode, readPriceRecord, savedCardRecords, viewingLanguage} from './catalog.js';
 import {listCards, loadDocument, updateCards} from './collection.js';
 import {BASE, errorText, h} from './dom.js';
 import {formatCount, plural} from './format.js';
@@ -268,12 +268,18 @@ export function shopView(root) {
 		);
 	}
 
+	// A set's option leads with its printed code, "(CRI) Caos Ascendente"
+	// (Eric, 2026-11-24: he keeps his cards apart by set), and stays sorted
+	// by name. A set with no known code shows its name alone.
 	function drawSelects() {
 		const sets = new Map();
 
 		for (const group of groups) {
 			if (group.set_id && !sets.has(group.set_id)) {
-				sets.set(group.set_id, group.info.setName || group.set_id);
+				const name = group.info.setName || group.set_id;
+				const code = printedSetCode(group.catalog, group.set_id);
+
+				sets.set(group.set_id, {label: code ? `(${code}) ${name}` : name, name});
 			}
 		}
 
@@ -287,7 +293,7 @@ export function shopView(root) {
 			rarityFilter = '';
 		}
 
-		fillSelect(setSelect, 'Every set', [...sets].sort((a, b) => a[1].localeCompare(b[1])), setFilter);
+		fillSelect(setSelect, 'Every set', [...sets].sort((a, b) => a[1].name.localeCompare(b[1].name)).map(([id, set]) => [id, set.label]), setFilter);
 		fillSelect(raritySelect, 'Every rarity', rarities.map((rarity) => [rarity, rarity]), rarityFilter);
 	}
 

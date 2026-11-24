@@ -224,13 +224,21 @@ async function cached(key, load, onUpdate, {revalidate = true} = {}) {
 // The printed set codes of the international sets, which a set brief does
 // not carry (TCGdex keeps abbreviation.official on the full set record, one
 // request per set), so a collector can search "MEW" or "CRI". A brief that
-// does carry the abbreviation wins over this table.
+// does carry the abbreviation wins over this table. Every code here is
+// TCGdex's abbreviation.official for that ID (checked 2026-11-24). Card
+// search reads a word equal to a code as the set, so a short code that is
+// also a common word (EX, SV, DP, XY) stays out of it.
 const PRINTED_CODES = {
-	me01: 'MEG', me02: 'PFL', 'me02.5': 'ASC', me03: 'POR', me04: 'CRI',
+	me01: 'MEG', me02: 'PFL', 'me02.5': 'ASC', me03: 'POR', me04: 'CRI', me05: 'PBL', me06: 'DLR',
 	sv01: 'SVI', sv02: 'PAL', sv03: 'OBF', 'sv03.5': 'MEW', sv04: 'PAR', 'sv04.5': 'PAF', sv05: 'TEF', sv06: 'TWM', 'sv06.5': 'SFA', sv07: 'SCR', sv08: 'SSP', 'sv08.5': 'PRE', sv09: 'JTG', sv10: 'DRI', 'sv10.5b': 'BLK', 'sv10.5w': 'WHT',
 	swsh1: 'SSH', swsh2: 'RCL', swsh3: 'DAA', 'swsh3.5': 'CPA', swsh4: 'VIV', 'swsh4.5': 'SHF', swsh5: 'BST', swsh6: 'CRE', swsh7: 'EVS', swsh8: 'FST', swsh9: 'BRS', swsh10: 'ASR', 'swsh10.5': 'PGO', swsh11: 'LOR', swsh12: 'SIT', 'swsh12.5': 'CRZ',
-	sm1: 'SUM', sm2: 'GRI', sm3: 'BUS', 'sm3.5': 'SLG', sm4: 'CIN', sm5: 'UPR', sm6: 'FLI', sm7: 'CES', 'sm7.5': 'DRM', sm8: 'LOT', sm9: 'TEU', sm10: 'UNB', sm11: 'UNM', 'sm11.5': 'HIF', sm12: 'CEC',
+	sm1: 'SUM', sm2: 'GRI', sm3: 'BUS', 'sm3.5': 'SLG', sm4: 'CIN', sm5: 'UPR', sm6: 'FLI', sm7: 'CES', 'sm7.5': 'DRM', sm8: 'LOT', sm9: 'TEU', sm10: 'UNB', sm11: 'UNM', sm115: 'HIF', sm12: 'CEC',
 };
+
+// The code printed on an international set's cards ("CRI" for me04), or
+// null. Offline-safe: it needs no set list. The Japanese, Korean, and
+// Chinese catalogs have none here.
+export const printedSetCode = (catalog, setId) => (catalog === 'international' && Object.hasOwn(PRINTED_CODES, setId) && PRINTED_CODES[setId]) || null;
 
 // A Western set's English logo, for a language TCGdex has no logo for
 // (2026-11-20: Fagulhas Impetuosas, Fogo Branco, Raio Preto, and EX O
