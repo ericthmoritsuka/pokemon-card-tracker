@@ -18,6 +18,7 @@ import {
 	sameNumber,
 	sortWishes,
 	spareCopiesFor,
+	spareEntries,
 	sparesFor,
 	tradeIdeas,
 	variantLabel,
@@ -147,6 +148,48 @@ describe('spares', () => {
 		assert.equal(sparesFor(item, [copy('a', 'sv08.5-003', {language: 'pt', variant_id: NORMAL}), copy('b', 'sv08.5-003', {language: 'pt', variant_id: NORMAL})]), 0);
 		assert.equal(sparesFor(item, [copy('a', 'sv08.5-003', {language: 'pt', variant_id: REVERSE}), copy('b', 'sv08.5-003', {language: 'pt', variant_id: REVERSE})]), 1);
 		assert.equal(sparesFor(item, [copy('a', 'sv08.5-003', {language: 'pt', variant_id: REVERSE})]), 0, 'the only copy is a keeper');
+	});
+});
+
+describe('copies in a binder are never spares (Eric, 2026-11-24)', () => {
+	// Three Salamences: one in the 30 anos binder, one in Hoenn, one loose.
+	const salamence = (id, fields = {}) => copy(id, 'sv08-117', {created_at: at(Number(id.slice(1))), language: 'pt', ...fields});
+	const three = [salamence('s1'), salamence('s2'), salamence('s3')];
+
+	test('three copies with two in binders are one spare, the loose one', () => {
+		const held = new Set(['s1', 's3']);
+
+		assert.equal(sparesFor(wish('w', 'sv08-117', {language: 'pt'}), three, {held}), 1);
+		assert.deepEqual(spareEntries(three, {held}).map((entry) => entry.id), ['s2']);
+		assert.deepEqual(spareCopiesFor(wish('w', 'sv08-117'), three, {held}).map((entry) => entry.id), ['s2']);
+	});
+
+	test('a copy in a binder is the one kept, so a loose copy beside it is a spare', () => {
+		const held = new Set(['s1']);
+
+		assert.deepEqual(spareEntries(three, {held}).map((entry) => entry.id), ['s2', 's3'], 'not the keeper s1 alone: s1 is in the binder');
+		assert.deepEqual(spareEntries([salamence('s1'), salamence('s2', {is_favorite: true})], {held}).map((entry) => entry.id), ['s2'], 'even a favorite loose copy, since the binder copy is kept');
+	});
+
+	test('every copy in binders leaves no spare, and no binder keeps today\'s rule', () => {
+		assert.deepEqual(spareEntries(three, {held: new Set(['s1', 's2', 's3'])}), []);
+		assert.deepEqual(spareEntries(three).map((entry) => entry.id), ['s2', 's3']);
+		assert.deepEqual(spareEntries(three, {held: new Map()}).map((entry) => entry.id), ['s2', 's3'], 'placements() is a Map');
+	});
+
+	test('a binder holds a copy in its own language only', () => {
+		const cards = [salamence('s1'), salamence('s2'), salamence('s3', {language: 'en'}), salamence('s4', {language: 'en'})];
+
+		assert.deepEqual(spareEntries(cards, {held: new Set(['s3'])}).map((entry) => entry.id).sort(), ['s2', 's4']);
+	});
+
+	test('a wished finish is offered only from loose copies', () => {
+		const item = wish('w', 'sv08-117', {language: 'pt', variantId: REVERSE});
+		const cards = [salamence('s1', {variant_id: NORMAL}), salamence('s2', {variant_id: REVERSE}), salamence('s3', {variant_id: REVERSE})];
+
+		assert.deepEqual(spareCopiesFor(item, cards, {held: new Set(['s2'])}).map((entry) => entry.id), ['s3']);
+		assert.equal(sparesFor(item, cards, {held: new Set(['s2', 's3'])}), 0, 'the normal is loose but not the finish wished');
+		assert.deepEqual(tradeIdeas([item], cards, {held: new Set(['s2', 's3'])}), []);
 	});
 });
 

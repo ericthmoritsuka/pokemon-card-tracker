@@ -25,6 +25,7 @@ import {
 	signInWithName,
 	signOut,
 } from './auth.js';
+import {placements} from './binders.js';
 import {canShareFiles, exportCollection} from './cards-view.js';
 import {dexLabel, MAX_DEX, nameOf, pokemonNames, spriteUrl, validDex} from './checklists.js';
 import {BASE, errorText, go, h} from './dom.js';
@@ -556,10 +557,11 @@ export function profileView(root) {
 	async function countIdeas(list) {
 		const [{members}, doc] = await Promise.all([cachedFamilyWishlists(), loadDocument()]);
 		const cards = (doc.cards || []).filter(isLive);
+		const held = placements(doc.binders || []);
 
 		for (const member of members) {
 			const line = list.querySelector(`li[data-user-id="${CSS.escape(member.user_id)}"] .member-ideas-count`);
-			const n = tradeIdeas(member.wishlist, cards).length;
+			const n = tradeIdeas(member.wishlist, cards, {held}).length;
 
 			if (line && alive) {
 				line.hidden = !n;

@@ -58,6 +58,15 @@ describe('shopGroups', () => {
 		assert.equal(groups[0].set_id, 'sv10');
 	});
 
+	test('a copy in a binder is never listed (Eric, 2026-11-24)', () => {
+		const cards = [copy('a'), copy('bb'), copy('ccc')];
+		const [group] = shopGroups(cards, {held: new Set(['a', 'ccc'])});
+
+		assert.deepEqual(group.spares.map((entry) => entry.id), ['bb'], 'three copies, two in binders: one for sale');
+		assert.deepEqual(group.copies.map((entry) => entry.id).sort(), ['a', 'bb', 'ccc'], 'the price still goes on every copy');
+		assert.deepEqual(shopGroups(cards, {held: new Set(['a', 'bb', 'ccc'])}), [], 'all in binders: nothing for sale');
+	});
+
 	test('the price is the spares\' first, else any copy\'s', () => {
 		const [group] = shopGroups([copy('a', {sale_price: 3}), copy('bb'), copy('ccc')]);
 

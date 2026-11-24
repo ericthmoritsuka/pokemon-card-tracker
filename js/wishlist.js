@@ -285,56 +285,38 @@ export function copyFits(item, entry) {
 // The live card entries that satisfy an item: "You have this now".
 export const ownedCopies = (item, cards) => (cards || []).filter((entry) => copyFits(item, entry));
 
+// A copy in a binder's pocket is never a spare (Eric, 2026-11-24: three
+// Salamences, one in the 30 anos binder, one in Hoenn, one loose, are one
+// spare, not two). held: the copies in a pocket, anything with has(entry
+// id), such as js/binders.js placements(); left out, no copy is held. A
+// held copy is also the copy kept, so a card with a copy in a binder keeps
+// no other: one in Hoenn and one loose leaves the loose one a spare. Only
+// hand-made binders hold copies, since a binder made from a list only shows
+// them (js/binder-rules.js).
+const NONE_HELD = new Set();
+
 // How many spares of an item the cards hold. A spare is every copy beyond
 // the first of the same card in the same language, whatever its variant
-// (DESIGN.md section 3, Trade). So in each language the item accepts, one
-// copy is kept and the rest are spares; when the item names a finish, only
-// copies in that finish count, and the copy kept is a different one where
-// there is one (one normal and one reverse holo in PT: the reverse holo can
-// go).
-export function sparesFor(item, cards) {
-	const byLanguage = new Map();
-
-	for (const entry of cards || []) {
-		if (!isLive(entry) || entry.card_id !== item.card_id || entryCatalog(entry) !== entryCatalog(item)) {
-			continue;
-		}
-
-		if (item.language && entry.language !== item.language) {
-			continue;
-		}
-
-		const group = byLanguage.get(entry.language) || {fits: 0, total: 0};
-
-		group.total++;
-
-		if (!item.variant_id || entry.variant_id === item.variant_id) {
-			group.fits++;
-		}
-
-		byLanguage.set(entry.language, group);
-	}
-
-	let spares = 0;
-
-	for (const {fits, total} of byLanguage.values()) {
-		spares += Math.min(fits, total - 1);
-	}
-
-	return spares;
-}
+// (DESIGN.md section 3, Trade), and never a copy in a binder (held, above).
+// So in each language the item accepts, one copy is kept and the rest are
+// spares; when the item names a finish, only copies in that finish count,
+// and the copy kept is a different one where there is one (one normal and
+// one reverse holo in PT: the reverse holo can go). The count is
+// spareCopiesFor's, below.
+export const sparesFor = (item, cards, {held = NONE_HELD} = {}) => spareCopiesFor(item, cards, {held}).length;
 
 // Which copy a person keeps: a favorite first, then the one added first.
 const keeperOrder = (a, b) => Number(b.is_favorite === true) - Number(a.is_favorite === true)
 	|| String(a.created_at).localeCompare(String(b.created_at))
 	|| String(a.id).localeCompare(String(b.id));
 
-// The live copies that are spares (the Trade view, js/trade-view.js, and
-// the copies a trade takes first: the trades log's cards out picker and the
-// scanner's Trade or sale mode). How many each card and language holds is
-// sparesFor above, the same count a family wishlist shows; this only picks
-// which copies they are (the keeper is left out).
-export function spareEntries(cards) {
+// The live copies that are spares (the Trade view, js/trade-view.js, the
+// Shop, js/shop.js, and the copies a trade takes first: the trades log's
+// cards out picker and the scanner's Trade or sale mode). In each card and
+// language, the copies in a binder (held) are kept, and when none is, the
+// keeper is (a favorite, then the one added first); every other copy is a
+// spare, the same count sparesFor gives.
+export function spareEntries(cards, {held = NONE_HELD} = {}) {
 	const groups = new Map();
 
 	for (const entry of (cards || []).filter((one) => one && isLive(one))) {
@@ -346,22 +328,22 @@ export function spareEntries(cards) {
 	const spares = [];
 
 	for (const group of groups.values()) {
-		const [first] = group;
-		const count = sparesFor({card_id: first.card_id, catalog: entryCatalog(first), language: first.language}, group);
+		const loose = group.sort(keeperOrder).filter((entry) => !held.has(entry.id));
 
-		spares.push(...group.sort(keeperOrder).slice(group.length - count));
+		spares.push(...(loose.length < group.length ? loose : loose.slice(1)));
 	}
 
 	return spares;
 }
 
 // The spare copies that fit an item: as many as sparesFor counts, and the
-// ones a trade would give. In each language the item accepts, one copy is
-// kept, a copy the item does not take where there is one (a normal kept, a
-// wished reverse holo offered), else the keeper My Cards keeps (a favorite,
-// then the one added first); the copies offered are the rest that fit,
-// best kept last, so the first offered is the one to give.
-export function spareCopiesFor(item, cards) {
+// ones a trade would give. In each language the item accepts, the copies in
+// a binder (held) are kept; when none is, one copy is kept, a copy the item
+// does not take where there is one (a normal kept, a wished reverse holo
+// offered), else the keeper My Cards keeps (a favorite, then the one added
+// first); the copies offered are the rest that fit, best kept last, so the
+// first offered is the one to give.
+export function spareCopiesFor(item, cards, {held = NONE_HELD} = {}) {
 	const byLanguage = new Map();
 
 	for (const entry of cards || []) {
@@ -381,9 +363,10 @@ export function spareCopiesFor(item, cards) {
 	for (const group of byLanguage.values()) {
 		const sorted = [...group].sort(keeperOrder);
 		const fits = (entry) => !item.variant_id || entry.variant_id === item.variant_id;
-		const keeper = sorted.find((entry) => !fits(entry)) || sorted[0];
+		const inBinders = sorted.filter((entry) => held.has(entry.id));
+		const kept = inBinders.length ? inBinders : [sorted.find((entry) => !fits(entry)) || sorted[0]];
 
-		offered.push(...sorted.filter((entry) => entry !== keeper && fits(entry)).reverse());
+		offered.push(...sorted.filter((entry) => !kept.includes(entry) && fits(entry)).reverse());
 	}
 
 	return offered;
@@ -393,10 +376,11 @@ export function spareCopiesFor(item, cards) {
 // 2026-10-01, DESIGN.md section 12): the items a wishlist still wants that
 // the cards' spares fit, wanted first by priority, each with the spare
 // copies that fit it: [{item, copies}]. Called both ways round: your spares
-// against their wishlist, and their spares against yours.
-export function tradeIdeas(wishlist, cards) {
+// against their wishlist, and their spares against yours. held: the copies
+// in the cards' owner's binders, as for spareCopiesFor.
+export function tradeIdeas(wishlist, cards, {held = NONE_HELD} = {}) {
 	return sortWishes((wishlist || []).filter(isWanted))
-		.map((item) => ({copies: spareCopiesFor(item, cards), item}))
+		.map((item) => ({copies: spareCopiesFor(item, cards, {held}), item}))
 		.filter((idea) => idea.copies.length);
 }
 
