@@ -23,6 +23,15 @@ export const RELEASES = [
 	{
 		date: '2026-11-24',
 		items: [
+			'A favorite is never a spare: one star keeps every copy of the card, in every language and finish, out of Spares, Trade ideas, and the Shop.',
+			'Starring a card you sell takes it off HOTARU at once, and a starred card offers to star its Japanese print too.',
+			'A favorite going out in a trade or sale is logged only after you confirm it.',
+		],
+		version: 'v108',
+	},
+	{
+		date: '2026-11-24',
+		items: [
 			'A copy in a binder is never a spare: three copies with two in binders are one spare, the loose one.',
 			'In a binder made from a list, only the copy on top of a pocket is in use; the copies under it stay spares.',
 			'The Shop offers only loose spares to HOTARU, so a card in a binder is no longer listed for sale.',
