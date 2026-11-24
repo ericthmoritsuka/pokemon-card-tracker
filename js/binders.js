@@ -68,7 +68,7 @@
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 import {nextStamp, restoreEntry, stampEntry} from './merge.js';
 import {byCreated, orderForNew, sortByOrder, withOrders} from './reorder.js';
-import {checkBinderRule, checkFits, isGenerated, listEditEntries, pagesFor, pickEntry, pickId, ruleKey, withListEdit} from './binder-rules.js';
+import {checkBinderRule, checkFits, isGenerated, listEditEntries, pagesFor, pickEntry, pickId, picksOf, ruleKey, withListEdit} from './binder-rules.js';
 
 export {isGenerated};
 
@@ -264,6 +264,39 @@ export function placements(binders) {
 	}
 
 	return out;
+}
+
+// The copies in use in a pocket, which are never spares (js/wishlist.js
+// spareEntries; Eric, 2026-11-24): every copy a hand-made binder places,
+// and the copy on top of each pocket of a binder made from a list. A list's
+// pocket shows every copy of its Pokémon or card, but only the one on top
+// is in use there; the copies under it stay free to trade or sell. The top
+// is the hand pick while that copy is still owned, else the default the
+// last refresh stored, as the binder screen shows it before it has read
+// the list (js/binders-view.js listState). A binder's tray holds none.
+// doc: {binders, binder_picks, cards}, the person's document or a family
+// member's. Returns a Set of entry ids.
+export function heldCopies(doc) {
+	const binders = (doc && doc.binders) || [];
+	const held = new Set(placements(binders).keys());
+	const live = new Set(((doc && doc.cards) || []).filter((entry) => entry && isLive(entry)).map((entry) => entry.id));
+	const owned = (id) => (typeof id === 'string' && live.has(id) ? id : null);
+
+	for (const binder of liveBinders(binders).filter(isGenerated)) {
+		const snapshot = binder.snapshot && typeof binder.snapshot === 'object' ? binder.snapshot : {};
+		const shown = snapshot.shown && typeof snapshot.shown === 'object' ? snapshot.shown : {};
+		const picks = picksOf(doc && doc.binder_picks, binder.id);
+
+		for (const key of Array.isArray(snapshot.keys) ? snapshot.keys : []) {
+			const top = key ? owned(picks.get(key)) || owned(shown[key]) : null;
+
+			if (top) {
+				held.add(top);
+			}
+		}
+	}
+
+	return held;
 }
 
 // The slots a binder really holds: inside its grid, one per pocket, and no

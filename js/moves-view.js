@@ -22,7 +22,7 @@
 
 import {cardImage, cardIndex, catalogFor, saveToCardIndex, viewingLanguage} from './catalog.js';
 import {artOf, entryInfo, fillRecords, recordFrom} from './binders-view.js';
-import {placements} from './binders.js';
+import {heldCopies} from './binders.js';
 import {finishChoices} from './catalog-views.js';
 import {isLive, loadDocument, newId, onChange} from './collection.js';
 import {MAX_ADD, conditionOptions, copyLanguages, finishFields, finishOptions, languageName, sheetDialog, sheetField, sheetSelect, showSheet} from './copy-sheet.js';
@@ -1021,7 +1021,7 @@ export function newMoveView(root) {
 		let only = card;
 		let shown = PAGE;
 		const live = doc.cards.filter((entry) => entry && entry.id && isLive(entry));
-		const spares = new Set(spareEntries(live, {held: placements(doc.binders || [])}).map((entry) => entry.id));
+		const spares = new Set(spareEntries(live, {held: heldCopies(doc)}).map((entry) => entry.id));
 		const mine = described(live, index, viewing).sort((a, b) => Number(spares.has(b.entry.id)) - Number(spares.has(a.entry.id)) || a.info.name.localeCompare(b.info.name) || String(a.entry.created_at).localeCompare(String(b.entry.created_at)));
 		const past = described(pastCandidates(doc, {kept}), index, viewing);
 		const search = h('input', {'aria-label': 'Search your cards', autocomplete: 'off', class: 'search', id: 'move-out-search', placeholder: 'Search your cards', type: 'search'});

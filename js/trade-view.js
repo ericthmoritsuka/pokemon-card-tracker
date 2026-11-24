@@ -14,7 +14,7 @@
 //   family/<id>/trade      a family member's spares, read only
 
 import {currentUser} from './auth.js';
-import {placements} from './binders.js';
+import {heldCopies} from './binders.js';
 import {cardsScreen} from './cards-view.js';
 import {loadDocument, onChange} from './collection.js';
 import {BASE, h} from './dom.js';
@@ -46,8 +46,8 @@ const emptyNode = (mine) => () => h('div', {class: 'card empty-state', id: 'trad
 	h('a', {class: 'button', 'data-link': 'cards', href: `${BASE}cards`}, 'Back to My Cards')
 );
 
-// A document's spares: its copies less the ones in its binders.
-const docSpares = (doc) => spareEntries((doc && doc.cards) || [], {held: placements((doc && doc.binders) || [])});
+// A document's spares: its copies less the ones in use in its binders.
+const docSpares = (doc) => spareEntries((doc && doc.cards) || [], {held: heldCopies(doc)});
 
 export function tradeView(root) {
 	return cardsScreen(root, {

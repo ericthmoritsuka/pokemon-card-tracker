@@ -203,15 +203,16 @@ const byAge = (a, b) => String(b.created_at || '').localeCompare(String(a.create
 // 'loaded' once the cards were read, else 'loading' or 'failed': until
 // they are, no card going out is matched (an empty list would read as
 // "not in your cards" and let Log it log a purchase without them).
-// The copies in a binder's pocket, from copyWhere: never spares
+// The copies in a hand-made binder's pocket, from copyWhere: never spares
 // (js/wishlist.js spareEntries). A copy in a binder's tray is not in the
-// binder yet.
+// binder yet. The scanner passes held (js/binders.js heldCopies) instead,
+// which adds the copy on top of each pocket of a binder made from a list.
 export const inPockets = (where) => new Set([...where].filter(([, at]) => at.kind === 'pocket').map(([id]) => id));
 
-export function outCopies(session, cards, {known = 'loaded', where = new Map()} = {}) {
+export function outCopies(session, cards, {held = null, known = 'loaded', where = new Map()} = {}) {
 	const live = (cards || []).filter((entry) => entry && entry.id && isLive(entry));
 	const byId = new Map(live.map((entry) => [entry.id, entry]));
-	const spares = new Set(spareEntries(live, {held: inPockets(where)}).map((entry) => entry.id));
+	const spares = new Set(spareEntries(live, {held: held || inPockets(where)}).map((entry) => entry.id));
 	const loose = (entry) => !where.has(entry.id);
 	const spare = (entry) => spares.has(entry.id);
 	const outs = session.items.filter((item) => sideOf(item) === 'out');

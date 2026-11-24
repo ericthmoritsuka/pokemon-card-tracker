@@ -25,6 +25,7 @@ import {
 	coverTextColor,
 	fillFromTray,
 	fillPlaceholders,
+	heldCopies,
 	layoutOf,
 	locate,
 	openPockets,
@@ -517,6 +518,39 @@ describe('resizing a binder (Eric, 2026-10-02)', () => {
 
 		assert.deepEqual(plan.slots, []);
 		assert.deepEqual(plan.toTray, []);
+	});
+});
+
+describe('copies in use in a binder (Eric, 2026-11-24)', () => {
+	// A Hoenn binder made from a list: the Salamence pocket shows s1 on top
+	// (the stored default), with s2 and s3 under it; the Bagon pocket's top
+	// is a hand pick.
+	const listBinder = (fields = {}) => binderOf('hoenn', {
+		rule: {order: 'dex', source: {id: 'hoenn', kind: 'checklist'}},
+		snapshot: {at: at(0), keys: ['dex:371', 'dex:373', '', 'dex:999'], rule_key: 'x', shown: {'dex:371': 'b1', 'dex:373': 's1', 'dex:999': 'gone'}},
+		...fields,
+	});
+	const cards = [card('s1'), card('s2'), card('s3'), card('b1'), card('b2'), card('h1'), card('gone', {deleted_at: at(5)})];
+	const pick = (key, entryId, fields = {}) => ({binder_id: 'hoenn', created_at: at(1), deleted_at: null, entry_id: entryId, id: `hoenn|${key}`, key, updated_at: at(1), ...fields});
+
+	test('a list binder holds the copy on top of each pocket, not the copies under it', () => {
+		assert.deepEqual([...heldCopies({binder_picks: [], binders: [listBinder()], cards})].sort(), ['b1', 's1']);
+	});
+
+	test('a hand pick is the top while its copy is owned, else the stored default', () => {
+		assert.deepEqual([...heldCopies({binder_picks: [pick('dex:371', 'b2')], binders: [listBinder()], cards})].sort(), ['b2', 's1']);
+		assert.deepEqual([...heldCopies({binder_picks: [pick('dex:371', 'b2')], binders: [listBinder()], cards: cards.filter((entry) => entry.id !== 'b2')})].sort(), ['b1', 's1'], 'the picked copy was sold');
+		assert.deepEqual([...heldCopies({binder_picks: [pick('dex:371', 'b2', {deleted_at: at(2)})], binders: [listBinder()], cards})].sort(), ['b1', 's1'], 'a removed pick is the default again');
+		assert.deepEqual([...heldCopies({binder_picks: [{...pick('dex:371', 'b2'), binder_id: 'other'}], binders: [listBinder()], cards})].sort(), ['b1', 's1'], 'another binder\'s pick');
+	});
+
+	test('hand-made binders hold their pockets, not their trays; deleted binders hold nothing', () => {
+		const hand = binderOf('kanto', {slots: [{entry_id: 'h1', page: 1, placed_at: at(0), position: 1}], tray: ['s2']});
+
+		assert.deepEqual([...heldCopies({binders: [hand, listBinder()], cards})].sort(), ['b1', 'h1', 's1']);
+		assert.deepEqual([...heldCopies({binders: [listBinder({deleted_at: at(3)})], cards})], []);
+		assert.deepEqual([...heldCopies({})], []);
+		assert.deepEqual([...heldCopies(null)], []);
 	});
 });
 
