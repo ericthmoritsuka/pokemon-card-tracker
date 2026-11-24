@@ -17,6 +17,15 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-24
 
+- **v105:** the Shop in the header, for the family owner only. `3732096`, `a508448`, `81c8d1b`
+  - Shop left Spares: a round bag in the header, between Mine and your picture, opens it from any screen and is
+    filled while it is open. Only the family's owner sees it (`js/shop-owner.js`, read from the group overview and
+    kept on the phone); a member who opens the shop address gets a short notice and a way to Spares. A principal
+    designer review moved it to an icon-only circle so the title and Mine fit at 360 to 412 px.
+  - Fixed: a Shop opened straight from its address could not find a Japanese or Korean print by its English name.
+  - Suite before release: 157 files, 2,260 pass, 1 fail (moves-browser 'a purchase from the scanner', a
+    page.goto ERR_ABORTED at line 725 that fails 5 of 6 runs on v104 too).
+
 - **v104:** HOTARU sealed products in the Shop's orders, and one price for ticked cards. `262fc74`, `a6503d7`, `05ae45d`, `e6e3290`
   - Orders with sealed products show them marked Sealed. A sealed product is never missing from the collection;
     Payment received logs only the cards of an order in Trades, naming the sealed products in the note, and an order
