@@ -144,6 +144,40 @@ describe('favorites', () => {
 		await context.close();
 	});
 
+	test('starring a card offers to star its Japanese print too, linked by its twin (Eric, 2026-11-24)', async () => {
+		const {context, errors, page} = await phone();
+
+		// Eric confirmed that the Japanese Pikachu (TSJ1-025) is the
+		// international Pikachu (tsb2-025).
+		await page.evaluate(async () => {
+			const {setDecision} = await import('/pokemon-card-tracker/js/twins.js');
+
+			await setDecision({card_id: 'TSJ1-025', catalog: 'ja'}, {choice: 'confirmed', twin: {id: 'tsb2-025', name: 'Pikachu', setId: 'tsb2'}});
+		});
+		await page.goto(`${server.origin}${BASE}cards/en/tsb2-025`);
+		await page.locator('#favorite-toggle').waitFor(TIMEOUT);
+		assert.equal(await page.locator('#favorite-twin').count(), 0, 'no offer before the star');
+		await page.click('#favorite-toggle');
+		await page.locator('#favorite-twin').waitFor(TIMEOUT);
+		assert.equal(await page.textContent('#favorite-twin'), '★ Also star the Japanese print (2 copies)');
+
+		let marked = await flags(page);
+
+		assert.deepEqual(Object.keys(marked).filter((id) => marked[id]).sort(), ['c-09', 'c-10'], 'the Japanese copies wait for the tap');
+		await page.click('#favorite-twin');
+		await page.waitForFunction(() => !document.getElementById('favorite-twin'), null, TIMEOUT);
+		marked = await flags(page);
+		assert.deepEqual(Object.keys(marked).filter((id) => marked[id]).sort(), ['c-09', 'c-10', 'c-11', 'c-12']);
+
+		// The Japanese page shows its own star on, and offers nothing more.
+		await page.goto(`${server.origin}${BASE}cards/ja/TSJ1-025`);
+		await page.locator('#favorite-toggle[aria-pressed="true"]').waitFor(TIMEOUT);
+		await page.locator('#copies-favorite').waitFor(TIMEOUT);
+		assert.equal(await page.locator('#favorite-twin').count(), 0);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('a family member\'s stars show, with nothing to press', async () => {
 		const memberCards = SPARE_COPIES.filter((copy) => !copy.deleted_at).map((copy) => (copy.card_id === 'tsb2-025' ? {...copy, is_favorite: true} : {...copy, is_favorite: false}));
 		const {context, errors, member, page} = await familyDevice(browser, server, memberCards);

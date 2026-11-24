@@ -34,12 +34,15 @@ import {valueButton} from './value-sheet.js';
 import {cardArt, cardTile, forgetImage, groupFinish} from './tile.js';
 import {cardPhotos, imageCardKey, onImagesChange, tileSrc, withMainPhoto} from './photos/index.js';
 import {cardFileStem} from './photos/save.js';
-import {loadTwins, onTwinsChange, twinKey, twinName, twinSlides} from './twins.js';
+import {loadTwins, onTwinsChange, twinKey, twinName, twinSlides, twinState} from './twins.js';
 import {twinConfirm} from './twins-view.js';
 import {plainVariantId} from './scan/finish.js';
 import {lensMember, toast} from './shell.js';
 import {memberCards, memberDocumentKept, memberRecords, whenMemberName} from './family.js';
-import {addToWishlist, listWishlist, sparesFor} from './wishlist.js';
+import {addToWishlist, listWishlist, markedForSale, sparesFor} from './wishlist.js';
+import {salePrice} from './shop.js';
+import {checkShopOwner, shopOwnerKnown} from './shop-owner.js';
+import {withdrawListings, withdrawNoticeText} from './store-publish.js';
 import {isCustomId} from './custom-card.js';
 import {customCardView} from './custom-card-view.js';
 import {artistLink, setGoalControl} from './goals-view.js';
@@ -57,6 +60,40 @@ export {cardArt};
 const FALLS_BACK_TO_ENGLISH = new Set(CATALOG_LANGUAGES.map((row) => row.code).filter((code) => code !== 'en' && catalogFor(code) === 'international'));
 
 const cardsText = (n) => `${n} ${n === 1 ? 'card' : 'cards'}`;
+const copiesText = (n) => `${n} ${n === 1 ? 'copy' : 'copies'}`;
+
+// A card just starred leaves HOTARU at once, so no order can arrive for a
+// favorite (Eric, 2026-11-24; supabase/store-withdraw.sql). Only the shop
+// owner lists cards, and only a copy with a sale price can be listed (the
+// Shop saves the price on every copy of the card, js/shop.js), so nothing
+// is asked otherwise. A copy reserved or sold by an order stays as it is.
+// For sale beats the star (Eric, 2026-11-24): once the For sale mark
+// exists (v110), a copy that carries it stays listed, so markedForSale
+// leaves it out here as it lets it through js/wishlist.js spareEntries.
+async function takeOffHotaru(entries) {
+	const priced = entries.filter((entry) => salePrice(entry) !== null && !markedForSale(entry));
+
+	if (!priced.length) {
+		return;
+	}
+
+	const owner = shopOwnerKnown() ?? await checkShopOwner().catch(() => null);
+
+	if (owner !== true) {
+		return;
+	}
+
+	try {
+		const gone = await withdrawListings(priced.map((entry) => entry.id));
+
+		if (gone.length) {
+			toast(`Starred and taken off HOTARU (${copiesText(gone.length)}).`);
+		}
+	}
+	catch (err) {
+		toast(withdrawNoticeText(err));
+	}
+}
 
 const routeTo = (...parts) => parts.map((part) => encodeURIComponent(part)).join('/');
 
@@ -2033,9 +2070,37 @@ export function cardView(root, {lang, cardId}) {
 		// Under your own favorite, what the star means (js/wishlist.js
 		// favoriteCards): no copy is a spare.
 		if (!readOnly && live.some((entry) => entry.is_favorite === true)) {
+			const twinSlot = h('div', {class: 'copies-favorite-twin', id: 'copies-favorite-twin'});
+
 			copies.append(h('p', {class: 'muted copies-favorite', id: 'copies-favorite'}, live.length > 1
 				? `A favorite: none of your ${live.length} copies is a spare, so none shows in Spares, Trade ideas, or the Shop.`
-				: 'A favorite: never a spare, so it never shows in Spares, Trade ideas, or the Shop.'));
+				: 'A favorite: never a spare, so it never shows in Spares, Trade ideas, or the Shop.'), twinSlot);
+
+			// The other print of the card, which is a card record of its own
+			// and so has its own star (Eric, 2026-11-24): one tap stars it too.
+			linkedPrint().then((linked) => {
+				const unstarred = linked ? linked.entries.filter((entry) => entry.is_favorite !== true) : [];
+
+				if (!alive || run !== copiesRun || !unstarred.length) {
+					return;
+				}
+
+				twinSlot.replaceChildren(h('button', {
+					class: 'small',
+					id: 'favorite-twin',
+					onclick: async () => {
+						try {
+							await updateCards(unstarred.map((entry) => ({id: entry.id, patch: {is_favorite: true}})));
+						}
+						catch {
+							return;
+						}
+
+						takeOffHotaru(unstarred);
+					},
+					type: 'button',
+				}, `★ Also star the ${linked.label} (${copiesText(unstarred.length)})`));
+			}).catch(() => {});
 		}
 
 		// Under Ver na Liga, so the copies and the Liga button stay on the
@@ -2073,6 +2138,34 @@ export function cardView(root, {lang, cardId}) {
 	// Yours toggles all your copies of it (is_favorite on each, so a copy
 	// kept apart on another phone merges field by field); a member's card
 	// shows their star and nothing to press.
+	// The other print of this card that you own, linked by its international
+	// twin (js/twins.js, Japanese prints only, as this phone knows them): on
+	// an international card, the Japanese cards whose confident or confirmed
+	// twin it is; on a Japanese card, its twin. {label, entries} with the
+	// live copies, or null.
+	async function linkedPrint() {
+		await loadTwins();
+
+		const catalog = catalogFor(lang);
+
+		if (catalog === 'international') {
+			const entries = [...await ownedIn('ja')]
+				.filter(([id]) => (twinState({card_id: id, catalog: 'ja'}).twin || {}).id === cardId)
+				.flatMap(([, item]) => item.entries);
+
+			return entries.length ? {entries, label: 'Japanese print'} : null;
+		}
+
+		if (catalog === 'ja') {
+			const {twin} = twinState({card_id: cardId, catalog: 'ja'});
+			const item = twin ? (await ownedIn('international')).get(twin.id) : null;
+
+			return item && item.entries.length ? {entries: item.entries, label: 'international print'} : null;
+		}
+
+		return null;
+	}
+
 	function favoriteControl(live) {
 		const on = live.some((entry) => entry.is_favorite === true);
 
@@ -2085,7 +2178,18 @@ export function cardView(root, {lang, cardId}) {
 			'aria-pressed': String(on),
 			class: 'small favorite-toggle',
 			id: 'favorite-toggle',
-			onclick: () => updateCards(live.map((entry) => ({id: entry.id, patch: {is_favorite: !on}}))).catch(() => {}),
+			onclick: async () => {
+				try {
+					await updateCards(live.map((entry) => ({id: entry.id, patch: {is_favorite: !on}})));
+				}
+				catch {
+					return;
+				}
+
+				if (!on) {
+					takeOffHotaru(live);
+				}
+			},
 			title: on ? 'Remove from favorites' : 'Mark as a favorite (never a spare)',
 			type: 'button',
 		}, on ? '★' : '☆');
