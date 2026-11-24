@@ -434,6 +434,18 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   tiles grouped by print, with language flags and an Owned mark, opening the card page; sets still
   match as today, shown first. Online it uses TCGdex's card search; offline it searches the sets
   already saved on the phone. Medium.
+- **Export a binder or a list as a PDF (Eric, 2026-11-24; backlog, not soon):** a PDF of a binder
+  (page by page, pockets in place) or of a list or collection, to share or print. The layout of
+  the cards on the page needs a designer before any build. Two shapes, Eric's preference first:
+  - Interactive: tapping a card opens more about it. PDF link annotations do this without
+    scripting: each card's area links to a detail page inside the same PDF (set, number in the
+    set, year, rarity, finish, language, copies) or to the card's page in the app. Most viewers
+    follow links (browsers, Acrobat, Preview, the iOS and Android viewers). Avoid PDF JavaScript
+    and pop-up annotations, which phone viewers mostly ignore.
+  - Static: the card images in a grid, with the set, the card's number in that set, and the year
+    under each card.
+  Generated on the phone from cached images (the design never hot-links them). A card with no
+  catalog image uses his own photo, as v54 does elsewhere. Large.
 
 ## Scan a trade or a sale (Eric, 2026-11-06): built on branch `scan-trade`, to check on the phone
 
