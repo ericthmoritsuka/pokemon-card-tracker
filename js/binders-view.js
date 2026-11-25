@@ -59,7 +59,7 @@ import {addToBinder, undoAddToBinder} from './placeholder-fill.js';
 import {fillPanel} from './fill-view.js';
 import {artworkUrl, handPocketStatus, listPocketStatus, printablePockets} from './placeholder-print.js';
 import {openPlaceholderPrint} from './placeholder-print-view.js';
-import {applyListEdits, indexAt, layoutWaits, listEditEntries, listEditsOf, moveEdit, pagesFor, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy, withListEdit} from './binder-rules.js';
+import {applyListEdits, extraPagesOf, indexAt, layoutWaits, listEditEntries, listEditsOf, listPageCount, moveEdit, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy, skipsOf, withListEdit} from './binder-rules.js';
 import {filterLabels, ruleSection} from './binder-rule-view.js';
 import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceChoices, sourceEntry, sourceText, trayFromChoices, trayFromIds} from './binder-sources.js';
 import {checklistDex, dexLabel, listLanguages, namesLanguages, pokemonNames, spriteUrl} from './checklists.js';
@@ -111,6 +111,7 @@ import {
 	saveListEdits,
 	saveRefresh,
 	setPocketPick,
+	setPocketSkip,
 	slotsOf,
 	sortBinders,
 	takeFromTray,
@@ -689,9 +690,14 @@ function binderForm({below = null, binder = null, initial = {}, onCancel, onSubm
 		let clean;
 
 		try {
-			clean = cleanFields(fields());
+			const asked = fields();
 
+			clean = cleanFields(asked);
+
+			// A binder from a list's extra pages, which cleanFields does not
+			// know; js/binders.js generatedFields checks them.
 			if (rule) {
+				clean.extra_pages = asked.extra_pages;
 				rule.rule();
 			}
 		}
@@ -731,9 +737,9 @@ const itemCopies = (items) => items.flatMap((item) => item.copies);
 // {plan, rankOf}. For a checklist with languages, the plan also says
 // whether it differs from the stored layout only by those languages
 // (languageOnly), ranked over every copy as a v56 phone ranks them.
-async function planLayout(binderLike, loaded, {liveIds = null, picks = new Map()} = {}) {
+async function planLayout(binderLike, loaded, {liveIds = null, picks = new Map(), skips = new Map()} = {}) {
 	const rankOf = await rankerFor(itemCopies(loaded.anyItems || loaded.items));
-	const plan = planRefresh(binderLike, loaded.items, {anyItems: loaded.anyItems, at: nowIso(), keepOrder: Boolean(loaded.keepOrder), languages: loaded.languages, liveIds, partial: loaded.partial, picks, rankOf});
+	const plan = planRefresh(binderLike, loaded.items, {anyItems: loaded.anyItems, at: nowIso(), keepOrder: Boolean(loaded.keepOrder), languages: loaded.languages, liveIds, partial: loaded.partial, picks, rankOf, skips});
 
 	return {plan, rankOf};
 }
@@ -766,7 +772,7 @@ async function listForm({onCancel, start = {}}) {
 			checkWholeList(loaded);
 
 			const rule = section.rule();
-			const {plan} = await planLayout({cols: fields.cols, rows: fields.rows, rule}, loaded);
+			const {plan} = await planLayout({cols: fields.cols, extra_pages: fields.extra_pages, rows: fields.rows, rule}, loaded);
 			const binder = await createGeneratedBinder(fields, rule, plan.snapshot, {languages: plan.languages});
 
 			go(`binders/${encodeURIComponent(binder.id)}`);
@@ -778,13 +784,15 @@ async function listForm({onCancel, start = {}}) {
 
 // Filled pockets of a list's binder, from its last layout: {filled, total}.
 function listStats(binder, picksList, liveIds) {
+	const skips = skipsOf(picksList, binder.id);
+	const skipped = (key, id) => Boolean(skips.get(key) && skips.get(key).has(id));
 	const snapshot = binder.snapshot || {};
 	// An empty key is a pocket left empty on purpose, not a pocket of the
 	// list (js/binder-rules.js list_edits gap).
 	const keys = Array.isArray(snapshot.keys) ? snapshot.keys.filter(Boolean) : [];
 	const shown = snapshot.shown || {};
 	const picks = picksOf(picksList, binder.id);
-	const filled = keys.filter((key) => (picks.has(key) && liveIds.has(picks.get(key))) || (shown[key] && liveIds.has(shown[key]))).length;
+	const filled = keys.filter((key) => (picks.has(key) && liveIds.has(picks.get(key))) || (shown[key] && liveIds.has(shown[key]) && !skipped(key, shown[key]))).length;
 
 	return {filled, total: keys.length};
 }
@@ -1050,6 +1058,8 @@ function binderScreen(root, source, id, pageParam) {
 	// then, when the pockets show the last layout.
 	let listMode = false;
 	let picks = new Map();
+	// The copies skipped in each pocket ("Not this copy here").
+	let skips = new Map();
 	const gen = {busy: null, gone: false, held: null, items: null, loaded: null, names: null, partial: false, rankOf: undefined, started: false};
 	const refreshButton = source.readOnly ? null : h('button', {hidden: true, id: 'binder-refresh', onclick: () => refreshList({force: true, manual: true}), type: 'button'}, 'Refresh');
 	const listNote = h('p', {'aria-live': 'polite', class: 'binder-list-note', hidden: true, id: 'binder-list-note'});
@@ -1541,6 +1551,7 @@ function binderScreen(root, source, id, pageParam) {
 		entriesById = new Map(data.cards.map((entry) => [entry.id, entry]));
 		listMode = isGenerated(binder);
 		picks = listMode ? picksOf(data.picks, binder.id) : new Map();
+		skips = listMode ? skipsOf(data.picks, binder.id) : new Map();
 		sweepOnce(source);
 
 		if (!body.contains(spreadHolder)) {
@@ -1836,17 +1847,18 @@ function binderScreen(root, source, id, pageParam) {
 			return null;
 		}
 
+		const skipped = skips.get(key);
 		const stored = (binder.snapshot.shown || {})[key] || null;
 		const pick = picks.get(key) || null;
 		const item = gen.items && gen.items.get(key);
 
 		if (item) {
-			return {count: item.copies.length, item, key, shown: shownCopy(item, {pick, rankOf: gen.rankOf, stored})};
+			return {count: item.copies.length, item, key, shown: shownCopy(item, {pick, rankOf: gen.rankOf, skipped, stored})};
 		}
 
 		// Not read yet, or a family member's binder: the pick or the stored
-		// default, while that copy is still owned.
-		const entry = liveEntry(pick) || liveEntry(stored);
+		// default, while that copy is still owned and not skipped there.
+		const entry = liveEntry(pick) || (skipped && skipped.has(stored) ? null : liveEntry(stored));
 
 		return {count: 0, item: fallbackItem(key), key, shown: entry ? {entry, picked: Boolean(liveEntry(pick))} : null};
 	}
@@ -1882,13 +1894,16 @@ function binderScreen(root, source, id, pageParam) {
 		const info = item.kind === 'pokemon'
 			? {image: item.image, name: item.name, number: String(item.dex).padStart(3, '0'), setName: null}
 			: wantInfo({card_id: item.cardId, catalog: item.catalog, image: item.image, name: item.name}, index, viewing);
-		const want = (src) => h('div', {class: 'art-wrap'}, cardArt(info, src), h('span', {class: 'pocket-tag'}, 'Want'));
+		// Copies fit but none shows: every one is kept out of this pocket
+		// ("Not this copy here"), so it keeps its placeholder.
+		const keptOut = count > 0;
+		const want = (src) => h('div', {class: 'art-wrap'}, cardArt(info, src), h('span', {class: 'pocket-tag'}, keptOut ? 'Placeholder' : 'Want'));
 
 		return {
 			info,
 			item,
 			kind: 'want',
-			label: `${item.kind === 'pokemon' ? `${item.number} ${item.name}` : info.name}, not owned yet`,
+			label: `${item.kind === 'pokemon' ? `${item.number} ${item.name}` : info.name}, ${keptOut ? 'placeholder: your copies are kept out of this pocket' : 'not owned yet'}`,
 			// A Pokémon's pocket shows its picture; a card's, its main image.
 			node: item.kind === 'pokemon' ? want(item.image) : artOf(cardTarget({card_id: item.cardId, catalog: item.catalog}), info, want, recordsShown()),
 		};
@@ -2036,7 +2051,9 @@ function binderScreen(root, source, id, pageParam) {
 	// that differs from the stored one only by the list's languages, which
 	// a v56 phone would put back on its next opening, is shown but neither
 	// saved nor told (planRefresh languageOnly); Refresh saves it.
-	async function refreshList({force = false, manual = false} = {}) {
+	// quiet: no line about what changed, for a layout saved after Not this
+	// copy here, where the pocket emptied on purpose.
+	async function refreshList({force = false, manual = false, quiet = false} = {}) {
 		if (source.readOnly || !binder || !listMode) {
 			return;
 		}
@@ -2099,7 +2116,9 @@ function binderScreen(root, source, id, pageParam) {
 			}
 
 			const liveIds = new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id));
-			const {plan, rankOf} = await planLayout(stored, loaded, {liveIds, picks});
+			// The picks and skips as the document has them now, so a skip just
+			// saved counts before the screen has read it back.
+			const {plan, rankOf} = await planLayout(stored, loaded, {liveIds, picks: picksOf(doc.binder_picks, binderId), skips: skipsOf(doc.binder_picks, binderId)});
 
 			if (!alive || binder.id !== binderId) {
 				return;
@@ -2114,7 +2133,9 @@ function binderScreen(root, source, id, pageParam) {
 			const text = held ? '' : refreshText(plan, nameOfKey);
 			const partly = `${loaded.partial ? ' Some cards could not be checked yet; their pockets stay as they were.' : ''}${loaded.incomplete ? ` ${gapText(loaded.gaps, {online: navigator.onLine})}` : ''}`;
 
-			showListNote(text ? `${text}${partly}` : manual || loaded.incomplete ? `Up to date.${partly}` : '');
+			if (!quiet) {
+				showListNote(text ? `${text}${partly}` : manual || loaded.incomplete ? `Up to date.${partly}` : '');
+			}
 
 			if (plan.changed && !held) {
 				gen.held = null;
@@ -2190,14 +2211,18 @@ function binderScreen(root, source, id, pageParam) {
 				});
 			}
 
+			const skippedHere = skips.get(key) || new Set();
+
 			if (copies.length) {
-				const fallback = shownCopy({copies}, {rankOf: gen.rankOf, stored: (binder.snapshot.shown || {})[key]});
+				const fallback = shownCopy({copies}, {rankOf: gen.rankOf, skipped: skippedHere, stored: (binder.snapshot.shown || {})[key]});
 				const defaultId = fallback ? fallback.entry.id : null;
 
 				copies.sort((a, b) => (Number(b.id === defaultId) - Number(a.id === defaultId)) || String(b.created_at).localeCompare(String(a.created_at)));
-				parts.push(h('p', {class: 'muted', id: 'list-sheet-count'}, copies.length > 1
-					? `${plural(copies.length, 'copy fits', 'copies fit')} this pocket. Tap the one to show here.`
-					: 'Your copy for this pocket.'));
+				parts.push(h('p', {class: 'muted', id: 'list-sheet-count'}, !shown
+					? 'No copy shows here: the pocket keeps its placeholder. A copy you get later fills it. Tap a copy to show it here anyway.'
+					: copies.length > 1
+						? `${plural(copies.length, 'copy fits', 'copies fit')} this pocket. Tap the one to show here.`
+						: 'Your copy for this pocket.'));
 				parts.push(h('div', {class: 'pick-grid', id: 'list-copies'}, copies.map((entry) => {
 					const info = entryInfo(entry, index, viewing);
 					const current = Boolean(shown) && shown.entry.id === entry.id;
@@ -2214,6 +2239,7 @@ function binderScreen(root, source, id, pageParam) {
 					h('span', {class: 'tile-name'}, info.name),
 					h('span', {class: 'tile-meta'}, [languageLabel(entry.language), entry.condition, entry.storage].filter(Boolean).join(' · ')),
 					entry.id === defaultId ? h('span', {class: 'tile-meta list-default-tag'}, 'Default') : null,
+					skippedHere.has(entry.id) ? h('span', {class: 'tile-meta list-skipped-tag'}, 'Not shown here') : null,
 					where ? h('span', {class: 'tile-meta pick-where'}, `In ${where.binder_name}, p${where.page}`) : null);
 				})));
 
@@ -2221,6 +2247,16 @@ function binderScreen(root, source, id, pageParam) {
 
 				if (shown && shown.picked) {
 					actions.push(h('button', {id: 'list-use-default', onclick: () => act(() => setPocketPick(binder.id, key, null), 'Could not save the pocket.'), type: 'button'}, 'Show the default again'));
+				}
+
+				// Not this copy here (Eric, 2026-11-24): the next best copy shows,
+				// else the placeholder, and Cyndaquil stays on the list.
+				if (shown) {
+					actions.push(h('button', {id: 'list-skip', onclick: () => act(() => skipCopies(key, item.name, [shown.entry.id]), 'Could not save the pocket.'), type: 'button'}, 'Not this copy here'));
+				}
+
+				if (skippedHere.size) {
+					actions.push(h('button', {id: 'list-unskip', onclick: () => act(() => unskipCopies(key, [...skippedHere]), 'Could not save the pocket.'), type: 'button'}, skippedHere.size === 1 ? 'Show the skipped copy here again' : `Show the ${skippedHere.size} skipped copies here again`));
 				}
 
 				if (shown) {
@@ -2314,7 +2350,7 @@ function binderScreen(root, source, id, pageParam) {
 		if (gen.loaded && gen.items) {
 			const entries = changes.reduce(withListEdit, listEditEntries(binder));
 
-			return planRefresh({...binder, list_edits: entries}, gen.loaded.items, {at: nowIso(), keepOrder: Boolean(gen.loaded.keepOrder), languages: gen.loaded.languages, liveIds, partial: gen.loaded.partial, picks, rankOf: gen.rankOf});
+			return planRefresh({...binder, list_edits: entries}, gen.loaded.items, {at: nowIso(), keepOrder: Boolean(gen.loaded.keepOrder), languages: gen.loaded.languages, liveIds, partial: gen.loaded.partial, picks, rankOf: gen.rankOf, skips});
 		}
 
 		if (!edit || edit.kind === 'none') {
@@ -2325,7 +2361,7 @@ function binderScreen(root, source, id, pageParam) {
 		const shown = binder.snapshot.shown || {};
 
 		return {
-			page_count: pagesFor(keys.length, binder.rows, binder.cols),
+			page_count: listPageCount(keys.length, binder.rows, binder.cols, extraPagesOf(binder)),
 			snapshot: {...binder.snapshot, keys, shown: Object.fromEntries(Object.entries(shown).filter(([key]) => keys.includes(key)))},
 		};
 	}
@@ -2364,10 +2400,33 @@ function binderScreen(root, source, id, pageParam) {
 		}
 	}
 
+	// Skips copies in a pocket and lays the binder out again from the list
+	// read, so the pocket's default and the spares follow at once (js/binders.js
+	// heldCopies). Undo shows them there again.
+	async function skipCopies(key, name, ids) {
+		const binderId = binder.id;
+
+		await setPocketSkip(binderId, key, ids, true);
+		await refreshList({quiet: true});
+		toast(`${name} stays on the list, without ${ids.length === 1 ? 'that copy' : 'those copies'}.`, {
+			action: () => setPocketSkip(binderId, key, ids, false).then(() => refreshList({quiet: true})).catch((err) => showError('Could not undo.', err)),
+			actionLabel: 'Undo',
+			timeout: UNDO_MS,
+		});
+	}
+
+	async function unskipCopies(key, ids) {
+		await setPocketSkip(binder.id, key, ids, false);
+		await refreshList({quiet: true});
+	}
+
 	function listRemovePanel(state) {
 		const {item, key} = state;
+		// Every copy that fits the pocket now, for Keep the placeholder.
+		const fits = gen.items && gen.items.get(key) ? gen.items.get(key).copies.map((entry) => entry.id) : state.shown ? [state.shown.entry.id] : [];
 
 		return removePanel({
+			onPlaceholder: fits.length ? () => act(() => skipCopies(key, item.name, fits), 'Could not save the pocket.') : null,
 			note: `${item.name} is left out of this binder: refreshing keeps it out, and cards that join the list later still take their places.`,
 			onEmpty: () => act(() => saveListEdit(key, {at: nowIso(), key, kind: 'gap'}, `${item.name} is left out of this binder; its pocket stays empty.`), 'Could not save the binder.'),
 			onShift: () => act(() => saveListEdit(key, {at: nowIso(), key, kind: 'out'}, `${item.name} is left out of this binder; the pockets after it moved back one.`), 'Could not save the binder.'),
@@ -2491,12 +2550,12 @@ function binderScreen(root, source, id, pageParam) {
 						throw new Error('That list was deleted. Choose another.');
 					}
 
-					const draft = {...editing, cols: fields.cols, rows: fields.rows, rule};
+					const draft = {...editing, cols: fields.cols, extra_pages: fields.extra_pages, rows: fields.rows, rule};
 
 					checkWholeList(loaded, draft);
 
 					const liveIds = new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id));
-					const {plan, rankOf} = await planLayout(draft, loaded, {liveIds, picks});
+					const {plan, rankOf} = await planLayout(draft, loaded, {liveIds, picks, skips});
 
 					if (!await askRelayout(draft, loaded.items, plan, rankOf)) {
 						return false;
@@ -2541,7 +2600,7 @@ function binderScreen(root, source, id, pageParam) {
 		for (let position = 1; position <= per; position++) {
 			const key = plan.snapshot.keys[position - 1];
 			const item = key ? byKey.get(key) : null;
-			const state = item ? {count: item.copies.length, item, key, shown: shownCopy(item, {pick: picks.get(key), rankOf, stored: plan.snapshot.shown[key]})} : null;
+			const state = item ? {count: item.copies.length, item, key, shown: shownCopy(item, {pick: picks.get(key), rankOf, skipped: skips.get(key), stored: plan.snapshot.shown[key]})} : null;
 			const content = listPocketContent(state);
 
 			cells.push(h('div', {'aria-label': content.label, class: `pocket pocket-${content.kind}`, 'data-item': state ? state.item.kind : null, 'data-kind': content.kind, role: 'img'}, content.kind === 'open' ? '' : content.node));
@@ -3632,11 +3691,16 @@ function binderScreen(root, source, id, pageParam) {
 
 	// Remove from this binder, then Leave the pocket empty or Shift the rest
 	// back (Eric, 2026-11-06). note says where the content goes.
-	function removePanel({note, onEmpty, onShift}) {
+	// onPlaceholder, a binder from a list's pocket with copies only: keep the
+	// card on the list and its placeholder in the pocket, with no copy of
+	// yours there (Eric, 2026-11-24).
+	function removePanel({note, onEmpty, onPlaceholder = null, onShift}) {
 		return h('div', {class: 'remove-panel', hidden: true, id: 'remove-panel'},
 			h('h4', null, 'Remove from this binder'),
 			h('p', {class: 'muted', id: 'remove-note'}, note),
+			onPlaceholder ? h('p', {class: 'muted', id: 'remove-placeholder-note'}, 'Or keep it on the list and take your copies out of this pocket: the pocket shows its placeholder, and a copy you get later fills it.') : null,
 			h('div', {class: 'button-row'},
+				onPlaceholder ? h('button', {id: 'remove-placeholder', onclick: onPlaceholder, type: 'button'}, 'Keep the placeholder') : null,
 				h('button', {id: 'remove-empty', onclick: onEmpty, type: 'button'}, 'Leave the pocket empty'),
 				h('button', {class: 'primary', id: 'remove-shift', onclick: onShift, type: 'button'}, 'Shift the rest back'))
 		);
@@ -4219,7 +4283,7 @@ function binderScreen(root, source, id, pageParam) {
 				checkWholeList(loaded);
 
 				const rule = form.rule();
-				const {plan} = await planLayout({cols: fields.cols, rows: fields.rows, rule}, loaded);
+				const {plan} = await planLayout({cols: fields.cols, extra_pages: fields.extra_pages, rows: fields.rows, rule}, loaded);
 				const fresh = await handNow(hand.id);
 				const result = handPicks(fresh.slots, loaded.items, {keys: plan.snapshot.keys, liveIds: fresh.liveIds});
 				const made = await createGeneratedBinder(fields, rule, plan.snapshot, {languages: plan.languages, picks: result.picks});

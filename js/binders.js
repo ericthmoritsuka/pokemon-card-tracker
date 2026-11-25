@@ -68,7 +68,7 @@
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 import {nextStamp, restoreEntry, stampEntry} from './merge.js';
 import {byCreated, orderForNew, sortByOrder, withOrders} from './reorder.js';
-import {checkBinderRule, checkFits, isGenerated, listEditEntries, pagesFor, pickEntry, pickId, picksOf, ruleKey, withListEdit} from './binder-rules.js';
+import {checkBinderRule, checkFits, isGenerated, listEditEntries, listPageCount, pagesFor, pickEntry, pickId, picksOf, ruleKey, skipsOf, withListEdit} from './binder-rules.js';
 
 export {isGenerated};
 
@@ -273,7 +273,8 @@ export function placements(binders) {
 // is in use there; the copies under it stay free to trade or sell. The top
 // is the hand pick while that copy is still owned, else the default the
 // last refresh stored, as the binder screen shows it before it has read
-// the list (js/binders-view.js listState). A binder's tray holds none.
+// the list (js/binders-view.js listState), unless that copy is skipped
+// there ("Not this copy here"). A binder's tray holds none.
 // doc: {binders, binder_picks, cards}, the person's document or a family
 // member's. Returns a Set of entry ids.
 export function heldCopies(doc) {
@@ -286,9 +287,11 @@ export function heldCopies(doc) {
 		const snapshot = binder.snapshot && typeof binder.snapshot === 'object' ? binder.snapshot : {};
 		const shown = snapshot.shown && typeof snapshot.shown === 'object' ? snapshot.shown : {};
 		const picks = picksOf(doc && doc.binder_picks, binder.id);
+		const skips = skipsOf(doc && doc.binder_picks, binder.id);
 
 		for (const key of Array.isArray(snapshot.keys) ? snapshot.keys : []) {
-			const top = key ? owned(picks.get(key)) || owned(shown[key]) : null;
+			const stored = key && !(skips.get(key) || new Set()).has(shown[key]) ? shown[key] : null;
+			const top = key ? owned(picks.get(key)) || owned(stored) : null;
 
 			if (top) {
 				held.add(top);
@@ -1216,17 +1219,28 @@ export function createBinder(fields) {
 // the source's cards (js/binder-sources.js).
 
 // The binder fields for a list's layout: the grid asked for, and the pages
-// its pockets need.
+// its pockets need plus the extra pages asked for (extra_pages, a whole
+// number from 0; js/binder-rules.js extraPagesOf), which the result
+// carries as extra_pages.
 function generatedFields(fields, snapshot) {
 	const rows = Number(fields.rows);
 	const cols = Number(fields.cols);
 	const count = snapshot && Array.isArray(snapshot.keys) ? snapshot.keys.length : 0;
+	const extra = Number(fields.extra_pages ?? 0);
+
+	if (!isWhole(extra) || extra < 0 || extra > MAX_PAGES) {
+		throw new Error(`Extra pages run from 0 to ${MAX_PAGES}.`);
+	}
 
 	if (validGrid(rows, cols)) {
 		checkFits(count, rows, cols);
+
+		if (pagesFor(count, rows, cols) + extra > MAX_PAGES) {
+			throw new Error(`The list takes ${pagesFor(count, rows, cols)} pages, so up to ${MAX_PAGES - pagesFor(count, rows, cols)} extra pages fit.`);
+		}
 	}
 
-	return cleanFields({...fields, page_count: validGrid(rows, cols) ? pagesFor(count, rows, cols) : 1});
+	return {...cleanFields({...fields, page_count: validGrid(rows, cols) ? listPageCount(count, rows, cols, extra) : 1}), extra_pages: extra};
 }
 
 // list_languages from a refresh plan's languages: a list's languages are
@@ -1254,8 +1268,10 @@ export function createGeneratedBinder(fields, rule, snapshot, {languages, picks 
 
 	return serial(async () => {
 		const order = orderForNew(liveBinders(await allBinders()));
+		const {extra_pages: extra, ...binderFields} = clean;
 		const made = {
-			...clean,
+			...binderFields,
+			...(extra ? {extra_pages: extra} : {}),
 			art: [],
 			created_at: at,
 			deleted_at: null,
@@ -1297,8 +1313,15 @@ export function updateGeneratedBinder(id, fields, rule, snapshot, {languages} = 
 		const binder = findLive(await allBinders(), id);
 		const at = nowIso();
 		const next = copyOf(binder, at);
+		const {extra_pages: extra, ...binderFields} = clean;
 
-		Object.assign(next, clean);
+		Object.assign(next, binderFields);
+
+		// Saved as 0 once set, so taking the extra pages away wins the merge.
+		if (extra || 'extra_pages' in binder) {
+			next.extra_pages = extra;
+		}
+
 		next.rule = checked;
 		next.snapshot = {...snapshot, at: next.updated_at};
 		next.slots = [];
@@ -1372,6 +1395,36 @@ export function saveListEdits(id, changes, plan = null) {
 		const [saved] = await saveBinders(stamped([next]));
 
 		return saved;
+	});
+}
+
+// Skips copies in a pocket of a list's binder ("Not this copy here", Eric,
+// 2026-11-24), or shows them there again (skip false): ids, entry ids. The
+// pocket then shows the best copy not skipped, else its placeholder; a copy
+// he gets later still fills it. A hand pick of a copy skipped goes back to
+// the default. Saved on the pocket's binder_picks entry, as setPocketPick.
+export function setPocketSkip(binderId, key, ids, skip = true) {
+	return serial(async () => {
+		const doc = await loadDocument();
+		const binder = findLive(doc.binders || [], binderId);
+
+		if (!isGenerated(binder)) {
+			throw new Error('Only a binder made from a list skips copies.');
+		}
+
+		const id = pickId(binderId, key);
+		const previous = (Array.isArray(doc.binder_picks) ? doc.binder_picks : []).find((pick) => pick && pick.id === id) || null;
+		const live = previous && !previous.deleted_at ? previous : null;
+		const before = new Set(live && Array.isArray(live.skipped) ? live.skipped : []);
+		const changing = new Set(ids);
+		const skipped = skip ? [...before, ...changing] : [...before].filter((one) => !changing.has(one));
+		const entryId = live && live.entry_id && !(skip && changing.has(live.entry_id)) ? live.entry_id : null;
+		const entry = pickEntry({at: nextStamp(previous && previous.updated_at), binderId, entryId, key, previous, skipped});
+
+		await mergeIntoLocal({binder_picks: [entry]});
+		schedulePush();
+
+		return entry;
 	});
 }
 

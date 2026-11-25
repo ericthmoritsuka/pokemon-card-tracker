@@ -20,13 +20,18 @@
 //             rarest, else the newest), for the pockets with a copy
 //     rule_key  the rule the layout was made for (ruleKey)
 // rows, cols, preset, and page_count are the binder's own fields, so the
-// pocket size is the grid; page_count follows the number of pockets.
+// pocket size is the grid; page_count follows the number of pockets, plus
+// extra_pages, blank pages after the list (Eric, 2026-11-24; extraPagesOf).
 //
 // The copies picked by hand live in a list of their own in the document,
 // binder_picks, one entry per pocket:
 //   {id: '<binder id>|<key>', binder_id, key, entry_id, created_at,
 //    updated_at, deleted_at}
-// entry_id null means "back to the default". Every app merges a top-level
+// entry_id null means "back to the default". skipped, when present, lists
+// the copies Eric does not want in that pocket ("Not this copy here", Eric,
+// 2026-11-24): the pocket shows the best copy not skipped, else its
+// placeholder, and a copy he gets later still fills it. Older apps ignore
+// the field and show the default. Every app merges a top-level
 // list it does not know entry by entry and saves it back (js/merge.js
 // mergeDocuments, since the first sync), so two phones that pick copies for
 // different pockets both keep theirs, and the later pick of one pocket wins,
@@ -168,6 +173,19 @@ export const MAX_PAGES = 200;
 
 // The pages for n pockets of rows x cols: at least one.
 export const pagesFor = (count, rows, cols) => Math.max(1, Math.ceil(count / (rows * cols)));
+
+// The blank pages a binder from a list keeps after the list's pockets
+// (Eric, 2026-11-24: "I want to be able to add pages"): a whole number from
+// 0 to MAX_PAGES, 0 when the binder has none.
+export function extraPagesOf(binder) {
+	const n = Number(binder && binder.extra_pages);
+
+	return Number.isInteger(n) && n > 0 ? Math.min(n, MAX_PAGES) : 0;
+}
+
+// A binder from a list's pages: the list's pockets, then its extra pages,
+// never more than MAX_PAGES.
+export const listPageCount = (count, rows, cols, extra = 0) => Math.min(MAX_PAGES, pagesFor(count, rows, cols) + extra);
 
 // Pocket i (from 0) as {page, position}, both from 1.
 export function pocketAt(index, rows, cols) {
@@ -350,6 +368,28 @@ function beats(a, entryA, b, entryB) {
 
 export const pickId = (binderId, key) => `${binderId}|${key}`;
 
+// The copies skipped in one binder's pockets ("Not this copy here"): Map key
+// -> Set of entry ids. A deleted entry skips nothing.
+export function skipsOf(list, binderId) {
+	const out = new Map();
+
+	for (const pick of Array.isArray(list) ? list : []) {
+		const ids = pick && !pick.deleted_at && pick.binder_id === binderId && typeof pick.key === 'string' ? cleanSkipped(pick.skipped) : [];
+
+		if (ids.length) {
+			out.set(pick.key, new Set(ids));
+		}
+	}
+
+	return out;
+}
+
+// Skipped ids as stored: strings, once each, sorted, so two phones that
+// compare entries as text agree.
+const cleanSkipped = (ids) => (Array.isArray(ids) ? [...new Set(ids.filter((id) => typeof id === 'string' && id))].sort() : []);
+
+const NO_SKIPS = new Set();
+
 // The hand picks of one binder: Map key -> entry id. A pick set back to the
 // default (entry_id null) or deleted is not one.
 export function picksOf(list, binderId) {
@@ -365,8 +405,13 @@ export function picksOf(list, binderId) {
 }
 
 // A new version of a pocket's pick: entryId, or null for the default. at is
-// the stamp; previous the entry it replaces, if any (its created_at stays).
-export function pickEntry({at, binderId, entryId, key, previous = null}) {
+// the stamp; previous the entry it replaces, if any (its created_at stays,
+// and its skipped copies unless skipped is given). A copy picked by hand is
+// no longer skipped there. skipped is left out when it lists nothing, so a
+// pick without skips is the entry it always was.
+export function pickEntry({at, binderId, entryId, key, previous = null, skipped = undefined}) {
+	const skips = cleanSkipped(skipped === undefined ? previous && previous.skipped : skipped).filter((id) => id !== entryId);
+
 	return {
 		binder_id: binderId,
 		created_at: (previous && previous.created_at) || at,
@@ -374,6 +419,7 @@ export function pickEntry({at, binderId, entryId, key, previous = null}) {
 		entry_id: entryId || null,
 		id: pickId(binderId, key),
 		key,
+		...(skips.length ? {skipped: skips} : {}),
 		updated_at: at,
 	};
 }
@@ -509,8 +555,10 @@ export function moveEdit(keys, from, to, at) {
 
 // The copy a pocket shows: a hand pick while it still fits, else the
 // default the last refresh stored while it still fits, else the default
-// now. Returns {entry, picked} or null when nothing fits.
-export function shownCopy(item, {pick = null, rankOf, stored = null} = {}) {
+// now. skipped: the copies not wanted in this pocket (skipsOf), which only
+// a hand pick shows. Returns {entry, picked} or null when nothing fits: the
+// pocket's placeholder.
+export function shownCopy(item, {pick = null, rankOf, skipped = NO_SKIPS, stored = null} = {}) {
 	const copies = (item && item.copies) || [];
 	const find = (id) => (id ? copies.find((entry) => entry.id === id && !entry.deleted_at) || null : null);
 	const picked = find(pick);
@@ -519,13 +567,13 @@ export function shownCopy(item, {pick = null, rankOf, stored = null} = {}) {
 		return {entry: picked, picked: true};
 	}
 
-	const kept = find(stored);
+	const kept = skipped.has(stored) ? null : find(stored);
 
 	if (kept) {
 		return {entry: kept, picked: false};
 	}
 
-	const fresh = defaultCopy(copies, rankOf);
+	const fresh = defaultCopy(copies.filter((entry) => !skipped.has(entry.id)), rankOf);
 
 	return fresh ? {entry: fresh, picked: false} : null;
 }
@@ -549,6 +597,8 @@ export function shownCopy(item, {pick = null, rankOf, stored = null} = {}) {
 // "Binders from a list").
 //
 // edits: the binder's list_edits (listEditsOf), applied after the order.
+// skips: skipsOf(), the copies a pocket's default passes over.
+// The pages are the pockets' and the binder's extra pages (extraPagesOf).
 //
 // keepOrder: the stored pockets keep their places and keys new to the list
 // go at the end (keptOrder), when the stored layout was made for this rule;
@@ -571,7 +621,7 @@ export function shownCopy(item, {pick = null, rankOf, stored = null} = {}) {
 //                   it: the screen leaves it alone on opening, as for
 //                   languageOnly (DESIGN.md, "Left out and moved")
 //   languages       as given, for saveRefresh to record on the binder
-export function planRefresh(binder, items, {anyItems = null, at, edits = listEditsOf(binder), keepOrder = false, languages = undefined, liveIds = null, partial = false, picks = new Map(), rankOf} = {}) {
+export function planRefresh(binder, items, {anyItems = null, at, edits = listEditsOf(binder), keepOrder = false, languages = undefined, liveIds = null, partial = false, picks = new Map(), rankOf, skips = new Map()} = {}) {
 	const before = isObject(binder.snapshot) ? binder.snapshot : {};
 	const oldKeys = Array.isArray(before.keys) ? before.keys : [];
 	const oldShown = isObject(before.shown) ? before.shown : {};
@@ -590,10 +640,11 @@ export function planRefresh(binder, items, {anyItems = null, at, edits = listEdi
 			continue;
 		}
 
-		const fresh = defaultCopy(item.copies, rankOf);
+		const skipped = skips.get(item.key) || NO_SKIPS;
+		const fresh = defaultCopy(item.copies.filter((entry) => !skipped.has(entry.id)), rankOf);
 		let id = fresh ? fresh.id : null;
 
-		if (!id && partial && oldShown[item.key] && (!liveIds || liveIds.has(oldShown[item.key]))) {
+		if (!id && partial && oldShown[item.key] && !skipped.has(oldShown[item.key]) && (!liveIds || liveIds.has(oldShown[item.key]))) {
 			id = oldShown[item.key];
 		}
 
@@ -620,7 +671,7 @@ export function planRefresh(binder, items, {anyItems = null, at, edits = listEdi
 
 	const added = keys.filter((key) => key && !oldSet.has(key));
 	const removed = oldKeys.filter((key) => key && !newSet.has(key));
-	const pageCount = pagesFor(keys.length, binder.rows, binder.cols);
+	const pageCount = listPageCount(keys.length, binder.rows, binder.cols, extraPagesOf(binder));
 	const snapshot = {at, keys, rule_key: ruleKey(binder.rule), shown};
 	const same = before.rule_key === snapshot.rule_key
 		&& oldKeys.length === keys.length && oldKeys.every((key, i) => key === keys[i])
@@ -633,11 +684,11 @@ export function planRefresh(binder, items, {anyItems = null, at, edits = listEdi
 	// What an older phone saves: the list's own order, without the edits it
 	// does not know (v57 to v64), and from any language (v56).
 	if (changed && edits.length && !keepOrder) {
-		editsOnly = !planRefresh(binder, items, {at, edits: [], liveIds, partial, picks, rankOf}).changed;
+		editsOnly = !planRefresh(binder, items, {at, edits: [], liveIds, partial, picks, rankOf, skips}).changed;
 	}
 
 	if (changed && !keepOrder && Array.isArray(anyItems) && typeof languages === 'string' && binder.list_languages === languages) {
-		languageOnly = !planRefresh(binder, anyItems, {at, edits: [], liveIds, partial, picks, rankOf}).changed;
+		languageOnly = !planRefresh(binder, anyItems, {at, edits: [], liveIds, partial, picks, rankOf, skips}).changed;
 	}
 
 	return {

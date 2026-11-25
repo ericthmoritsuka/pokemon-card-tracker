@@ -8,7 +8,7 @@ import {h} from './dom.js';
 import {filterOptions} from './filter-bar.js';
 import {formatCount, plural} from './format.js';
 import {LANGUAGES, languageLabel} from './catalog.js';
-import {FILTER_FIELDS, cleanBinderRule, checkBinderRule, checkFits, layoutWaits, ordersFor, pagesFor} from './binder-rules.js';
+import {FILTER_FIELDS, MAX_PAGES, cleanBinderRule, checkBinderRule, checkFits, extraPagesOf, layoutWaits, listPageCount, ordersFor, pagesFor} from './binder-rules.js';
 import {filterItems, loadRuleItems, sourceChoices, sourceEntry} from './binder-sources.js';
 import {gapText} from './goals.js';
 
@@ -45,8 +45,9 @@ export function filterLabels(doc, index) {
 }
 
 // The section: {element, fields(), rule(), ready(), nameHint()}.
-//   fields()   {rows, cols, preset, page_count} for the binder form; the
-//              pages follow the pockets counted last
+//   fields()   {rows, cols, preset, page_count, extra_pages} for the binder
+//              form; the pages follow the pockets counted last, plus the
+//              extra pages after the list (Eric, 2026-11-24)
 //   rule()     the rule, checked (throws words for the form)
 //   ready()    resolves the source's items for the rule now ({items, ...},
 //              js/binder-sources.js loadRuleItems)
@@ -77,6 +78,13 @@ export function ruleSection({binder = null, doc, index, onChange = () => {}, sta
 	const rowsSelect = h('select', {'aria-label': 'Rows', id: 'binder-rows'}, [1, 2, 3, 4, 5].map((n) => choice(n, `${n} ${n === 1 ? 'row' : 'rows'}`)));
 	const colsSelect = h('select', {'aria-label': 'Columns', id: 'binder-cols'}, [1, 2, 3, 4, 5].map((n) => choice(n, `${n} ${n === 1 ? 'column' : 'columns'}`)));
 	const count = h('p', {'aria-live': 'polite', class: 'muted', id: 'rule-count'});
+	// Blank pages after the list's pockets (js/binder-rules.js extraPagesOf).
+	const extraPages = h('input', {class: 'search', id: 'rule-extra-pages', inputmode: 'numeric', max: MAX_PAGES, min: 0, type: 'number', value: String(extraPagesOf(binder))});
+	const extra = () => {
+		const n = Number(extraPages.value || 0);
+
+		return Number.isInteger(n) && n > 0 ? n : 0;
+	};
 	let counted = null;
 	let asked = 0;
 	let pending = null;
@@ -211,10 +219,19 @@ export function ruleSection({binder = null, doc, index, onChange = () => {}, sta
 
 		try {
 			checkFits(n, rows, cols);
+
+			const more = extra();
+
+			if (pagesFor(n, rows, cols) + more > MAX_PAGES) {
+				throw new Error(`The list takes ${plural(pagesFor(n, rows, cols), 'page', 'pages')}, so up to ${MAX_PAGES - pagesFor(n, rows, cols)} extra pages fit.`);
+			}
+
+			const after = more ? `, then ${plural(more, 'blank page', 'blank pages')}` : '';
+
 			count.className = 'muted';
 			count.textContent = n
-				? `${plural(n, 'pocket', 'pockets')} (${formatCount(owned)} with a card you own): ${plural(pagesFor(n, rows, cols), 'page', 'pages')} of ${rows} × ${cols}.`
-				: 'No cards fit this yet, so the binder starts with one empty page.';
+				? `${plural(n, 'pocket', 'pockets')} (${formatCount(owned)} with a card you own): ${plural(pagesFor(n, rows, cols), 'page', 'pages')} of ${rows} × ${cols}${after}.`
+				: `No cards fit this yet, so the binder starts with one empty page${after}.`;
 		}
 		catch (err) {
 			count.className = 'form-error';
@@ -308,8 +325,15 @@ export function ruleSection({binder = null, doc, index, onChange = () => {}, sta
 		h('span', {class: 'field-label'}, 'Pocket size'),
 		presets.element,
 		h('div', {class: 'toolbar two grid-steppers'}, h('span', {class: 'select-wrap'}, rowsSelect), h('span', {class: 'select-wrap'}, colsSelect)),
+		h('label', {for: 'rule-extra-pages'}, 'Extra pages after the list'),
+		extraPages,
 		count
 	);
+
+	extraPages.addEventListener('input', () => {
+		drawCount();
+		onChange();
+	});
 
 	recount();
 
@@ -319,7 +343,7 @@ export function ruleSection({binder = null, doc, index, onChange = () => {}, sta
 			const {cols, rows} = grid();
 			const n = counted ? counted.items.length : 0;
 
-			return {cols, page_count: Math.min(200, pagesFor(n, rows, cols)), preset: presetFor({cols, page_count: 40, rows}), rows};
+			return {cols, extra_pages: extra(), page_count: listPageCount(n, rows, cols, extra()), preset: presetFor({cols, page_count: 40, rows}), rows};
 		},
 		grid,
 		nameHint: () => {

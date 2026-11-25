@@ -18,10 +18,12 @@ import {
 	checkFits,
 	cleanBinderRule,
 	defaultCopy,
+	extraPagesOf,
 	indexAt,
 	isGenerated,
 	keptOrder,
 	layoutWaits,
+	listPageCount,
 	ordersFor,
 	pagesFor,
 	parseKey,
@@ -33,6 +35,7 @@ import {
 	refreshText,
 	ruleKey,
 	shownCopy,
+	skipsOf,
 	sortRuleItems,
 } from '../js/binder-rules.js';
 import {placeholderList, placements, resizedBinder, setPocket, unplaced} from '../js/binders.js';
@@ -160,6 +163,94 @@ describe('the default copy', () => {
 		assert.deepEqual(shownCopy(item, {pick: 'gone', stored: 'a'}), {entry: item.copies[0], picked: false});
 		assert.deepEqual(shownCopy(item, {pick: null, stored: 'gone'}), {entry: item.copies[1], picked: false});
 		assert.equal(shownCopy({copies: []}, {pick: 'a'}), null);
+	});
+});
+
+describe('not this copy here (Eric, 2026-11-24)', () => {
+	// Johto's Cyndaquil pocket: the copy he owns belongs in his
+	// 30th-anniversary binder.
+	const cyndaquil = (copies) => ({copies, dex: 155, key: 'dex:155', name: 'Cyndaquil'});
+	const pick = (fields = {}) => ({binder_id: 'johto', created_at: at(1), deleted_at: null, entry_id: null, id: 'johto|dex:155', key: 'dex:155', updated_at: at(1), ...fields});
+
+	test('a skipped copy is passed over: the next best shows, else the placeholder, and a hand pick still shows it', () => {
+		const item = cyndaquil([copy('c30', 'cel25-001', {created_at: at(2)}), copy('c2', 'neo1-001', {created_at: at(1)})]);
+		const skipped = new Set(['c30']);
+
+		assert.equal(shownCopy(item, {stored: 'c30'}).entry.id, 'c30');
+		assert.deepEqual(shownCopy(item, {skipped, stored: 'c30'}), {entry: item.copies[1], picked: false});
+		assert.equal(shownCopy(cyndaquil([item.copies[0]]), {skipped, stored: 'c30'}), null, 'his only copy skipped: the placeholder');
+		assert.deepEqual(shownCopy(item, {pick: 'c30', skipped}), {entry: item.copies[0], picked: true});
+	});
+
+	test('a copy he gets later fills the pocket: the skip names copies, not the pocket', () => {
+		const later = cyndaquil([copy('c30', 'cel25-001'), copy('new', 'sv08-020', {created_at: at(9)})]);
+
+		assert.equal(shownCopy(later, {skipped: new Set(['c30'])}).entry.id, 'new');
+	});
+
+	test('skips are read per binder and pocket, and a deleted entry or an empty list skips nothing', () => {
+		const list = [
+			pick({skipped: ['c30']}),
+			pick({binder_id: 'other', id: 'other|dex:155', skipped: ['x']}),
+			pick({id: 'johto|dex:152', key: 'dex:152', skipped: []}),
+			pick({deleted_at: at(3), id: 'johto|dex:158', key: 'dex:158', skipped: ['y']}),
+		];
+
+		assert.deepEqual([...skipsOf(list, 'johto')].map(([key, ids]) => [key, [...ids]]), [['dex:155', ['c30']]]);
+		assert.equal(picksOf(list, 'johto').size, 0, 'a skip is not a pick');
+		assert.equal(skipsOf(null, 'johto').size, 0);
+	});
+
+	test('pickEntry keeps the skips, leaves the field out when there are none, and a copy picked is no longer skipped', () => {
+		const previous = pick({skipped: ['c30', 'c2']});
+
+		assert.deepEqual(pickEntry({at: at(5), binderId: 'johto', entryId: null, key: 'dex:155', previous}).skipped, ['c2', 'c30']);
+		assert.deepEqual(pickEntry({at: at(5), binderId: 'johto', entryId: 'c2', key: 'dex:155', previous}).skipped, ['c30']);
+		assert.equal('skipped' in pickEntry({at: at(5), binderId: 'johto', entryId: 'c9', key: 'dex:155'}), false);
+		assert.equal('skipped' in pickEntry({at: at(5), binderId: 'johto', entryId: null, key: 'dex:155', previous, skipped: []}), false);
+		assert.deepEqual(pickEntry({at: at(5), binderId: 'johto', entryId: null, key: 'dex:155', skipped: ['b', 'a', 'b', '', 3]}).skipped, ['a', 'b']);
+	});
+
+	test('a refresh stores a default that is not skipped, and a partial read never keeps a skipped one', () => {
+		const binder = generated('johto', {snapshot: {at: at(0), keys: ['dex:155'], rule_key: 'checklist:list-1|dex', shown: {'dex:155': 'c30'}}});
+		const skips = new Map([['dex:155', new Set(['c30'])]]);
+		const only = planRefresh(binder, [cyndaquil([copy('c30', 'cel25-001')])], {at: at(10), rankOf: () => ({}), skips});
+
+		assert.equal(only.snapshot.shown['dex:155'], undefined, 'the placeholder');
+		assert.deepEqual(only.emptied, ['dex:155']);
+
+		const two = planRefresh(binder, [cyndaquil([copy('c30', 'cel25-001'), copy('c2', 'neo1-001')])], {at: at(10), rankOf: () => ({}), skips});
+
+		assert.equal(two.snapshot.shown['dex:155'], 'c2');
+
+		const partial = planRefresh(binder, [cyndaquil([])], {at: at(10), liveIds: new Set(['c30']), partial: true, rankOf: () => ({}), skips});
+
+		assert.equal(partial.snapshot.shown['dex:155'], undefined);
+	});
+});
+
+describe('extra pages (Eric, 2026-11-24)', () => {
+	test('blank pages after the list: a whole number, never past 200 pages in all', () => {
+		assert.equal(extraPagesOf({}), 0);
+		assert.equal(extraPagesOf({extra_pages: 5}), 5);
+		assert.equal(extraPagesOf({extra_pages: -2}), 0);
+		assert.equal(extraPagesOf({extra_pages: 2.5}), 0);
+		assert.equal(extraPagesOf({extra_pages: '3'}), 3);
+		assert.equal(listPageCount(10, 3, 3, 0), 2);
+		assert.equal(listPageCount(10, 3, 3, 5), 7);
+		assert.equal(listPageCount(1700, 3, 3, 50), 200);
+	});
+
+	test('a refresh keeps the extra pages, and a change of them is a change to save', () => {
+		const binder = generated('b1', {extra_pages: 3, page_count: 4});
+		// The stored layout: dex:1 shows c1, the others none.
+		const items = [1, 4, 7].map((n) => ({copies: n === 1 ? [copy('c1', 'p1')] : [], dex: n, key: `dex:${n}`, name: `Mon ${n}`}));
+		const plan = planRefresh(binder, items, {at: at(10), rankOf: () => ({})});
+
+		assert.equal(plan.page_count, 4);
+		assert.equal(plan.changed, false);
+		assert.equal(planRefresh({...binder, extra_pages: 1}, items, {at: at(10), rankOf: () => ({})}).changed, true);
+		assert.equal(planRefresh({...binder, extra_pages: 1}, items, {at: at(10), rankOf: () => ({})}).page_count, 2);
 	});
 });
 
@@ -756,6 +847,87 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 	after(async () => {
 		await browser?.close();
 		await pages?.close();
+	});
+
+	test('extra pages after the list, Not this copy here, and Keep the placeholder (Eric, 2026-11-24)', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await seedLocal(page, documentWith());
+		await page.click('.tabs a[data-tab="binders"]');
+		await page.click('#new-binder');
+		await page.check('#new-binder-list');
+		await page.waitForSelector('#rule-section');
+		await page.check('#rule-kind input[value="checklist"]');
+		await page.selectOption('#rule-list', 'list-1');
+		await page.click('.binder-preset[data-preset="4-pocket"]');
+		await page.fill('#rule-extra-pages', '2');
+		await page.waitForFunction(() => /4 pockets \(3 with a card you own\): 1 page of 2 × 2, then 2 blank pages\./.test((document.getElementById('rule-count') || {}).textContent), null, {timeout: 15000});
+		await page.click('#binder-save');
+		await page.waitForSelector('#binder-spread .bs-page');
+
+		let doc = await localDoc(page);
+		const made = doc.binders[0];
+
+		assert.equal(made.page_count, 3, 'the list\'s page, then two blank ones');
+		assert.equal(made.extra_pages, 2);
+
+		// Squirtle's pocket (#007) shows his only copy, c5. Not this copy
+		// here: the pocket keeps Squirtle and shows its placeholder.
+		await openPage(page, 1);
+		await waitForPocket(page, zoomPocket(3), {kind: 'card', label: 'Squirtle: Test Splash'});
+		await page.click(zoomPocket(3));
+		await page.waitForFunction(() => document.getElementById('pocket-viewer')?.dataset.state === 'open');
+		await page.click('#pv-details');
+		await page.waitForSelector('#list-skip');
+		await page.click('#list-skip');
+		await waitForPocket(page, zoomPocket(3), {kind: 'want', label: '#007 Squirtle, placeholder: your copies are kept out of this pocket'});
+		assert.equal(await page.locator(`${zoomPocket(3)} .pocket-tag`).textContent(), 'Placeholder');
+		await page.waitForFunction(() => document.getElementById('pocket-viewer')?.dataset.state !== 'open' && !document.querySelector('#pocket-sheet[open]'));
+		await page.waitForTimeout(400);
+		await page.screenshot({path: `${SHOTS}/keep-placeholder-360.png`});
+
+		doc = await localDoc(page);
+		assert.deepEqual(doc.binder_picks.map((pick) => [pick.id, pick.entry_id, pick.skipped]), [[`${made.id}|dex:7`, null, ['c5']]]);
+		await page.waitForFunction(() => import('/pokemon-card-tracker/js/collection.js').then((m) => m.loadDocument()).then((d) => !d.binders[0].snapshot.shown['dex:7']), null, {timeout: 15000});
+		assert.equal((await localDoc(page)).binders[0].page_count, 3, 'a refresh keeps the extra pages');
+
+		// The sheet says so, tags the copy, and shows it here again.
+		await page.click(zoomPocket(3));
+		await page.waitForSelector('#list-unskip');
+		assert.match(await page.locator('#list-sheet-count').textContent(), /^No copy shows here: the pocket keeps its placeholder\./);
+		assert.equal(await page.locator('#list-copies .list-copy[data-entry="c5"] .list-skipped-tag').textContent(), 'Not shown here');
+		await page.click('#list-unskip');
+		await waitForPocket(page, zoomPocket(3), {kind: 'card', label: 'Squirtle: Test Splash'});
+
+		// Remove from this binder offers Keep the placeholder beside the two
+		// ways to leave it out.
+		await page.click(zoomPocket(3));
+		await page.waitForFunction(() => document.getElementById('pocket-viewer')?.dataset.state === 'open');
+		await page.click('#pv-remove');
+		await page.waitForSelector('#remove-placeholder');
+		assert.deepEqual(await page.locator('#remove-panel button').evaluateAll((nodes) => nodes.map((node) => node.id)), ['remove-placeholder', 'remove-empty', 'remove-shift']);
+		await page.click('#remove-placeholder');
+		await waitForPocket(page, zoomPocket(3), {kind: 'want'});
+
+		doc = await localDoc(page);
+		assert.deepEqual(doc.binders[0].snapshot.keys, ['dex:1', 'dex:4', 'dex:7', 'dex:25'], 'Squirtle stays on the list');
+		assert.deepEqual(doc.binders[0].list_edits || [], []);
+
+		// Bulbasaur's three copies: skipping the one shown shows the next.
+		await waitForPocket(page, zoomPocket(1), {kind: 'card', label: 'Bulbasaur: Test Sprout, .*3 copies fit'});
+		await page.click(zoomPocket(1));
+		await page.waitForFunction(() => document.getElementById('pocket-viewer')?.dataset.state === 'open');
+		await page.click('#pv-details');
+		await page.waitForSelector('#list-skip');
+		await page.click('#list-skip');
+		await page.waitForFunction(() => import('/pokemon-card-tracker/js/collection.js').then((m) => m.loadDocument()).then((d) => {
+			const shown = d.binders[0].snapshot.shown['dex:1'];
+
+			return Boolean(shown) && shown !== 'c1';
+		}), null, {timeout: 15000});
+		await waitForPocket(page, zoomPocket(1), {kind: 'card'});
+		assert.deepEqual(errors, []);
+		await context.close();
 	});
 
 	test('from a checklist: the default copy, a count, a placeholder, a pick that sticks, refresh, edit with a preview, nothing placed, and delete with Undo', async () => {
