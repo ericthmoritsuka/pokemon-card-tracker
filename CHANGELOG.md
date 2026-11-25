@@ -17,6 +17,19 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-25
 
+- **v114:** kit notes on the card page, the Kit button beside Fill, and the Shop's selection at hand. `093552b`, `549dd93`, `6c6e509`, `9b60528`
+  - Added: Edit copy's For sale hint names the kits a copy is in ("In kit Trio: it sells alone or in the kit", and
+    "Kept: … and kit Trio with it" when unticked), and starring a card adds "Kit Trio left HOTARU too." to its toast.
+    Both read `store_bundles_admin` through `kitNamesFor` (`js/store-publish.js`), and say nothing when it cannot be read.
+  - Fixed (Eric: "not looking good"): the Kit button sat among the Shop's text links, squeezed to 60 to 69 px wide and
+    wrapping its label; it now sits beside Fill in the price row with the same `button.small`, 44 px tall.
+  - Added (Eric): with any card ticked, a bar at the bottom of the Shop offers the count, Clear, a price with Fill,
+    and Kit (from two cards), so a selection far down the list needs no scroll back up. It sticks like the Save bar,
+    rides above it when both show, keeps room for the Scan button, and slides in only without reduced motion.
+  - Suite before release: 165 files, 2,434 pass, 3 fail, all passing alone: moves-browser (the known ERR_ABORTED
+    navigation flake), value-history-browser (a price tile timeout), and shop-publish-browser's star test (the unstar
+    wait under load; 3/3 alone, and the kit lookup runs after the star, never in its way).
+
 - **v113:** kits on HOTARU, and the Shop filtered by finish. `a6e099e`, `2bdff27`, `60b8fab`, `868883b`, `a0e1eff`, `2fb6c36`, `002218a`
   - Added (Eric): kits, several listed cards sold together on HOTARU at a price he types or a percent off their sum
     (`plans/hotaru-bundles-plan.md`). A percent kit rounds down to the centavo (R$ 15,00 at 5% is R$ 14,25). A kit
