@@ -3541,9 +3541,22 @@ chosen, for a "Make a binder" button on those screens.
   again** clears the skips. Skips are stored on the pocket's `binder_picks` entry as `skipped`
   (entry ids, sorted), merged with the pick per pocket; an older app ignores the field and shows the
   default. The default a refresh stores passes over skipped copies, so the copies in use
-  (`heldCopies`, spares) follow at once. The automatic rule that a copy in use in another binder
-  stops filling this one (planned next, Eric, 2026-11-24) is worked out from the binders, with no
-  new stored field.
+  (`heldCopies`, spares) follow at once.
+- **A copy is in one pocket at a time** (Eric, 2026-11-24). Every pocket that holds or shows a copy
+  claims it, and a list pocket's default passes over a copy claimed by anything that outranks it,
+  showing another copy, else its placeholder. Strongest first: a hand-made binder's pocket (where
+  the copy really is), a hand pick in a binder from a list, the default in a card's pocket (only
+  that print fits it), the default in a Pokémon's pocket (any print of it fits); then the older
+  binder, then the earlier pocket. So a 30th-anniversary set goal takes its Cyndaquil from a Johto
+  checklist, while between two Pokémon pockets the older binder keeps it, and the younger one's
+  pocket needs Not this copy here. A hand pick always shows, even of a copy in use elsewhere (two
+  picks of one copy both stand). Inside one binder the same rule keeps a card that fits two
+  pockets (a tag team) in one. The sheet tags such a copy "In use in <binder>", and the refresh
+  line says "1 pocket no longer shows a copy in use in another binder or pocket (Cyndaquil)."
+  rather than calling it emptied. Each pocket looks only at claims above its own, so binders never
+  take a copy back and forth; nothing new is stored (`copyClaims`, `js/binders.js`; `takenFor`,
+  `js/binder-rules.js`). An older app ignores the rule, and its refresh can store the shared copy
+  again until a new app opens that binder.
 - **Extra pages** (Eric, 2026-11-24): blank pages after the list's pockets, "Extra pages after the
   list" in the form (`extra_pages`, 0 by default; the list's pages plus these stay within 200).
   They draw as empty pockets; a refresh keeps them, and an older app, which counts only the

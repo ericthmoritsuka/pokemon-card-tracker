@@ -25,6 +25,7 @@ import {
 	coverTextColor,
 	fillFromTray,
 	fillPlaceholders,
+	copyClaims,
 	heldCopies,
 	layoutOf,
 	locate,
@@ -532,6 +533,15 @@ describe('copies in use in a binder (Eric, 2026-11-24)', () => {
 	});
 	const cards = [card('s1'), card('s2'), card('s3'), card('b1'), card('b2'), card('h1'), card('gone', {deleted_at: at(5)})];
 	const pick = (key, entryId, fields = {}) => ({binder_id: 'hoenn', created_at: at(1), deleted_at: null, entry_id: entryId, id: `hoenn|${key}`, key, updated_at: at(1), ...fields});
+
+	test('copyClaims: hand-made pockets, hand picks, and each list pocket\'s default, owned copies only', () => {
+		const hand = binderOf('favs', {created_at: at(0), name: 'Favorites', slots: [{entry_id: 'h1', page: 1, placed_at: at(1), position: 2}]});
+		const claims = copyClaims({binder_picks: [pick('dex:371', 'b2'), pick('dex:373', null, {skipped: ['s1']})], binders: [hand, listBinder({created_at: at(2), name: 'Hoenn'})], cards});
+		const rows = claims.map((claim) => [claim.binderName, claim.key, claim.entryId, claim.rank, claim.index]);
+
+		assert.deepEqual(rows, [['Favorites', null, 'h1', 0, 1], ['Hoenn', 'dex:371', 'b2', 1, 0]], 's1 is skipped there, and gone is not owned');
+		assert.deepEqual(copyClaims({binder_picks: [], binders: [listBinder()], cards}).map((claim) => [claim.key, claim.entryId, claim.rank]), [['dex:371', 'b1', 3], ['dex:373', 's1', 3]]);
+	});
 
 	test('a stored default skipped there ("Not this copy here") is not held, and a hand pick of it is', () => {
 		assert.deepEqual([...heldCopies({binder_picks: [pick('dex:373', null, {skipped: ['s1']})], binders: [listBinder()], cards})].sort(), ['b1'], 'until the next refresh stores another default');
