@@ -23,6 +23,15 @@ export const RELEASES = [
 	{
 		date: '2026-11-25',
 		items: [
+			'A binder pocket counts different cards, not copies: ×2 means two different cards fit, however many spares you have.',
+			'Edit pocket and the pocket viewer show each card once, with ×N for its copies.',
+			'A card you own in more than one finish shows a badge for each, such as REG and REV.',
+		],
+		version: 'v115',
+	},
+	{
+		date: '2026-11-25',
+		items: [
 			'Edit copy names the kit a copy is in, under For sale on HOTARU, and says the kit leaves HOTARU too when you keep the copy.',
 			'Starring a card that is in a kit says the kit left HOTARU with it.',
 			'Tick cards anywhere in the Shop and a bar at the bottom offers Fill and Kit for them, so there is no scrolling back up.',
