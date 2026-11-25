@@ -26,12 +26,27 @@ function readKept() {
 	}
 }
 
+// Told each answer as it comes, so a screen drawn before it (the Shop opened
+// from its address while the session was still coming back) shows what is
+// the owner's once it is known.
+const listeners = new Set();
+
+export function onShopOwner(listener) {
+	listeners.add(listener);
+
+	return () => listeners.delete(listener);
+}
+
 function keep(userId, owner) {
 	try {
 		localStorage.setItem(KEY, JSON.stringify({...readKept(), [userId]: owner}));
 	}
 	catch {
 		// Not kept; the next visit asks the server again.
+	}
+
+	for (const listener of [...listeners]) {
+		listener(owner);
 	}
 }
 
@@ -81,5 +96,34 @@ export async function checkShopOwner() {
 	}
 	catch {
 		return shopOwnerKnown();
+	}
+}
+
+// Add and sell (plans/hotaru-for-sale-plan.md, section 5): the Shop's
+// button sends the owner to find a card, and the next Add a copy sheet
+// opens with For sale on HOTARU ticked. Kept on this tab only, and dropped
+// once a copy is added that way or the Shop is opened again.
+const ADD_AND_SELL_KEY = 'cardTracker.addAndSell';
+
+export function wantsAddAndSell() {
+	try {
+		return sessionStorage.getItem(ADD_AND_SELL_KEY) === '1';
+	}
+	catch {
+		return false;
+	}
+}
+
+export function setAddAndSell(on) {
+	try {
+		if (on) {
+			sessionStorage.setItem(ADD_AND_SELL_KEY, '1');
+		}
+		else {
+			sessionStorage.removeItem(ADD_AND_SELL_KEY);
+		}
+	}
+	catch {
+		// Not kept: the sheet opens unticked, and the box is still there.
 	}
 }

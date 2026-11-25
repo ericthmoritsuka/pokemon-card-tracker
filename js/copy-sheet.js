@@ -39,9 +39,10 @@ import {plural} from './format.js';
 import {catalogFor, copyLanguageCodes, languageLabel} from './languages.js';
 import {FINISHES, finishLabel} from './monprice.js';
 import {formatBrl, isStandardSize} from './prices.js';
-import {setPendingMove} from './moves.js';
+import {parsePrice, setPendingMove} from './moves.js';
 import {CONDITIONS} from './scan/session.js';
 import {openDialogSheet} from './sheet.js';
+import {setAddAndSell, shopOwnerKnown, wantsAddAndSell} from './shop-owner.js';
 import {toast} from './shell.js';
 import {withdrawListings} from './store-publish.js';
 
@@ -953,6 +954,29 @@ export function openAddSheet({card, catalog, extra = null, finishes, lang, offli
 		submit.textContent = n ? `Add ${n} ${n === 1 ? 'copy' : 'copies'}` : 'Add copies';
 	});
 
+	// For sale on HOTARU, for the shop owner (plans/hotaru-for-sale-plan.md,
+	// Add and sell): the copies added are marked For sale, and a price typed
+	// here is their finish's sale price. Ticked when the Shop's Add and sell
+	// sent the owner here (js/shop-owner.js).
+	const owner = shopOwnerKnown() === true;
+	const saleBox = owner ? h('input', {checked: wantsAddAndSell(), class: 'copy-for-sale-box', id: 'copy-add-for-sale', type: 'checkbox'}) : null;
+	const salePriceInput = owner ? h('input', {autocomplete: 'off', class: 'search copy-sale-price', id: 'copy-add-sale-price', inputmode: 'decimal', placeholder: 'Not priced', type: 'text'}) : null;
+	const salePriceField = owner ? field('Sale price (R$)', 'copy-add-sale-price', salePriceInput) : null;
+	const drawSale = () => {
+		if (salePriceField) {
+			salePriceField.hidden = !saleBox.checked;
+		}
+	};
+
+	if (saleBox) {
+		saleBox.addEventListener('change', drawSale);
+		drawSale();
+	}
+
+	const saleField = saleBox
+		? h('div', {class: 'copy-field copy-for-sale'}, h('label', {class: 'copy-for-sale-label', for: 'copy-add-for-sale'}, saleBox, ' For sale on HOTARU'))
+		: null;
+
 	// novalidate: the sheet says what is wrong in its own words.
 	const form = h('form', {class: 'copy-form', id: 'copy-form', novalidate: true},
 		field('Language', 'copy-language', language),
@@ -960,6 +984,8 @@ export function openAddSheet({card, catalog, extra = null, finishes, lang, offli
 		field('Condition', 'copy-condition', condition),
 		field('Stored in', 'copy-storage', storage.element),
 		field(`How many (1 to ${MAX_ADD})`, 'copy-count', count),
+		saleField,
+		salePriceField,
 		error,
 		submit
 	);
@@ -996,6 +1022,25 @@ export function openAddSheet({card, catalog, extra = null, finishes, lang, offli
 			fields.storage = storage.value();
 		}
 
+		const selling = Boolean(saleBox && saleBox.checked);
+
+		if (selling) {
+			fields.for_sale = true;
+
+			const typed = salePriceInput.value.trim() ? parsePrice(salePriceInput.value) : {error: null, value: null};
+
+			if (typed.error) {
+				error.textContent = typed.error;
+				salePriceInput.focus();
+
+				return;
+			}
+
+			if (typed.value !== null) {
+				fields.sale_price = typed.value;
+			}
+		}
+
 		submit.disabled = true;
 
 		let result;
@@ -1011,7 +1056,12 @@ export function openAddSheet({card, catalog, extra = null, finishes, lang, offli
 		}
 
 		close();
-		toastAdded(`Added ${n} ${languageName(language.value)} ${n === 1 ? 'copy' : 'copies'}.`, result);
+
+		if (selling) {
+			setAddAndSell(false);
+		}
+
+		toastAdded(`Added ${n} ${languageName(language.value)} ${n === 1 ? 'copy' : 'copies'}.${selling ? ' For sale: it goes on HOTARU the next time you open the Shop.' : ''}`, result);
 	});
 
 	sheet.replaceChildren(

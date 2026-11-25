@@ -538,3 +538,23 @@ button.step-more {
 	gap: var(--space-2);
 	grid-template-columns: 1fr 1fr;
 }
+
+/* For sale on HOTARU (js/copy-sheet.js, plans/hotaru-for-sale-plan.md): a
+   box and its words on one line, and what it means under them. */
+.copy-for-sale-label {
+	align-items: center;
+	display: flex;
+	gap: var(--space-2);
+	min-height: var(--target);
+}
+
+.copy-for-sale-box {
+	flex: none;
+	height: 20px;
+	margin: 0;
+	width: 20px;
+}
+
+.copy-for-sale-hint {
+	margin: 0;
+}

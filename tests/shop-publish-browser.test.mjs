@@ -368,6 +368,73 @@ describe('Shop publishing', () => {
 		await context.close();
 	});
 
+	test('Sell a card I own marks a copy that is not a spare, and its price puts it on HOTARU', async () => {
+		const {context, errors, page, store} = await ownerPhone();
+		const BULBASAUR = '#shop-international-tsa1-001-en';
+
+		await openShop(page);
+		await page.locator('#shop-sell-more:not([hidden])').waitFor(TIMEOUT);
+		assert.equal(await page.locator(BULBASAUR).count(), 0, 'one copy, so not in the Shop yet');
+		await page.click('#shop-sell-own');
+		await page.locator('#shop-sell-sheet[open]').waitFor(TIMEOUT);
+		await page.fill('#shop-sell-search', 'Bulbasaur');
+		await page.waitForFunction(() => document.querySelectorAll('#shop-sell-list .shop-sell-choice').length === 1, null, TIMEOUT);
+		await page.screenshot({path: `${SHOTS}/shop-sell-own.png`});
+		await page.click('#shop-sell-list .shop-sell-choice');
+		await page.locator('#shop-sell-sheet').waitFor({state: 'detached', ...TIMEOUT});
+		await page.locator(BULBASAUR).waitFor(TIMEOUT);
+		assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), `${BULBASAUR.slice(1)}-price`, 'its price field, ready to type');
+		await page.keyboard.type('4');
+		await page.click('#shop-save-all');
+		await waitLine(page, /^On HOTARU: 1 card, 1 copy\./);
+		assert.equal(store.listings.get('c-01').status, 'available');
+		assert.equal(store.listings.get('c-01').price_brl, 4);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('Add and sell ticks For sale in the next Add a copy sheet, with its price, and the copy goes on HOTARU', async () => {
+		const {context, errors, page, store} = await ownerPhone();
+
+		await openShop(page);
+		await page.locator('#shop-sell-more:not([hidden])').waitFor(TIMEOUT);
+		await page.click('#shop-add-sell');
+		await page.waitForFunction(() => location.pathname.endsWith('/sets'), null, TIMEOUT);
+		await page.waitForFunction(() => [...document.querySelectorAll('.toast-text')].some((node) => node.textContent.startsWith('Add and sell:')), null, TIMEOUT);
+
+		// He finds the card and adds a copy.
+		await page.goto(`${server.origin}${BASE}cards/en/tsa1-001`);
+		await page.click('#copy-add');
+		await page.locator('#copy-add-for-sale').waitFor(TIMEOUT);
+		assert.equal(await page.isChecked('#copy-add-for-sale'), true);
+		await page.fill('#copy-add-sale-price', '7,50');
+		await page.screenshot({path: `${SHOTS}/shop-add-and-sell.png`});
+		await page.click('#copy-add-save');
+		await page.waitForFunction(() => [...document.querySelectorAll('.toast-text')].some((node) => node.textContent.includes('For sale: it goes on HOTARU')), null, TIMEOUT);
+		assert.equal(await page.evaluate(() => sessionStorage.getItem('cardTracker.addAndSell')), null, 'one Add and sell, one sheet');
+
+		// The next sheet is plain again.
+		await page.click('#copy-add');
+		await page.locator('#copy-add-for-sale').waitFor(TIMEOUT);
+		assert.equal(await page.isChecked('#copy-add-for-sale'), false);
+		// Closing a sheet steps back in history (js/sheet.js): let it land
+		// before leaving the page.
+		await page.click('#copy-sheet .sheet-head button');
+		await page.locator('#copy-sheet').waitFor({state: 'hidden', ...TIMEOUT});
+		await page.waitForTimeout(300);
+
+		await openShop(page);
+		await waitLine(page, /^On HOTARU: 1 card, 1 copy\./);
+
+		const rows = [...store.listings.values()].filter((row) => row.card_id === 'tsa1-001' && row.status === 'available');
+
+		assert.equal(rows.length, 1);
+		assert.notEqual(rows[0].id, 'c-01', 'the copy added, not the one he kept');
+		assert.equal(rows[0].price_brl, 7.5);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('starring a card takes its listings off HOTARU at once, and says so before store-withdraw.sql is run (Eric, 2026-11-24)', async () => {
 		const {context, errors, page, store} = await ownerPhone();
 		const asked = [];
