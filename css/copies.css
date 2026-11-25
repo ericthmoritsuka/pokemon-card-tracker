@@ -558,3 +558,28 @@ button.step-more {
 .copy-for-sale-hint {
 	margin: 0;
 }
+
+/* The finish's Shop price under For sale on HOTARU (js/copy-sheet.js). */
+.copy-sale-price-label {
+	display: block;
+	font-size: 0.875rem;
+	margin-top: var(--space-2);
+}
+
+.copy-sale-price {
+	background: var(--surface);
+	border: 1px solid var(--field-border);
+	border-radius: var(--radius-control);
+	color: var(--text);
+	font: inherit;
+	font-variant-numeric: tabular-nums;
+	margin: var(--space-1) 0 var(--space-2);
+	min-height: var(--target);
+	padding: var(--space-2) var(--space-3);
+	width: 10rem;
+}
+
+.copy-sale-price:focus-visible {
+	outline: 3px solid var(--accent-strong);
+	outline-offset: 2px;
+}

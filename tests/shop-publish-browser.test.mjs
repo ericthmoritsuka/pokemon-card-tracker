@@ -469,6 +469,49 @@ describe('Shop publishing', () => {
 		await context.close();
 	});
 
+	test('the Edit copy sheet shows and sets the finish\'s Shop price, which the Shop row and the listing share (plans/hotaru-for-sale-plan.md, section 3)', async () => {
+		const {context, errors, page, store} = await ownerPhone();
+		const toastWith = (text) => page.waitForFunction((want) => [...document.querySelectorAll('.toast-text')].some((node) => node.textContent.includes(want)), text, TIMEOUT);
+
+		await page.locator('#shop-link:not([hidden])').waitFor(TIMEOUT);
+
+		// Charizard EN: two plain copies, one kept, one spare, no price yet.
+		await page.goto(`${server.origin}${BASE}cards/en/tsa1-006`);
+		await page.locator('.copy-row').first().click();
+		await page.locator('#copy-sale-price').waitFor(TIMEOUT);
+		assert.equal(await page.inputValue('#copy-sale-price'), '');
+		await page.fill('#copy-sale-price', '5');
+		await page.click('#copy-save');
+		await toastWith('saved');
+
+		await openShop(page);
+		assert.equal(await page.inputValue(`${CHARIZARD} .shop-price-input`), '5,00');
+		await waitLine(page, /^On HOTARU: 1 card, 1 copy\./);
+
+		const listed = [...store.listings.values()].filter((row) => row.card_id === 'tsa1-006' && row.status === 'available');
+
+		assert.deepEqual(listed.map((row) => row.price_brl), [5], 'listingRows sends the sheet\'s price');
+
+		// A price changed in the Shop is the one the sheet shows next.
+		await page.fill(`${CHARIZARD} .shop-price-input`, '7,50');
+		await page.click('#shop-save-all');
+		await page.locator('#shop-savebar').waitFor({state: 'hidden', ...TIMEOUT});
+		await page.goto(`${server.origin}${BASE}cards/en/tsa1-006`);
+		await page.locator('.copy-row').first().click();
+		await page.locator('#copy-sale-price').waitFor(TIMEOUT);
+		assert.equal(await page.inputValue('#copy-sale-price'), '7,50');
+		// The row holds the kept copy too, so it is ticked to offer them.
+		await page.check('#copy-for-sale');
+		assert.match(plain(await page.locator('#copy-for-sale-hint').textContent()), /On HOTARU at R\$ 7,50\./);
+
+		// Emptied, the finish has no price, and the line says so.
+		await page.fill('#copy-sale-price', '');
+		assert.match(plain(await page.locator('#copy-for-sale-hint').textContent()), /^Not on HOTARU until this finish has a price in the Shop\./);
+		await page.screenshot({path: `${SHOTS}/shop-sheet-price.png`});
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('Sell a card I own marks a copy that is not a spare, and its price puts it on HOTARU', async () => {
 		const {context, errors, page, store} = await ownerPhone();
 		const BULBASAUR = '#shop-international-tsa1-001-en';

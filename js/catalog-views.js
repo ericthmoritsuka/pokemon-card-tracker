@@ -20,7 +20,7 @@ import {nameOf, regionTag, speciesNames} from './checklists.js';
 import {parseCardQuery, searchOnline, searchSaved} from './card-search.js';
 import {graphql} from './tcgdex.js';
 import {recordOf, recordsOfCard} from './card-info.js';
-import {cardInfoList, loadDocument, onChange, ownedBySet, ownedIn, sourceNames, updateCards} from './collection.js';
+import {cardInfoList, isLive, loadDocument, onChange, ownedBySet, ownedIn, sourceNames, updateCards} from './collection.js';
 import {alikeKey, closeCopySheet, copyPlaces, copyStepper, languageName, openAddSheet, openEditSheet, placeText, storedLine} from './copy-sheet.js';
 import {cardPosition, cardSwipe, offerCardList, restoreCardList} from './card-swipe.js';
 import {BASE, backWords, errorText, go, h, segmentCounts} from './dom.js';
@@ -42,7 +42,7 @@ import {plainVariantId} from './scan/finish.js';
 import {lensMember, toast} from './shell.js';
 import {memberCards, memberDocumentKept, memberRecords, whenMemberName} from './family.js';
 import {addToWishlist, listWishlist, markedForSale, sparesFor} from './wishlist.js';
-import {listingByCopy, salePrice, shopGroups} from './shop.js';
+import {listingByCopy, salePrice, shopGroups, shopKey} from './shop.js';
 import {checkShopOwner, shopOwnerKnown} from './shop-owner.js';
 import {withdrawListings, withdrawNoticeText} from './store-publish.js';
 import {isCustomId} from './custom-card.js';
@@ -1937,12 +1937,26 @@ export function cardView(root, {lang, cardId}) {
 		// (plans/hotaru-for-sale-plan.md). Nobody else sells, so nobody else
 		// sees the switch.
 		let forSale = null;
+		let priceCopies = null;
 
 		if (!member && shopOwnerKnown() === true) {
 			try {
 				const doc = await loadDocument();
 
 				forSale = listingByCopy(shopGroups(doc.cards || [], {codeOf: printedCode, held: heldCopies(doc)}));
+
+				// Every live copy of each finish (card, language, finish, as
+				// the Shop keys a row), for the sheet's price: one finish
+				// keeps one price, saved on all its copies as the Shop saves it.
+				const byKey = new Map();
+
+				for (const entry of (doc.cards || []).filter(isLive)) {
+					const key = shopKey(entry);
+
+					byKey.set(key, [...(byKey.get(key) || []), entry]);
+				}
+
+				priceCopies = new Map([...byKey.values()].flatMap((copies) => copies.map((entry) => [entry.id, copies])));
 			}
 			catch {
 				// No switch this time; the copies still show.
@@ -2085,6 +2099,7 @@ export function cardView(root, {lang, cardId}) {
 						finishes: finishChoices(variants),
 						forSale,
 						offline: Boolean(unreachable),
+						priceCopies,
 						places: placed,
 					}),
 					type: 'button',

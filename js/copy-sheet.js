@@ -39,7 +39,8 @@ import {plural} from './format.js';
 import {catalogFor, copyLanguageCodes, languageLabel} from './languages.js';
 import {FINISHES, finishLabel} from './monprice.js';
 import {formatBrl, isStandardSize} from './prices.js';
-import {parsePrice, setPendingMove} from './moves.js';
+import {PRICE_FORM_TEXT, parsePrice, priceForInput, setPendingMove} from './moves.js';
+import {pricePatches, salePrice as copySalePrice} from './shop.js';
 import {CONDITIONS} from './scan/session.js';
 import {openDialogSheet} from './sheet.js';
 import {setAddAndSell, shopOwnerKnown, wantsAddAndSell} from './shop-owner.js';
@@ -506,8 +507,10 @@ function head(title, close) {
 //               TCGdex failed (finishOptions)
 // forSale, given to the shop owner only (js/catalog-views.js), maps each
 // copy's id to {listed, price} as the Shop works it out (js/shop.js
-// listingByCopy): with it, the sheet shows For sale on HOTARU.
-export function openEditSheet({card, catalog, entries, finishes, forSale = null, offline = false, places = new Map()}) {
+// listingByCopy): with it, the sheet shows For sale on HOTARU. priceCopies,
+// with it, maps each copy's id to every live copy of its finish (js/shop.js
+// shopKey), whose one Shop price the sheet shows and saves as the Shop does.
+export function openEditSheet({card, catalog, entries, finishes, forSale = null, offline = false, places = new Map(), priceCopies = null}) {
 	const sheet = sheetElement();
 	const first = entries[0];
 	const many = entries.length > 1;
@@ -552,7 +555,22 @@ export function openEditSheet({card, catalog, entries, finishes, forSale = null,
 	// (false); left alone, nothing is written and the spare rule goes on.
 	const saleStates = forSale ? entries.map((entry) => forSale.get(entry.id) || {listed: false, price: null}) : null;
 	const saleStart = Boolean(saleStates && saleStates.every((state) => state.listed));
-	const salePrice = saleStates ? (saleStates.find((state) => state.price !== null) || {price: null}).price : null;
+	// The finish's Shop price (js/shop.js groupPrice: any copy's, as all
+	// hold it), shown and edited here; one finish keeps one price.
+	const finishCopies = saleStates && priceCopies ? priceCopies.get(first.id) || entries : null;
+	const startPrice = saleStates
+		? (saleStates.find((state) => state.price !== null) || {price: (finishCopies || []).map(copySalePrice).find((value) => value !== null) ?? null}).price
+		: null;
+	const priceInput = finishCopies
+		? h('input', {'aria-describedby': 'copy-for-sale-hint', autocomplete: 'off', class: 'copy-sale-price', id: 'copy-sale-price', inputmode: 'decimal', placeholder: 'No price', type: 'text', value: priceForInput(startPrice)})
+		: null;
+	const typedPrice = () => (priceInput ? parsePrice(priceInput.value) : {error: null, value: startPrice});
+	const priceNow = () => {
+		const typed = typedPrice();
+
+		return typed.error ? startPrice : typed.value;
+	};
+	const pricePatchList = () => (finishCopies && priceNow() !== startPrice ? pricePatches([{copies: finishCopies}], priceNow()) : []);
 	const saleBox = saleStates ? h('input', {'aria-describedby': 'copy-for-sale-hint', checked: saleStart, class: 'copy-for-sale-box', id: 'copy-for-sale', type: 'checkbox'}) : null;
 	const saleHint = saleStates ? h('p', {class: 'muted copy-for-sale-hint', id: 'copy-for-sale-hint'}) : null;
 	const saleChange = () => (saleBox && saleBox.checked !== saleStart ? {for_sale: saleBox.checked} : {});
@@ -565,7 +583,7 @@ export function openEditSheet({card, catalog, entries, finishes, forSale = null,
 		const place = entries.map((entry) => places.get(entry.id)).find(Boolean);
 		const lines = saleBox.checked
 			? [
-				salePrice === null ? 'Not on HOTARU until this finish has a price in the Shop.' : `On HOTARU at ${formatBrl(salePrice)}.`,
+				typedPrice().error ? PRICE_FORM_TEXT : priceNow() === null ? 'Not on HOTARU until this finish has a price in the Shop.' : `On HOTARU at ${formatBrl(priceNow())}.`,
 				place ? `It leaves ${placeText(place)} when it sells.` : null,
 				first.is_favorite === true ? 'A favorite: For sale lists it anyway.' : null,
 			]
@@ -576,12 +594,19 @@ export function openEditSheet({card, catalog, entries, finishes, forSale = null,
 
 	if (saleBox) {
 		saleBox.addEventListener('change', drawSaleHint);
+
+		if (priceInput) {
+			priceInput.addEventListener('input', drawSaleHint);
+		}
+
 		drawSaleHint();
 	}
 
 	const saleField = saleBox
 		? h('div', {class: 'copy-field copy-for-sale'},
 			h('label', {class: 'copy-for-sale-label', for: 'copy-for-sale'}, saleBox, ' For sale on HOTARU'),
+			priceInput ? h('label', {class: 'copy-sale-price-label', for: 'copy-sale-price'}, 'Shop price for this finish, R$') : null,
+			priceInput,
 			saleHint)
 		: null;
 
@@ -736,6 +761,20 @@ export function openEditSheet({card, catalog, entries, finishes, forSale = null,
 			storage: storage.value(),
 			...(finish.value === startFinish ? {} : finishFields(finish.value, catalog)),
 		}), ...saleChange()}})).filter((item) => Object.keys(item.patch).length);
+
+		// The price goes on every copy of the finish, exactly as the Shop's
+		// price field saves it (js/shop.js pricePatches).
+		for (const {id, patch} of pricePatchList()) {
+			const same = patches.find((item) => item.id === id);
+
+			if (same) {
+				Object.assign(same.patch, patch);
+			}
+			else {
+				patches.push({id, patch});
+			}
+		}
+
 		const typed = notes.value.trim().slice(0, notesMax);
 		const notesBefore = (cardInfoOf(noteSource) || {}).notes || '';
 		const noteChanged = notes.value !== cardNotes && typed !== notesBefore;
@@ -747,7 +786,7 @@ export function openEditSheet({card, catalog, entries, finishes, forSale = null,
 		// Undo's patches, taken before the write: saving changes the
 		// entries in place.
 		const back = patches.map(({id, patch}) => {
-			const entry = entries.find((item) => item.id === id);
+			const entry = entries.find((item) => item.id === id) || (finishCopies || []).find((item) => item.id === id);
 
 			return {id, patch: Object.fromEntries(Object.keys(patch).map((key) => [key, key === 'fallback' ? Boolean(entry.fallback) : entry[key] ?? null]))};
 		});
