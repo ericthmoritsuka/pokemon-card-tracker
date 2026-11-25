@@ -18,7 +18,10 @@
 // history entry, and its handToken, survive a reload).
 
 import {isLive, loadDocument} from './collection.js';
-import {binderStats, handBinders, placements, sortBinders, stagedOf} from './binders.js';
+import {addCopiesToListBinder, copyToShow, listLanguagesOf, listTarget, targetText} from './binder-add.js';
+import {cardKey, claimIndex, isGenerated} from './binder-rules.js';
+import {binderStats, copyClaims, handBinders, liveBinders, placements, sortBinders, stagedOf, undoListAdds} from './binders.js';
+import {cardIndex} from './catalog.js';
 import {paintCover} from './binder-cover.js';
 import {BASE, errorText, go, h, rememberInHistory} from './dom.js';
 import {formatCount} from './format.js';
@@ -136,63 +139,106 @@ function coverThumb(binder) {
 }
 
 // The binders to choose from, each with its cover and how full it is. Also
-// My Cards' bulk Add to binder (js/bulk-select.js).
-export function binderList({binders, choose, id, liveIds, placed}) {
+// My Cards' bulk Add to binder (js/bulk-select.js). noteOf(binder): what
+// choosing a binder made from a list will do (js/binder-add.js), shown in
+// place of how full it is.
+export function binderList({binders, choose, id, liveIds, noteOf = () => null, placed}) {
 	return h('ul', {'aria-label': 'Binders', class: 'atb-list', id}, binders.map((binder) => {
-		const stats = binderStats(binder, placed, liveIds);
+		const note = noteOf(binder);
+		const stats = note ? null : binderStats(binder, placed, liveIds);
 
-		return h('li', null, h('button', {class: 'atb-binder', 'data-binder': binder.id, onclick: () => choose(binder), type: 'button'},
+		return h('li', null, h('button', {class: 'atb-binder', 'data-binder': binder.id, 'data-list': isGenerated(binder) ? 'true' : null, onclick: () => choose(binder), type: 'button'},
 			coverThumb(binder),
 			h('span', {class: 'atb-text'},
 				h('span', {class: 'atb-name'}, binder.name),
-				h('span', {class: 'atb-fill muted'}, `${formatCount(stats.filled)} of ${formatCount(stats.total)} pockets`))
+				h('span', {class: 'atb-fill muted'}, note || `${formatCount(stats.filled)} of ${formatCount(stats.total)} pockets`))
 		));
 	}));
 }
 
-// The sheet on card detail. card: {cardId, catalog, name}.
-export async function openAddToBinder({cardId, catalog, name = 'this card'}) {
+// Words and the toast for copies saved into a list's binder
+// (js/binder-add.js addCopiesToListBinder's result).
+export function listAddText(binder, result) {
+	const shown = result.picks.length ? `${result.picks.length === 1 ? '1 copy shows' : `${result.picks.length} copies show`} in ${binder.name}'s pockets` : '';
+	const added = result.adds.length ? `${result.adds.length === 1 ? '1 card' : `${result.adds.length} cards`} added after the list` : '';
+	const kept = result.skipped ? `${result.skipped === 1 ? '1 copy stays' : `${result.skipped} copies stay`} where ${result.skipped === 1 ? 'it is' : 'they are'}: one copy per card, and one card per pocket` : '';
+
+	return `${[shown, added, kept].filter(Boolean).join('; ')}.`;
+}
+
+// Undo for that toast.
+export const listAddUndo = (binder, result, toast) => () => undoListAdds(binder.id, {adds: result.adds, previous: result.previous})
+	.catch((err) => toast(`Could not undo. ${errorText(err)}`));
+
+// The sheet on card detail. card: {cardId, catalog, name}. Every binder is
+// offered (Eric, 2026-11-24): a hand-made one takes a copy into the hand to
+// place, when a copy is not in a pocket yet; a binder made from a list
+// shows a copy in the card's pocket there, or adds the card after its list,
+// and its row says which before the tap (js/binder-add.js).
+export async function openAddToBinder({cardId, catalog, name = 'this card', toast = () => {}}) {
 	const id = 'add-binder-sheet';
 	const opener = document.activeElement;
-	const doc = await loadDocument();
+	const [doc, index] = await Promise.all([loadDocument(), cardIndex().catch(() => new Map())]);
 	const hand = {cardId, catalog};
 	const copies = copiesOf(doc.cards, hand);
 	const placed = placements(doc.binders);
 	const loose = copies.filter((entry) => !placed.has(entry.id));
 	const liveIds = new Set((doc.cards || []).filter(isLive).map((entry) => entry.id));
-	const binders = sortBinders(handBinders(doc.binders));
+	const all = sortBinders(liveBinders(doc.binders));
+	const lists = new Set(all.filter(isGenerated).map((binder) => binder.id));
+	// Hand-made binders only while a copy is free to place.
+	const binders = all.filter((binder) => lists.has(binder.id) || loose.length);
 	const dialog = h('dialog', {'aria-labelledby': `${id}-title`, class: 'sheet add-binder-sheet', id});
+	const claims = claimIndex(copyClaims(doc));
+	const shownCopy = copies.length ? copyToShow(copies, claims) : null;
+	const record = index.get(cardKey(catalog, cardId));
+	const targets = new Map(shownCopy ? all.filter((binder) => lists.has(binder.id)).map((binder) => [binder.id, listTarget(binder, {catalog, cardId, dexIds: (record && record.dex_ids) || [], language: shownCopy.language}, {languages: listLanguagesOf(binder, doc)})]) : []);
 	let body;
 
 	const choose = (binder) => {
+		const target = targets.get(binder.id);
+
+		if (target) {
+			dialog.close();
+			addCopiesToListBinder(binder.id, [shownCopy]).then((result) => {
+				go(`binders/${encodeURIComponent(binder.id)}/${target.page}`);
+				toast(listAddText(binder, result), {action: listAddUndo(binder, result, toast), actionLabel: 'Undo', timeout: 8000});
+			}, (err) => toast(`Could not add it to ${binder.name}. ${errorText(err)}`));
+
+			return;
+		}
+
 		pending = {binderId: binder.id, cardId, catalog};
 		dialog.close();
 		// In the same click as the close, so the sheet's history entry
 		// becomes the binder's and one Back returns to the card.
 		go(`binders/${encodeURIComponent(binder.id)}`);
 	};
+	const where = loose.length ? [] : copies.map((entry) => placed.get(entry.id)).map(({binder, slot}) => `${binder.name}, page ${slot.page}, pocket ${slot.position}`);
+	const allPlaced = copies.length && !loose.length
+		? [
+			h('p', {id: 'add-binder-all-placed'}, copies.length === 1 ? 'Your copy of this card is already in a pocket.' : `All ${copies.length} copies of this card are already in pockets.`),
+			h('ul', {class: 'atb-where', id: 'add-binder-where'}, where.map((text) => h('li', null, text))),
+		]
+		: [];
 
 	if (!copies.length) {
 		body = [h('p', {id: 'add-binder-none'}, 'You have no copy of this card to place.')];
 	}
-	else if (!loose.length) {
-		const where = copies.map((entry) => placed.get(entry.id)).map(({binder, slot}) => `${binder.name}, page ${slot.page}, pocket ${slot.position}`);
-
-		body = [
-			h('p', {id: 'add-binder-all-placed'}, copies.length === 1 ? 'Your copy of this card is already in a pocket.' : `All ${copies.length} copies of this card are already in pockets.`),
-			h('ul', {class: 'atb-where', id: 'add-binder-where'}, where.map((text) => h('li', null, text))),
-		];
-	}
 	else if (!binders.length) {
 		body = [
-			h('p', {id: 'add-binder-none'}, 'You have no binders to arrange by hand yet.'),
+			...allPlaced,
+			h('p', {id: 'add-binder-none'}, allPlaced.length ? 'You have no binder made from a list to show it in.' : 'You have no binders yet.'),
 			h('a', {class: 'button', 'data-link': 'binders', href: `${BASE}binders`, onclick: () => dialog.close()}, 'Make a binder'),
 		];
 	}
 	else {
 		body = [
-			h('p', {class: 'muted'}, `Choose a binder, then a pocket for ${loose.length === 1 ? 'the copy' : 'one copy'}. Binders made from a list are not shown.`),
-			binderList({binders, choose, id: 'add-binder-list', liveIds, placed}),
+			...allPlaced,
+			h('p', {class: 'muted', id: 'add-binder-intro'}, lists.size && loose.length
+				? `Choose a binder. In one you arrange by hand, you then choose a pocket for ${loose.length === 1 ? 'the copy' : 'one copy'}.`
+				: lists.size ? 'Choose a binder made from a list.' : `Choose a binder, then a pocket for ${loose.length === 1 ? 'the copy' : 'one copy'}.`),
+			binderList({binders, choose, id: 'add-binder-list', liveIds, noteOf: (binder) => (targets.has(binder.id) ? targetText(targets.get(binder.id)) : null), placed}),
 		];
 	}
 
@@ -226,6 +272,6 @@ export async function openAddToBinder({cardId, catalog, name = 'this card'}) {
 // For card detail's button: opens the sheet, or says why it did not.
 export function addToBinderButton({cardId, catalog, name, toast}) {
 	return h('button', {'aria-haspopup': 'dialog', class: 'small atb-open', id: 'copies-binder', onclick: () => {
-		openAddToBinder({cardId, catalog, name}).catch((err) => toast(`Add to binder did not open. ${errorText(err)}`));
+		openAddToBinder({cardId, catalog, name, toast}).catch((err) => toast(`Add to binder did not open. ${errorText(err)}`));
 	}, type: 'button'}, 'Add to binder');
 }

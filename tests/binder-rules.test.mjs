@@ -22,6 +22,8 @@ import {
 	checkFits,
 	cleanBinderRule,
 	defaultCopy,
+	extraCardEntries,
+	extraKeysOf,
 	extraPagesOf,
 	indexAt,
 	isGenerated,
@@ -41,6 +43,7 @@ import {
 	shownCopy,
 	skipsOf,
 	sortRuleItems,
+	withExtraItems,
 } from '../js/binder-rules.js';
 import {placeholderList, placements, resizedBinder, setPocket, unplaced} from '../js/binders.js';
 import {mergeDocuments, mergeEntries, stampEntry} from '../js/merge.js';
@@ -316,6 +319,56 @@ describe('a copy is in one pocket at a time (Eric, 2026-11-24)', () => {
 		assert.equal(plan.snapshot.shown['dex:155'], 'c30');
 		assert.deepEqual(plan.inUse, []);
 		assert.equal(plan.changed, false);
+	});
+});
+
+describe('cards added by hand (Eric, 2026-11-24)', () => {
+	const extra = (key, kind, minute) => ({at: at(minute), key, kind});
+
+	test('the latest entry per card stands, in the order added, and only card keys count', () => {
+		const binder = {extra_cards: [extra('international|b', 'add', 2), extra('international|a', 'add', 1), extra('international|b', 'none', 3), extra('international|c', 'add', 4), extra('dex:25', 'add', 5), {key: 'international|d', kind: 'odd', at: at(6)}]};
+
+		assert.deepEqual(extraCardEntries(binder).map((entry) => [entry.key, entry.kind]), [['international|a', 'add'], ['international|b', 'none'], ['international|c', 'add']]);
+		assert.deepEqual(extraKeysOf(binder), ['international|a', 'international|c']);
+		assert.deepEqual(extraKeysOf({}), []);
+	});
+
+	test('they join after the list\'s items, once, and a card the list has keeps its list pocket', () => {
+		const binder = {extra_cards: [extra('international|x', 'add', 1), extra('international|l', 'add', 2)]};
+		const items = withExtraItems([{key: 'international|l'}], binder, (key) => ({added: true, key}));
+
+		assert.deepEqual(items, [{key: 'international|l'}, {added: true, key: 'international|x'}]);
+	});
+
+	test('they fill the extra pages first, and add pages only once those are full', () => {
+		// 2 × 2: four list pockets (one page) and two extra pages.
+		assert.equal(listPageCount(4, 2, 2, 2, 0), 3);
+		assert.equal(listPageCount(9, 2, 2, 2, 5), 3, 'five added cards fit the two extra pages');
+		assert.equal(listPageCount(13, 2, 2, 2, 9), 4, 'nine do not: one page more');
+		assert.equal(listPageCount(6, 2, 2, 0, 2), 2, 'no extra pages: the added cards make their own');
+	});
+
+	test('a refresh lays them out after the list and counts their pages that way', () => {
+		const binder = generated('b1', {cols: 2, extra_cards: [extra('international|tst1-150', 'add', 1)], extra_pages: 1, page_count: 2, rows: 2, snapshot: {at: at(0), keys: ['dex:1', 'dex:4', 'dex:7', 'dex:25', 'international|tst1-150'], rule_key: 'checklist:list-1|dex', shown: {}}});
+		const items = withExtraItems([1, 4, 7, 25].map((n) => ({copies: [], dex: n, key: `dex:${n}`, name: `Mon ${n}`})), binder, (key) => ({copies: [copy('m1', 'tst1-150')], key, kind: 'card', name: 'Mewtwo'}));
+		const plan = planRefresh(binder, items, {at: at(10), rankOf: () => ({})});
+
+		assert.deepEqual(plan.snapshot.keys, ['dex:1', 'dex:4', 'dex:7', 'dex:25', 'international|tst1-150']);
+		assert.equal(plan.snapshot.shown['international|tst1-150'], 'm1');
+		assert.equal(plan.page_count, 2, 'the added card sits on the extra page');
+		assert.deepEqual(plan.added, []);
+	});
+
+	test('two phones adding different cards both keep theirs', () => {
+		const base = generated('g1');
+		const a = {...base, extra_cards: [extra('international|a', 'add', 1)], updated_at: at(1)};
+		const b = {...base, extra_cards: [extra('international|b', 'add', 2)], updated_at: at(2)};
+
+		for (const [left, right] of [[a, b], [b, a]]) {
+			const [merged] = mergeDocuments({binders: [left], cards: []}, {binders: [right], cards: []}).binders;
+
+			assert.deepEqual(extraKeysOf(merged), ['international|a', 'international|b']);
+		}
 	});
 });
 
