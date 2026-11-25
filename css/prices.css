@@ -214,6 +214,23 @@
 	margin-top: 2px;
 }
 
+/* For sale on HOTARU (js/cards-view.js, plans/hotaru-for-sale-plan.md): a
+   small outlined chip under the price, never on the art, whose corners
+   carry the count, the star, the finish, and the flag. */
+.tile-for-sale {
+	align-self: flex-start;
+	border: 1px solid var(--accent-strong);
+	border-radius: var(--radius-pill);
+	color: var(--accent-strong);
+	display: inline-block;
+	font-size: 0.75rem;
+	font-weight: 700;
+	line-height: 1.25;
+	margin-top: 4px;
+	padding: 0 6px;
+	width: max-content;
+}
+
 .copy-price {
 	color: var(--muted);
 	display: block;

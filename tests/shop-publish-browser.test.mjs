@@ -300,6 +300,74 @@ describe('Shop publishing', () => {
 		await context.close();
 	});
 
+	test('For sale on the card page lists a last copy, tags its tile, and taking it off withdraws it at once (plans/hotaru-for-sale-plan.md)', async () => {
+		const {context, errors, page, store} = await ownerPhone();
+		const asked = [];
+		const BULBASAUR = '#shop-international-tsa1-001-en';
+		const toastWith = (text) => page.waitForFunction((want) => [...document.querySelectorAll('.toast-text')].some((node) => node.textContent.includes(want)), text, TIMEOUT);
+
+		await page.route('**/rest/v1/rpc/store_withdraw', async (route) => {
+			const {ids} = route.request().postDataJSON();
+			const gone = ids.filter((id) => store.listings.has(id) && store.listings.get(id).status === 'available').sort();
+
+			asked.push([...ids].sort());
+
+			for (const id of gone) {
+				store.listings.get(id).status = 'withdrawn';
+			}
+
+			return route.fulfill({body: JSON.stringify(gone), contentType: 'application/json', status: 200});
+		});
+		// The owner is known before the card page draws its copies.
+		await page.locator('#shop-link:not([hidden])').waitFor(TIMEOUT);
+
+		// Bulbasaur is one copy, never a spare: For sale puts it in the Shop.
+		await page.goto(`${server.origin}${BASE}cards/en/tsa1-001`);
+		await page.locator('.copy-row').first().click();
+		await page.locator('#copy-for-sale').waitFor(TIMEOUT);
+		assert.equal(await page.isChecked('#copy-for-sale'), false);
+		await page.check('#copy-for-sale');
+		assert.equal(plain(await page.locator('#copy-for-sale-hint').textContent()), 'Not on HOTARU until this finish has a price in the Shop.');
+		await page.screenshot({path: `${SHOTS}/shop-for-sale-sheet.png`});
+		await page.click('#copy-save');
+		await toastWith('It goes on HOTARU the next time you open the Shop.');
+
+		await openShop(page);
+		await page.locator(BULBASAUR).waitFor(TIMEOUT);
+		assert.match(plain(await page.locator(`${BULBASAUR} .shop-meta`).textContent()), /1 copy for sale$/);
+		await page.fill(`${BULBASAUR} .shop-price-input`, '4');
+		await page.click('#shop-save-all');
+		// Bulbasaur has no picture in this index, which the line says too.
+		await waitLine(page, /^On HOTARU: 1 card, 1 copy\./);
+		assert.equal(store.listings.get('c-01').status, 'available');
+
+		// My Cards tags the copy on HOTARU, and only it.
+		await page.goto(`${server.origin}${BASE}cards`);
+		await page.locator('a.tile[href$="/tsa1-001"] .tile-for-sale').waitFor(TIMEOUT);
+		assert.equal(plain(await page.locator('a.tile[href$="/tsa1-001"] .tile-for-sale').textContent()), 'For sale');
+		assert.equal(await page.locator('a.tile[href$="/tsa1-004"] .tile-for-sale').count(), 0, 'Charmander has no price');
+		await page.screenshot({path: `${SHOTS}/shop-for-sale-tile.png`});
+
+		// Taking it off keeps it, and it leaves HOTARU at once.
+		await page.goto(`${server.origin}${BASE}cards/en/tsa1-001`);
+		await page.locator('.copy-row').first().click();
+		await page.locator('#copy-for-sale').waitFor(TIMEOUT);
+		assert.equal(await page.isChecked('#copy-for-sale'), true);
+		assert.match(plain(await page.locator('#copy-for-sale-hint').textContent()), /^On HOTARU at R\$ 4,00\./);
+		await page.uncheck('#copy-for-sale');
+		assert.equal(plain(await page.locator('#copy-for-sale-hint').textContent()), 'Kept: it comes off HOTARU when you close this.');
+		await page.click('#copy-save');
+		await toastWith('Taken off HOTARU (1 copy).');
+		assert.deepEqual(asked, [['c-01']]);
+		assert.equal(store.listings.get('c-01').status, 'withdrawn');
+
+		await openShop(page);
+		await waitLine(page, /^Nothing on HOTARU yet/);
+		assert.equal(await page.locator(BULBASAUR).count(), 0, 'kept, and not a spare: no row');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('starring a card takes its listings off HOTARU at once, and says so before store-withdraw.sql is run (Eric, 2026-11-24)', async () => {
 		const {context, errors, page, store} = await ownerPhone();
 		const asked = [];
