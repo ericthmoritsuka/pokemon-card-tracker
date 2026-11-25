@@ -23,6 +23,16 @@ export const RELEASES = [
 	{
 		date: '2026-11-25',
 		items: [
+			'Kits on HOTARU: tick two or more priced cards in the Shop, tap the Kit button, and sell them together at a price you type or a percent off their sum.',
+			'Each card in a kit is still sold on its own too. When one sells, the next Publish puts another copy of the same card in the kit, if you have one.',
+			'The Shop lists your kits with their price and whether they are on HOTARU, and an order shows a kit\'s cards under its name.',
+			'Filter the Shop by finish, for example to price every reverse holo at once.',
+		],
+		version: 'v113',
+	},
+	{
+		date: '2026-11-25',
+		items: [
 			'Every copy you list on HOTARU now goes up with its picture, including a second copy of a card that is already there.',
 			'Binder pockets show a small tag when a copy in them is for sale on HOTARU.',
 			'Edit copy shows the Shop price of the copy\'s finish under For sale on HOTARU, and you can change it there.',
