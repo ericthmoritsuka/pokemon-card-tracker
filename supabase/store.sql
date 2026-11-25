@@ -187,7 +187,11 @@ $$;
 
 -- What a visitor sees: the available listings only, with the columns the
 -- catalog shows. A reserved, sold, or withdrawn listing is simply absent.
-create or replace function public.store_catalog()
+-- Dropped first: supabase/store-orders.sql and store-bundles.sql replace it with
+-- other columns, and a replace cannot change them.
+drop function if exists public.store_catalog();
+
+create function public.store_catalog()
 returns table (
 	id text,
 	kind text,

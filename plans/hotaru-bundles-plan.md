@@ -69,8 +69,9 @@ Run after `store-sealed.sql`. Safe to run again.
   single price), sum, price, and `discount_pct` when `percent`. Calls `private.release_expired()`
   first, as `store_catalog` does.
 - `store_catalog()` replaced again to add `in_kit`.
-- `store_order_items` gains `bundle_id uuid` (nullable). `place_order` gains a fourth array
-  parameter, `bundles uuid[] default '{}'`, after `items`. It expands each kit into its listing IDs,
+- `store_order_items` gains `bundle_id uuid` and `bundle_name text` (both null for a single), so an
+  order reads the same after its kit is deleted. `place_order` gains a last parameter,
+  `bundles uuid[] default '{}'`. It expands each kit into its listing IDs,
   rejects a listing that appears both alone and in a kit (or in two kits) with error 22023, keeps
   the 20-card limit over the expanded set, and reserves everything in the one statement it uses
   today, so the race rule is unchanged. A kit with a card taken returns
@@ -83,9 +84,11 @@ Run after `store-sealed.sql`. Safe to run again.
 - `order_status` and `store_orders_open` redefined once more to return each item's `bundle_id`
   and the kit's name. This is the third file that defines them; the file header says so, and
   `store-sealed.sql`'s copies become stale (the newest run wins, as with `store_catalog`).
-- An old HOTARU page calling `place_order` with three arguments keeps working: the new parameter
-  has a default. The old three-argument function is dropped first so PostgREST does not see two
-  candidates.
+- An old HOTARU page calling `place_order` without `bundles` keeps working: the new parameter
+  has a default. The old four-argument function is dropped first so PostgREST does not see two
+  candidates, and `store-orders.sql` now drops the five-argument one before recreating its own,
+  so rerunning it goes back to orders without kits rather than leaving both. `store.sql` drops
+  `store_catalog` before recreating it for the same reason (its columns differ).
 
 Verified the same way as the earlier store files: a `postgres:16` container, including a
 two-connection race between a kit and a single that share a copy.
