@@ -235,8 +235,19 @@ describe('Check spares', () => {
 	test('from a card page: that card only, and the way back', async () => {
 		const {context, errors, page} = await phone();
 
+		await page.setViewportSize({height: 740, width: 360});
 		await page.goto(`${server.origin}${BASE}cards/en/tsa1-004`);
 		await page.locator('#copies-check').waitFor(TIMEOUT);
+
+		await page.screenshot({path: `${SHOTS}/spare-check-card-page.png`});
+
+		// Check sits under Your copies, inside the head row, which it does
+		// not make taller than Add a copy.
+		const [row, link, add] = await Promise.all(['.copies-head', '#copies-check', '#copy-add'].map((selector) => page.locator(selector).boundingBox()));
+
+		assert.ok(link.y + link.height <= row.y + row.height + 0.5, 'inside the head row');
+		assert.ok(row.height <= add.height + 0.5, `the head row is ${row.height} px, Add a copy ${add.height} px`);
+		assert.equal(await page.locator('#copies-check').getAttribute('aria-label'), 'Check where each copy is');
 		await page.click('#copies-check');
 		await page.waitForFunction(() => document.getElementById('check-summary').textContent === '3 copies, 1 free', null, TIMEOUT);
 		assert.equal(await page.locator('.check-group').count(), 1);

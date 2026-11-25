@@ -2122,7 +2122,7 @@ export function cardView(root, {lang, cardId}) {
 		copies.hidden = false;
 		copies.replaceChildren(
 			h('div', {class: 'copies-head'},
-				h('h3', {id: 'copies-title'}, `${whose()} copies (${live.length})`),
+				titleBlock(h('h3', {id: 'copies-title'}, `${whose()} copies (${live.length})`), checkLink(live)),
 				favoriteControl(live),
 				readOnly ? null : addButton(card, variants)
 			),
@@ -2132,15 +2132,6 @@ export function cardView(root, {lang, cardId}) {
 					: editableRow(group)
 			)),
 		);
-
-		// Your own card with more than one copy: where each one is and why it
-		// is free or not, and a copy you no longer have logged as given away
-		// (js/spare-check-view.js; Eric, 2026-11-25).
-		if (!readOnly && live.length > 1) {
-			const route = routeTo('trade', 'check', lang, cardId);
-
-			copies.append(h('p', {class: 'copies-check'}, h('a', {'data-link': route, href: BASE + route, id: 'copies-check'}, 'Check where each copy is')));
-		}
 
 		copies.append(movesSlot);
 
@@ -2207,6 +2198,23 @@ export function cardView(root, {lang, cardId}) {
 				target.focus({preventScroll: true});
 			}
 		}
+	}
+
+	// Your own card with more than one copy: Check, beside the heading, for
+	// where each copy is and why it is free or not, and a copy you no longer
+	// have logged as given away (js/spare-check-view.js; Eric, 2026-11-25).
+	// A small link under the heading, within the height Add a copy already
+	// takes, so the copies and Ver na Liga stay on the first screen.
+	const titleBlock = (heading, link) => (link ? h('div', {class: 'copies-title'}, heading, link) : heading);
+
+	function checkLink(live) {
+		if (readOnly || live.length < 2) {
+			return null;
+		}
+
+		const route = routeTo('trade', 'check', lang, cardId);
+
+		return h('a', {'aria-label': 'Check where each copy is', class: 'copies-check', 'data-link': route, href: BASE + route, id: 'copies-check'}, 'Check');
 	}
 
 	// On a member's card, the copies beyond one of each language they could

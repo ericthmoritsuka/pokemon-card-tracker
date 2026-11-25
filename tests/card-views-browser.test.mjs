@@ -199,7 +199,9 @@ describe('the View switch', () => {
 			assert.equal(plain(await pikachu.locator('.tile-name').textContent()), 'Pikachu');
 			assert.equal(plain(await pikachu.locator('.tile-meta').textContent()), '025 / 120', 'the number as printed');
 			assert.equal(plain(await pikachu.locator('.tile-price').textContent()), 'R$ 80,00Liga');
-			assert.equal(await pikachu.locator('.badge-qty').textContent(), '×2');
+			// ×2, and the spare free beside it (js/tile.js qtyBadge).
+			assert.equal(await pikachu.locator('.badge-qty').getAttribute('aria-label'), '2 copies, 1 free');
+			assert.equal(await pikachu.locator('.badge-qty .qty-all').textContent(), '×2');
 
 			await choose(page, 'mini');
 
@@ -207,8 +209,8 @@ describe('the View switch', () => {
 
 			assert.ok(mini === 5 || mini === 6, `Mini: five or six a row (${mini})`);
 			assert.equal(await page.locator('.card-grid .tile-name:visible, .card-grid .tile-meta:visible, .card-grid .tile-price:visible').count(), 0, 'no caption');
-			assert.equal(await pikachu.locator('.badge-qty').textContent(), '×2', 'the count stays');
-			assert.equal(await pikachu.getAttribute('aria-label'), 'Pikachu, 025 of 120, Test Beta, English, 2 copies', 'named without its caption');
+			assert.equal(await pikachu.locator('.badge-qty .qty-all').textContent(), '×2', 'the count stays');
+			assert.equal(await pikachu.getAttribute('aria-label'), 'Pikachu, 025 of 120, Test Beta, English, 2 copies, 1 free', 'named without its caption');
 
 			// The Portuguese Test Ball, viewed in English.
 			const ball = page.locator('.card-grid > .tile[href$="/tsa1-150"]');
@@ -275,9 +277,9 @@ describe('the View switch', () => {
 			assert.equal(plain(await row.locator('.tile-name').textContent()), 'Pikachu');
 			assert.equal(plain(await row.locator('.tile-price').textContent()), 'R$ 80,00Liga');
 			assert.equal(plain(await row.locator('.tile-meta').textContent()), 'Test Beta · 025 / 120');
-			assert.deepEqual((await row.locator('.row-fact').allTextContents()).map(plain), ['EN', 'Normal', '×2']);
+			assert.deepEqual((await row.locator('.row-fact').allTextContents()).map(plain), ['EN', 'Normal', '×2, 1 free']);
 			assert.ok(await row.locator('.art-wrap img').count(), 'a thumbnail');
-			assert.equal(plain(await row.getAttribute('aria-label')), 'Pikachu, 025 of 120, Test Beta, English, Normal, 2 copies, R$ 80,00, Liga Pokémon');
+			assert.equal(plain(await row.getAttribute('aria-label')), 'Pikachu, 025 of 120, Test Beta, English, Normal, 2 copies, 1 free, R$ 80,00, Liga Pokémon');
 
 			// A card with no price at all says so, and a single copy shows no ×1.
 			const korean = page.locator('.card-grid > .card-row[href$="cards/ko/TSK1-001"]');

@@ -583,3 +583,24 @@ button.step-more {
 	outline: 3px solid var(--accent-strong);
 	outline-offset: 2px;
 }
+
+/* Check, under Your copies (js/catalog-views.js checkLink): a small link
+   within the 44 px Add a copy already takes, so Ver na Liga stays on the
+   first screen at 360 x 740 (tests/copies-browser.test.mjs). Its target is
+   20 px tall, which WCAG 2.5.8 allows by spacing: no other target lies
+   within 24 px of its center. */
+.copies-title {
+	display: flex;
+	flex-direction: column;
+	margin-right: auto;
+	min-width: 0;
+}
+
+.copies-title .copies-check {
+	align-items: center;
+	align-self: flex-start;
+	display: inline-flex;
+	font-size: 14px;
+	line-height: 20px;
+	min-height: 20px;
+}
