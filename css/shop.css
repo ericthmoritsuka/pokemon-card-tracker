@@ -59,6 +59,12 @@
 	width: 100%;
 }
 
+/* The set names are long, so the set filter takes a row of its own, and
+   rarity and finish share the next. */
+.shop-selects > .set-picker {
+	grid-column: 1 / -1;
+}
+
 /* The set filter (js/set-picker.js): a button that looks like the select
    beside it, and a list that can show each older set's symbol. */
 .set-picker {
