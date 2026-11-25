@@ -3578,6 +3578,21 @@ chosen, for a "Make a binder" button on those screens.
   kind: add | none, at}`, merged key by key like `list_edits`, so two phones adding different cards
   both keep theirs; an older app keeps the field when it saves and lays its pages out without them
   until a new app refreshes the binder.
+- **Insert a pocket anywhere** (Eric, 2026-11-24: a third pocket after Meowstic, so the female and
+  the male each get one; Pyroar the same). In a hand-made binder, a pocket's sheet offers **Insert
+  a pocket before** and **after**, and an empty pocket's **Insert a pocket here** and **Remove this
+  empty pocket**: every later pocket, empty ones too, moves on (or back) one in reading order,
+  spilling onto the next page, and the binder gains a page when the last one is full (within 200);
+  one save, stamped pocket by pocket, and Undo puts every pocket back and takes the added page away
+  while it is still empty (`insertPocket`, `closePocket`, `js/binders.js`). In a binder made from a
+  list, the same inserts write a `blank` list edit, `{key: "blank:<id>", before: <the next pocket's
+  key, or '' for the end>}`, so the empty pocket keeps its place through refreshes; it lays out as an
+  empty key, which every app draws as Empty, and `snapshot.marks` says which empty pocket is which.
+  Its sheet offers **Add a card here**, which takes any copy you own: the card joins as a card added
+  by hand in that very pocket, with that copy picked, so it shows there even when another pocket of
+  the list fits it too (the female Meowstic in the new pocket, the male in #678's); the blank goes
+  in the same write. An older app does not know the kind and leaves the pocket out of its layout,
+  while its merge keeps the entry.
 - **Not owned yet:** the faded placeholder look of hand-made binders, with Want. A card offers
   Add to wishlist; a Pokémon links to its cards on the checklist, to choose the card to wish for.
 - **Refresh.** Opening the binder reads its list again and saves only what changed: pockets for

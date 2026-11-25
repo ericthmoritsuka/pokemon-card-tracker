@@ -625,14 +625,16 @@ export function lastInUse(binder, placed = placements([binder])) {
 }
 
 // moves: Map from index -> index for every pocket that moves; drop: the
-// index whose content leaves the binder, or null. Returns {changed, done}
-// with done = {binderId, layout, rows, cols, pockets: [{page, position,
-// before, after}]} for undoShift: each pocket that changed, the slot it
-// held, and what it holds now (contentKey).
-function rewrite(binders, target, {at, drop = null, moves}) {
+// index whose content leaves the binder, or null; pages: the binder's pages
+// after the change, when it grows (Insert a pocket here spilling past the
+// last page). Returns {changed, done} with done = {binderId, layout, rows,
+// cols, pockets: [{page, position, before, after}], pages} for undoShift:
+// each pocket that changed, the slot it held, and what it holds now
+// (contentKey), and {from, to} when the pages grew.
+function rewrite(binders, target, {at, drop = null, moves, pages = null}) {
 	const placed = placements(binders);
 	const slots = slotsOf(target, placed);
-	const total = totalPockets(target);
+	const total = (pages || target.page_count) * pocketsPerPage(target);
 	const byIndex = new Map(slots.map((slot) => [pocketIndex(target, slot), slot]));
 	const after = new Map();
 	let artMoved = false;
@@ -679,8 +681,13 @@ function rewrite(binders, target, {at, drop = null, moves}) {
 		.filter((i) => contentKey(byIndex.get(i)) !== contentKey(after.get(i)))
 		.map((i) => ({...pocketAtIndex(target, i), after: contentKey(after.get(i)), before: byIndex.get(i) || null}));
 	const next = copyOf(target, at);
+	const grew = pages && pages > target.page_count ? {from: target.page_count, to: pages} : null;
 
 	next.slots = [...after.values()].sort((a, b) => (a.page - b.page) || (a.position - b.position));
+
+	if (grew) {
+		next.page_count = pages;
+	}
 
 	// Art has no pocket stamps; the merge keeps the art of the version
 	// that moved it last (js/merge.js artSide).
@@ -690,8 +697,58 @@ function rewrite(binders, target, {at, drop = null, moves}) {
 
 	return {
 		changed: pockets.length ? stamped([next]) : [],
-		done: {binderId: target.id, cols: target.cols, layout: layoutOf(target), pockets, rows: target.rows},
+		done: {binderId: target.id, cols: target.cols, layout: layoutOf(target), pockets, rows: target.rows, ...(grew ? {pages: grew} : {})},
 	};
+}
+
+// Insert a pocket here (Eric, 2026-11-24: a third pocket after Meowstic, so
+// the female and the male each get one): every pocket from `where` on moves
+// forward one, empty ones too, spilling onto the next page, and the binder
+// gains a page when its last pocket in use is on the last pocket of the
+// last page (within MAX_PAGES). `where` is then an empty pocket. One save.
+// Nothing changes when no pocket from `where` on is in use.
+export function insertPocket(binders, {at = nowIso(), binderId, page, position}) {
+	const target = findLive(binders, binderId);
+
+	checkPocket(target, page, position);
+
+	const from = pocketIndex(target, {page, position});
+	const last = lastInUse(target);
+	const moves = new Map();
+
+	for (let i = from; i <= last; i++) {
+		moves.set(i, i + 1);
+	}
+
+	const needed = Math.max(target.page_count, Math.ceil((last + 2) / pocketsPerPage(target)));
+
+	if (moves.size && needed > MAX_PAGES) {
+		throw new Error(`The binder is full: it would need more than ${MAX_PAGES} pages.`);
+	}
+
+	return rewrite(binders, target, {at, moves, pages: needed > target.page_count && moves.size ? needed : null});
+}
+
+// Remove this empty pocket: every later pocket moves back one, closing it.
+// The pocket must be empty. One save; the pages stay.
+export function closePocket(binders, {at = nowIso(), binderId, page, position}) {
+	const target = findLive(binders, binderId);
+
+	checkPocket(target, page, position);
+
+	if (slotsOf(target).some((slot) => slot.page === page && slot.position === position)) {
+		throw new Error(`Page ${page}, pocket ${position} is not empty.`);
+	}
+
+	const from = pocketIndex(target, {page, position});
+	const last = lastInUse(target);
+	const moves = new Map();
+
+	for (let i = from + 1; i <= last; i++) {
+		moves.set(i, i - 1);
+	}
+
+	return rewrite(binders, target, {at, moves});
 }
 
 function checkHeld(binder, where, expect) {
@@ -810,6 +867,11 @@ export function undoShift(binders, {at = nowIso(), done}) {
 	});
 
 	next.slots = [...kept, ...back].sort((a, b) => (a.page - b.page) || (a.position - b.position));
+
+	// A page Insert a pocket here added goes again while it is still empty.
+	if (done.pages && target.page_count === done.pages.to && !next.slots.some((slot) => slot.page > done.pages.from)) {
+		next.page_count = done.pages.from;
+	}
 
 	if (back.some((slot) => slot.art)) {
 		next.art_moved_at = at;
@@ -1485,9 +1547,12 @@ export function setPocketSkip(binderId, key, ids, skip = true) {
 // [{key, entryId}], put cards it does not have after the list (extra_cards,
 // js/binder-rules.js) with those copies picked. The new pockets join the
 // stored layout at once, so they show before the next refresh, and the
-// pages grow into the extra pages first. Resolves {binder, previous}, the
-// picks replaced, for undoListAdds.
-export function saveListAdds(binderId, {adds = [], picks = []} = {}) {
+// pages grow into the extra pages first. An add with an index takes that
+// empty pocket (Add a card here), and edits, list_edits changes
+// (withListEdit), ride in the same write, so the inserted pocket it fills
+// goes and the card keeps that place through refreshes. Resolves {binder,
+// previous}, the picks replaced, for undoListAdds.
+export function saveListAdds(binderId, {adds = [], edits = [], picks = []} = {}) {
 	return serial(async () => {
 		const doc = await loadDocument();
 		const binder = findLive(doc.binders || [], binderId);
@@ -1501,20 +1566,44 @@ export function saveListAdds(binderId, {adds = [], picks = []} = {}) {
 		const snapshot = binder.snapshot && typeof binder.snapshot === 'object' ? binder.snapshot : {};
 		const keys = Array.isArray(snapshot.keys) ? [...snapshot.keys] : [];
 
-		if (adds.length) {
-			next.extra_cards = adds.reduce((entries, add) => withExtraCard(entries, {at, key: add.key, kind: 'add'}), extraCardEntries(binder));
+		const marks = snapshot.marks && typeof snapshot.marks === 'object' ? {...snapshot.marks} : null;
+
+		if (adds.length || edits.length) {
+			if (adds.length) {
+				next.extra_cards = adds.reduce((entries, add) => withExtraCard(entries, {at, key: add.key, kind: 'add'}), extraCardEntries(binder));
+			}
 
 			for (const add of adds) {
-				if (!keys.includes(add.key)) {
+				if (keys.includes(add.key)) {
+					if (Number.isInteger(add.index)) {
+						throw new Error('That card already has a pocket in this binder.');
+					}
+
+					continue;
+				}
+
+				if (Number.isInteger(add.index) && keys[add.index] === '') {
+					keys[add.index] = add.key;
+
+					if (marks) {
+						delete marks[add.index];
+					}
+				}
+				else {
 					keys.push(add.key);
 				}
+			}
+
+			if (edits.length) {
+				next.list_edits = edits.reduce(withListEdit, listEditEntries(binder))
+					.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 			}
 
 			if (pagesFor(keys.length, binder.rows, binder.cols) > MAX_PAGES) {
 				throw new Error(`${binder.name} is full: a binder has at most ${MAX_PAGES} pages.`);
 			}
 
-			next.snapshot = {...snapshot, keys};
+			next.snapshot = {...snapshot, keys, ...(marks ? {marks} : {})};
 			next.page_count = listPageCount(keys.length, binder.rows, binder.cols, extraPagesOf(next), addedCount(keys, next));
 		}
 
@@ -1529,10 +1618,12 @@ export function saveListAdds(binderId, {adds = [], picks = []} = {}) {
 			return pickEntry({at: nextStamp(before && before.updated_at), binderId, entryId, key, previous: before});
 		});
 
-		await mergeIntoLocal({binder_picks: entries, ...(adds.length ? {binders: stamped([next])} : {})});
+		const changed = adds.length || edits.length;
+
+		await mergeIntoLocal({binder_picks: entries, ...(changed ? {binders: stamped([next])} : {})});
 		schedulePush();
 
-		return {binder: adds.length ? next : binder, previous};
+		return {binder: changed ? next : binder, previous};
 	});
 }
 
@@ -2013,6 +2104,24 @@ export const removeFromBinder = (binderId, where, {expect, shift}) => serial(asy
 
 export const moveWithShift = (binderId, from, to, {expect} = {}) => serial(async () => {
 	const result = shiftMove(await allBinders(), {binderId, expect, from, to});
+
+	await saveBinders(result.changed);
+
+	return result;
+});
+
+// Saved: Insert a pocket here (insertPocket) and Remove this empty pocket
+// (closePocket); their Undo is undoShifted.
+export const insertPocketAt = (binderId, where) => serial(async () => {
+	const result = insertPocket(await allBinders(), {binderId, page: where.page, position: where.position});
+
+	await saveBinders(result.changed);
+
+	return result;
+});
+
+export const closePocketAt = (binderId, where) => serial(async () => {
+	const result = closePocket(await allBinders(), {binderId, page: where.page, position: where.position});
 
 	await saveBinders(result.changed);
 
