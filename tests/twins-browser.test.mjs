@@ -234,6 +234,13 @@ async function appContext() {
 				return route.fulfill({body: JSON.stringify({data: {cards: []}}), contentType: 'application/json'});
 			}
 
+			// Nor are the set view's printings for the HOLO corner of a card
+			// nobody owns (js/catalog.js setCards, one unaliased cards query
+			// for the whole set; the twins' queries are aliased, s0: cards).
+			if (/^\{ cards\(filters: \{id: "[^"]+-"\}/.test(JSON.parse(route.request().postData() || '{}').query || '')) {
+				return route.fulfill({body: JSON.stringify({data: {cards: []}}), contentType: 'application/json'});
+			}
+
 			seen.graphql++;
 
 			return route.fulfill({body: '{}', contentType: 'application/json', status: 404});

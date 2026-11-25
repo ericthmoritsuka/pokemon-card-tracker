@@ -21,6 +21,7 @@ import {after, before, describe, test} from 'node:test';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
 import {startPagesServer} from './pages-server.mjs';
+import {untilInPage} from './poll.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -345,12 +346,12 @@ describe('Add to binder from a card\'s page', () => {
 
 		// Undo takes it out again.
 		await undoOn(page, '1 card added after the list.').click();
-		await page.waitForFunction(async (id) => {
+		await untilInPage(page, 'the card added after the list taken out again', async (id) => {
 			const stored = await import('/pokemon-card-tracker/js/collection.js').then((m) => m.loadDocument());
 			const binder = stored.binders.find((one) => one.id === id);
 
 			return binder.snapshot.keys.length === 1 && binder.extra_cards.every((entry) => entry.kind === 'none');
-		}, lists.b, {timeout: 15000});
+		}, {arg: lists.b});
 		await done();
 	});
 });
