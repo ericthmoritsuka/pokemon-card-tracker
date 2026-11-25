@@ -263,10 +263,13 @@ describe('Shop publishing', () => {
 			return route.fulfill({body: JSON.stringify(gone), contentType: 'application/json', status: 200});
 		});
 
+		// Its two spares are in two finishes since v109, each priced on its
+		// own and counted as a card.
 		await openShop(page);
 		await page.fill(`${CHARMANDER_EN} .shop-price-input`, '2,30');
+		await page.fill(`${CHARMANDER_EN_REVERSE} .shop-price-input`, '6');
 		await page.click('#shop-save-all');
-		await waitLine(page, /^On HOTARU: 1 card, 2 spares\.$/);
+		await waitLine(page, /^On HOTARU: 2 cards, 2 spares\.$/);
 
 		// The star: the priced copies are asked for, the two listed ones go.
 		await page.goto(`${server.origin}${BASE}cards/en/tsa1-004`);
