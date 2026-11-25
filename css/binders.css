@@ -658,6 +658,7 @@ button.bt-card {
 	flex: 0 0 56px;
 	min-height: 0;
 	padding: 0;
+	position: relative;
 	touch-action: pan-x;
 	transition: transform 120ms ease-out;
 	user-select: none;
@@ -678,9 +679,28 @@ button.bt-card {
 	width: 100%;
 }
 
-.bt-card .badge,
+.bt-card .badge:not(.badge-finish),
 .bt-card .card-back-status {
 	display: none;
+}
+
+/* The copy's finish, small, over the strip's card and the card in hand, so
+   the copies of one card tell apart (style.css .badge-finish). */
+.bt-card .badge-finish,
+.bh-art .badge-finish {
+	bottom: 2px;
+	font-size: 0.5rem;
+	height: 12px;
+	left: 2px;
+	line-height: 10px;
+	min-width: 12px;
+	padding: 0 2px;
+}
+
+.bt-card .badge-finish .ball,
+.bh-art .badge-finish .ball {
+	height: 9px;
+	width: 9px;
 }
 
 .bt-card .card-back {
@@ -1141,6 +1161,7 @@ button.atb-binder {
 .bh-art {
 	aspect-ratio: 63 / 88;
 	flex: 0 0 44px;
+	position: relative;
 }
 
 .bh-art .art {
@@ -1150,7 +1171,7 @@ button.atb-binder {
 	width: 100%;
 }
 
-.bh-art .badge,
+.bh-art .badge:not(.badge-finish),
 .bh-art .card-back-status,
 .bh-art .card-back > :not(.card-back-name) {
 	display: none;

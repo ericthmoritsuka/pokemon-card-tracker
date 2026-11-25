@@ -252,7 +252,7 @@ export function searchSaved(query, saved, {tables = null, viewing = 'en'} = {}) 
 
 // ---------------------------------------------------------------- online
 
-const CARD_FIELDS = 'id localId name image rarity set { id name serie { id } cardCount { official } }';
+const CARD_FIELDS = 'id localId name image rarity variants_detailed { type subtype foil stamp size } set { id name serie { id } cardCount { official } }';
 
 // The species index whose English name is the query's name, or null.
 function speciesOf(name, tables) {
@@ -383,6 +383,7 @@ export async function searchOnline(query, {graphql, tables = null, viewing = 'en
 				serie: set.serie && set.serie.id,
 				setId: set.id,
 				setName: set.name,
+				variants_detailed: Array.isArray(card.variants_detailed) ? card.variants_detailed : null,
 			};
 
 			if (card.id && cardMatches(candidate, check, tables)) {

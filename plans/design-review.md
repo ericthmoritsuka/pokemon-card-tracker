@@ -444,7 +444,7 @@ One component, `cardTile()`, draws every card image: grids, tray, pockets, wishl
 | --- | --- | --- |
 | Top-left | Language chip `PT` | The copy's language differs from the viewing language. Always in the scan tray. |
 | Top-right | Quantity `×3` | Two or more copies in that language. Never `×1`. |
-| Bottom-left | Finish `REV`, Poké Ball, Master Ball with `M`, `1st` | Any finish but the plain print |
+| Bottom-left | Finish `REV`, Poké Ball, Master Ball with `M`, `1st`, `HOLO` | Any finish but the plain print. `HOLO` added by Eric on 2026-11-24 |
 | Bottom-right | One status, first match wins: `?` low confidence, cloud `waiting`, heart `wanted`, check `owned` | Owned shows in catalog views only |
 
 Badges are 20 px tall, inset 4 px, with a 1 px contrasting outline. Below 88 px of tile width only the right-hand corners show.

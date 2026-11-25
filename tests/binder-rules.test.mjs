@@ -758,6 +758,74 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		await pages?.close();
 	});
 
+	// Eric, 2026-11-24: choosing the copy for a pocket, the copies of one
+	// card could not be told apart, because the picture was all there was.
+	// Each copy's finish corner (js/tile.js finishBadge) shows in the list
+	// pocket's sheet, and over the copy in the tray.
+	test('the copies a pocket can show, and the tray, name each copy\'s finish: REV on the reverse copy, HOLO on the holo one, nothing on the plain one', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const cards = [
+			card('c1', 'tst1-001', {created_at: '2026-09-01T00:00:00.000Z', price_manual: {avg: 40, currency: 'BRL', date: '2026-09-02'}}),
+			card('c2', 'tst1-001', {created_at: '2026-09-03T00:00:00.000Z', finish_raw: 'REVERSE_HOLOFOIL', language: 'en'}),
+			card('c3', 'tst2-001', {created_at: '2026-09-02T00:00:00.000Z', finish_raw: 'HOLOFOIL'}),
+			card('c4', 'tst1-004'),
+			card('c5', 'tst1-007', {finish_raw: 'REVERSE_HOLOFOIL'}),
+			card('c6', 'tst1-090', {finish_raw: 'HOLOFOIL'}),
+		];
+		const list = generated('b-list', {cols: 2, rows: 2, snapshot: {at: AT, keys: ['dex:1', 'dex:4', 'dex:7', 'dex:25'], rule_key: 'checklist:list-1|dex', shown: {'dex:1': 'c1'}}});
+		const tray = hand('b-hand', [], {name: 'Hand with a tray', page_count: 1, staged: ['c1', 'c2', 'c3'], rows: 2, cols: 2});
+
+		await seedLocal(page, documentWith({binders: [list, tray], cards}));
+
+		// The list pocket's sheet: three copies fit, a corner on two of them.
+		await page.goto(url('binders/b-list'));
+		await page.waitForSelector('#binder-spread .bs-page');
+		await openPage(page, 1);
+		await page.click(zoomPocket(1));
+		await page.waitForFunction(() => document.getElementById('pocket-viewer')?.dataset.state === 'open');
+		await page.click('#pv-details');
+		await page.waitForSelector('#list-copies .list-copy[data-entry="c3"]');
+
+		const corners = (selector) => page.locator(selector).evaluateAll((nodes) => Object.fromEntries(nodes.map((node) => {
+			const badge = node.querySelector('.badge-finish');
+
+			return [node.dataset.entry, badge ? [badge.textContent, badge.getAttribute('aria-label')] : null];
+		})));
+
+		assert.deepEqual(await corners('#list-copies .list-copy'), {c1: null, c2: ['REV', 'Reverse holo'], c3: ['HOLO', 'Holo']});
+		await page.screenshot({path: `${SHOTS}/copies-finish-360.png`});
+		await closeSheet(page);
+
+		// The tray of a hand-made binder: the same corners, small, over the
+		// cards, and the finish in each card's name.
+		await page.goto(url('binders/b-hand'));
+		await page.waitForSelector('#binder-tray:not([hidden]) .bt-card');
+		assert.deepEqual(await corners('#bt-strip .bt-card'), {c1: null, c2: ['REV', 'Reverse holo'], c3: ['HOLO', 'Holo']});
+		assert.deepEqual(await page.locator('#bt-strip .bt-card').evaluateAll((nodes) => nodes.map((node) => /Reverse holo|Holo$/.exec(node.getAttribute('aria-label') || '')?.[0] || null)), [null, 'Reverse holo', 'Holo']);
+
+		const inside = await page.locator('#bt-strip .bt-card[data-entry="c3"]').evaluate((card) => {
+			const box = card.getBoundingClientRect();
+			const badge = card.querySelector('.badge-finish').getBoundingClientRect();
+
+			return badge.left >= box.left && badge.right <= box.right && badge.bottom <= box.bottom && badge.top >= box.top;
+		});
+
+		assert.ok(inside, 'the HOLO corner fits inside the 56 px card');
+		await page.screenshot({path: `${SHOTS}/tray-finish-360.png`});
+
+		// The corner keeps the badge colors in the dark theme: white with
+		// near-black text, never the page's own colors.
+		await page.emulateMedia({colorScheme: 'dark'});
+		assert.deepEqual(await page.locator('#bt-strip .bt-card[data-entry="c3"] .badge-finish').evaluate((node) => {
+			const style = getComputedStyle(node);
+
+			return [style.backgroundColor, style.color];
+		}), ['rgb(255, 255, 255)', 'rgb(17, 17, 24)']);
+		await page.screenshot({path: `${SHOTS}/tray-finish-dark-360.png`});
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('from a checklist: the default copy, a count, a placeholder, a pick that sticks, refresh, edit with a preview, nothing placed, and delete with Undo', async () => {
 		const {context, errors, page} = await device(null, 'phone');
 

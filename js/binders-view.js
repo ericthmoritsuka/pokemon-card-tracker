@@ -35,6 +35,7 @@ import {
 	languageLabel,
 	pictureOf,
 	saveToCardIndex,
+	savedCardRecords,
 	setIdOfCard,
 	viewingLanguage,
 } from './catalog.js';
@@ -52,7 +53,7 @@ import {imageCardKey, mainArt, mainSlide, onImagesChange} from './photos/index.j
 import {openPocketViewer} from './pocket-viewer.js';
 import {addPagesText, applyLayout, cardDexFrom, doneText, previewLayout, previewLines, readList, undoLayout, undoText} from './binder-layout.js';
 import {convertDoneText, convertPreview, guessChecklist, handDex, handPicks, listBinderName} from './binder-convert.js';
-import {cardArt, cardTile, entryFinish, groupFinish, tileArt} from './tile.js';
+import {FINISHES, cardArt, cardTile, entryFinish, finishBadge, groupFinish, tileArt} from './tile.js';
 import {showTotal, valueButton} from './value-sheet.js';
 import {SearchHint, addToWishlist, searchCards} from './wishlist.js';
 import {addToBinder, undoAddToBinder} from './placeholder-fill.js';
@@ -1051,6 +1052,27 @@ function binderScreen(root, source, id, pageParam) {
 	let listMode = false;
 	let picks = new Map();
 	const gen = {busy: null, gone: false, held: null, items: null, loaded: null, names: null, partial: false, rankOf: undefined, started: false};
+	// The printings of the owned cards, from what the phone has saved
+	// (js/catalog.js savedCardRecords), so a copy picker names a copy's
+	// finish by its printing, as My Cards does (js/tile.js entryFinish). A
+	// picker draws without them, then again once they are read.
+	let printings = null;
+	let printingsRead = null;
+	const copyFinish = (entry) => entryFinish(entry, printings && (printings.get(indexKey(entry.catalog || 'international', entry.card_id)) || {}).variants_detailed);
+
+	function readPrintings(redraw, open = () => true) {
+		if (printings || !data) {
+			return;
+		}
+
+		printingsRead = printingsRead || savedCardRecords(data.cards.filter(isLive)).then((found) => {
+			printings = found;
+		}, () => {
+			printings = new Map();
+		});
+		printingsRead.then(() => alive && open() && redraw());
+	}
+
 	const refreshButton = source.readOnly ? null : h('button', {hidden: true, id: 'binder-refresh', onclick: () => refreshList({force: true, manual: true}), type: 'button'}, 'Refresh');
 	const listNote = h('p', {'aria-live': 'polite', class: 'binder-list-note', hidden: true, id: 'binder-list-note'});
 	// Closes the resize preview, if it is open (leaving the screen).
@@ -2180,6 +2202,7 @@ function binderScreen(root, source, id, pageParam) {
 			const parts = [];
 
 			sheet.querySelector('#sheet-title').textContent = item.kind === 'pokemon' ? `${item.number} ${item.name}` : item.name;
+			readPrintings(fill, () => sheet.open && body.isConnected);
 
 			if (!gen.items) {
 				parts.push(h('p', {class: 'muted', id: 'list-sheet-wait'}, 'Reading your cards for this list…'));
@@ -2210,7 +2233,7 @@ function binderScreen(root, source, id, pageParam) {
 						onclick: () => (current && shown.picked ? closeSheet() : act(() => setPocketPick(binder.id, key, entry.id), 'Could not pick the copy.')),
 						type: 'button',
 					},
-					artOf(entry, info, (src) => tileArt({finish: entryFinish(entry), info, languages: [entry.language], src})),
+					artOf(entry, info, (src) => tileArt({finish: copyFinish(entry), info, languages: [entry.language], src})),
 					h('span', {class: 'tile-name'}, info.name),
 					h('span', {class: 'tile-meta'}, [languageLabel(entry.language), entry.condition, entry.storage].filter(Boolean).join(' · ')),
 					entry.id === defaultId ? h('span', {class: 'tile-meta list-default-tag'}, 'Default') : null,
@@ -2661,10 +2684,13 @@ function binderScreen(root, source, id, pageParam) {
 
 		if (info) {
 			artOf(face, info, (src) => {
-				handArt.replaceChildren(cardArt(info, src));
+				// The finish of the copy in hand, over the art, so the copies
+				// of one card tell apart.
+				handArt.replaceChildren(...[cardArt(info, src), finishBadge(copyFinish(face))].filter(Boolean));
 
 				return handArt;
 			});
+			readPrintings(drawHand);
 		}
 		else {
 			handArt.replaceChildren();
@@ -2918,21 +2944,23 @@ function binderScreen(root, source, id, pageParam) {
 		trayStrip.replaceChildren(...ids.map((entryId) => {
 			const entry = entriesById.get(entryId);
 			const info = entryInfo(entry, index, viewing);
+			const finish = copyFinish(entry);
 
 			return artOf(entry, info, (src) => h('button', {
-				'aria-label': `${info.name}, ${languageLabel(entry.language)}`,
+				'aria-label': [info.name, languageLabel(entry.language), finish ? FINISHES[finish].label : null].filter(Boolean).join(', '),
 				'aria-pressed': String(entryId === picked),
 				class: 'bt-card',
 				'data-entry': entryId,
 				role: 'listitem',
 				type: 'button',
-			}, cardArt(info, src)));
+			}, cardArt(info, src), finishBadge(finish)));
 		}));
 
 		for (const img of trayStrip.querySelectorAll('img')) {
 			img.draggable = false;
 		}
 
+		readPrintings(drawTray);
 		drawTrayStatus();
 
 		const shown = trayStrip.querySelector('.bt-card[aria-pressed="true"]');
@@ -3223,7 +3251,7 @@ function binderScreen(root, source, id, pageParam) {
 			// readers.
 			const frame = artOf(group.items.map((item) => item.entry), info, (src) => tileArt({
 				count: copies,
-				finish: entryFinish(entry),
+				finish: copyFinish(entry),
 				info,
 				languages: [entry.language],
 				src,
@@ -3275,6 +3303,7 @@ function binderScreen(root, source, id, pageParam) {
 				? 'Select none'
 				: `Select all ${formatCount(copiesIn(list))}`;
 			results.replaceChildren(...list.slice(0, shown).map(tile));
+			readPrintings(draw, () => sheet.open);
 			more.hidden = list.length <= shown;
 			more.textContent = `Show more (${formatCount(list.length - shown)} left)`;
 			drawFoot();
@@ -4490,7 +4519,7 @@ function binderScreen(root, source, id, pageParam) {
 				const item = group.items[0];
 				const pick = group.items.find((copy) => free.has(copy.entry.id)) || item;
 				// Picking a physical copy: its language always shows.
-				const frame = artOf(group.items.map((copy) => copy.entry), item.info, (src) => tileArt({count: group.items.length, finish: entryFinish(item.entry), info: item.info, languages: [item.entry.language], src}));
+				const frame = artOf(group.items.map((copy) => copy.entry), item.info, (src) => tileArt({count: group.items.length, finish: copyFinish(item.entry), info: item.info, languages: [item.entry.language], src}));
 
 				return h('button', {class: 'pick', 'data-entry': item.entry.id, onclick: () => choose(pick), type: 'button'},
 					frame,
@@ -4501,6 +4530,7 @@ function binderScreen(root, source, id, pageParam) {
 			}));
 			more.hidden = groups.length <= shown;
 			more.textContent = `Show more (${formatCount(groups.length - shown)} left)`;
+			readPrintings(draw, () => sheet.open);
 
 			// Names and images for the copies shown that the phone has no
 			// catalog record for yet.
