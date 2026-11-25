@@ -232,8 +232,10 @@ export function shopView(root) {
 	const bulk = h('form', {class: 'shop-bulk', id: 'shop-bulk', onsubmit: (event) => {
 		event.preventDefault();
 		fillShown();
-	}}, h('label', {class: 'shop-bulk-label', for: 'shop-bulk-price'}, 'R$'), bulkInput, bulkButton,
-	h('div', {class: 'shop-select-tools'}, kitButton, selectShown, clearSelection));
+	// Kit sits beside Fill: both act on the ticked cards (Eric, 2026-11-25:
+	// in the row of text links it was squeezed into a tall, narrow box).
+	}}, h('label', {class: 'shop-bulk-label', for: 'shop-bulk-price'}, 'R$'), bulkInput, bulkButton, kitButton,
+	h('div', {class: 'shop-select-tools'}, selectShown, clearSelection));
 	const list = h('ul', {'aria-label': 'Your spares', class: 'shop-list', id: 'shop-list'});
 	const empty = h('p', {class: 'muted', hidden: true, id: 'shop-empty'});
 	const saveStatus = h('p', {'aria-live': 'polite', class: 'status shop-save-status', id: 'shop-save-status'});

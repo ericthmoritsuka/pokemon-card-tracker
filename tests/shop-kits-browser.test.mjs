@@ -182,6 +182,14 @@ describe('Shop kits', () => {
 		await tick(page, 'tsa1-006');
 		await tick(page, 'tsb2-025');
 		assert.equal(await text(page.locator('#shop-kit-make')), 'Kit 3 selected');
+
+		// Kit sits beside Fill and matches it: one line, a 44 px tap height
+		// (Eric, 2026-11-25: squeezed among the text links, it wrapped).
+		const [fill, kitBox] = await Promise.all([page.locator('#shop-bulk-set').boundingBox(), page.locator('#shop-kit-make').boundingBox()]);
+
+		assert.equal(kitBox.height, fill.height);
+		assert.ok(kitBox.height >= 44 && kitBox.height < 60, `Kit is ${kitBox.height} px tall`);
+		assert.equal(await page.locator('#shop-bulk > #shop-kit-make').count(), 1, 'in the price row, not the text links');
 		await page.click('#shop-kit-make');
 		await page.locator('#shop-kit-sheet').waitFor(TIMEOUT);
 
