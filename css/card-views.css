@@ -251,7 +251,7 @@
 	grid-template-columns: repeat(auto-fill, minmax(max(52px, 3.2rem), 1fr));
 }
 
-/* The "Photo by" and "English image" lines are captions too. */
+/* The "Photo by" line is a caption too. */
 .card-grid[data-view="mini"] .tile > :not(.art-wrap) {
 	display: none;
 }
