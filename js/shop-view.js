@@ -532,9 +532,33 @@ export function shopView(root) {
 
 	function drawList() {
 		const visible = shown();
+		// The price field being typed in keeps the focus and the caret: the
+		// Shop draws the list again as it opens (records, pictures, rates),
+		// and a field drawn anew would take the next keys nowhere (2026-11-24,
+		// a price typed right after opening was lost). What was typed is in
+		// the draft already, which the new field shows.
+		const active = document.activeElement;
+		const typing = active && active.classList.contains('shop-price-input') && list.contains(active)
+			? {end: active.selectionEnd, key: active.closest('.shop-row').dataset.key, start: active.selectionStart}
+			: null;
 
 		rows.clear();
 		list.replaceChildren(...visible.map(row));
+
+		const again = typing && rows.get(typing.key);
+
+		if (again) {
+			const input = again.querySelector('.shop-price-input');
+
+			input.focus({preventScroll: true});
+
+			try {
+				input.setSelectionRange(typing.start, typing.end);
+			}
+			catch {
+				// A field that holds no caret; the focus is what matters.
+			}
+		}
 		empty.hidden = visible.length > 0;
 		empty.textContent = !groups.length
 			? 'No spares yet. A spare is a copy beyond the first of the same card in the same language, never a favorite.'

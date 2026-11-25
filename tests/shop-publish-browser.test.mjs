@@ -187,6 +187,48 @@ describe('Shop publishing', () => {
 		await context.close();
 	});
 
+	test('a price typed while the Shop redraws its list as it opens is kept, keys and all', async () => {
+		// The set list is held until typing has begun, so the picture
+		// refresh, its reload, and the list drawn again land mid-typing, as
+		// when Eric types the moment the Shop opens.
+		const {context, errors, page} = await ownerPhone({index: indexRecords()});
+		let release;
+		const held = new Promise((resolve) => {
+			release = resolve;
+		});
+		let asked = false;
+
+		await page.route('**/v2/en/sets/tsa1', async (route) => {
+			asked = true;
+			await held;
+			await route.fulfill({
+				body: JSON.stringify({cards: [{id: 'tsa1-004', image: PICTURE, localId: '004', name: 'Charmander'}], id: 'tsa1', name: 'Test Set A'}),
+				contentType: 'application/json',
+				status: 200,
+			});
+		});
+		await openShop(page);
+
+		const field = `${CHARMANDER_EN} .shop-price-input`;
+
+		await page.click(field);
+		await page.keyboard.type('2');
+		await page.waitForFunction(() => document.querySelector('#shop-save-all').textContent === 'Save 1 price');
+		assert.ok(asked, 'the refresh is under way');
+		release();
+		// The row drawn again shows the picture; the field keeps the focus.
+		await page.locator(`${CHARMANDER_EN} img.shop-art[src*="tsa1/004"]`).waitFor(TIMEOUT);
+		assert.equal(await page.evaluate(() => document.activeElement.closest('.shop-row') && document.activeElement.closest('.shop-row').id), 'shop-international-tsa1-004-en');
+		await page.keyboard.type(',30');
+		assert.equal(await page.locator(field).inputValue(), '2,30');
+		assert.equal(plain(await page.locator('#shop-save-all').textContent()), 'Save 1 price');
+		await page.click('#shop-save-all');
+		await page.locator('#shop-savebar').waitFor({state: 'hidden', ...TIMEOUT});
+		assert.match(plain(await page.locator(`${CHARMANDER_EN} .shop-state`).textContent()), /^For sale at R\$ 2,30 each$/);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('signed out, nothing is sent and the screen says why', async () => {
 		const context = await browser.newContext({serviceWorkers: 'block', viewport: {height: 844, width: 390}});
 
