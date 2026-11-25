@@ -2133,6 +2133,15 @@ export function cardView(root, {lang, cardId}) {
 			)),
 		);
 
+		// Your own card with more than one copy: where each one is and why it
+		// is free or not, and a copy you no longer have logged as given away
+		// (js/spare-check-view.js; Eric, 2026-11-25).
+		if (!readOnly && live.length > 1) {
+			const route = routeTo('trade', 'check', lang, cardId);
+
+			copies.append(h('p', {class: 'copies-check'}, h('a', {'data-link': route, href: BASE + route, id: 'copies-check'}, 'Check where each copy is')));
+		}
+
 		copies.append(movesSlot);
 
 		// Under a member's copies, how many they could spare.

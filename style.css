@@ -836,6 +836,7 @@
 	--warn-ink: #1b1b1f;
 	--badge-ink: #111118;
 	--badge-paper: #ffffff;
+	--badge-free: #1b7a3e;
 	--ring-track: #8a8a94;
 	--toast-bg: #1b1b1f;
 	--toast-text: #ffffff;
@@ -3021,6 +3022,30 @@ progress {
 	right: var(--space-1);
 	text-transform: none;
 	top: var(--space-1);
+}
+
+/* Your own cards: the free copies beside the count, "×3 | 1" (js/tile.js
+   qtyBadge; Eric, 2026-11-25). The green half is the free count, white on
+   green at 5.4:1, and the badge's name says it in words, so the color is
+   never the only sign. It sits over the card art, so it keeps the same
+   colors in every theme, as the other badges do. */
+.badge-qty-split {
+	gap: 0;
+	overflow: hidden;
+	padding: 0;
+}
+
+.badge-qty-split > span {
+	align-items: center;
+	align-self: stretch;
+	display: inline-flex;
+	padding: 0 var(--space-1);
+}
+
+.qty-free {
+	background: var(--badge-free);
+	border-left: 1px solid var(--badge-paper);
+	color: var(--badge-paper);
 }
 
 /* The finish, beside the flag. */
