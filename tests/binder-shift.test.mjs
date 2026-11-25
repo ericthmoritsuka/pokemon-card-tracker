@@ -109,6 +109,59 @@ describe('a hand-made binder: remove', () => {
 	});
 });
 
+describe('a hand-made binder: insert and remove an empty pocket (Eric, 2026-11-24)', () => {
+	test('Insert a pocket here moves every later pocket on one, empty ones too, and Undo puts them back', () => {
+		const list = UNOVA();
+		const result = binders.insertPocket(list, {at: at(5), binderId: 'b', page: 1, position: 3});
+		const after = merged(list, result.changed);
+
+		// The placeholder (3) and everything after it moved on one: 5 to 6,
+		// 6 to 7, and so on.
+		assert.deepEqual(pocketsOf(after.find((binder) => binder.id === 'b')), [[1, 'c1'], [2, 'c2'], [4, 'w1'], [6, 'empty'], [7, 'c3'], [8, 'art'], [9, 'c4'], [10, 'c5']]);
+		assert.equal(result.done.pages, undefined, 'it fits the three pages');
+		assert.deepEqual(copiesIn(after), copiesIn(list), 'no copy lost');
+
+		const back = binders.undoShift(after, {at: at(6), done: result.done});
+
+		assert.equal(back.back, true);
+		assert.deepEqual(pocketsOf(merged(after, back.changed).find((binder) => binder.id === 'b')), pocketsOf(list[0]));
+	});
+
+	test('the last card spills onto a new page, within 200 pages, and Undo takes the page away again', () => {
+		// 2 × 2, one page, full.
+		const full = [hand('f', [holding(1, 1, 'a'), holding(1, 2, 'b'), holding(1, 3, 'c'), holding(1, 4, 'd')], {page_count: 1})];
+		const result = binders.insertPocket(full, {at: at(5), binderId: 'f', page: 1, position: 2});
+		const after = merged(full, result.changed);
+		const binder = after[0];
+
+		assert.equal(binder.page_count, 2);
+		assert.deepEqual(result.done.pages, {from: 1, to: 2});
+		assert.deepEqual(pocketsOf(binder), [[1, 'a'], [3, 'b'], [4, 'c'], [5, 'd']]);
+
+		const back = merged(after, binders.undoShift(after, {at: at(6), done: result.done}).changed)[0];
+
+		assert.equal(back.page_count, 1);
+		assert.deepEqual(pocketsOf(back), pocketsOf(full[0]));
+
+		const most = [hand('m', [holding(200, 4, 'z')], {page_count: 200})];
+
+		assert.throws(() => binders.insertPocket(most, {at: at(5), binderId: 'm', page: 200, position: 4}), /more than 200 pages/);
+	});
+
+	test('nothing after the pocket in use: nothing to move', () => {
+		assert.deepEqual(binders.insertPocket(UNOVA(), {at: at(5), binderId: 'b', page: 3, position: 2}).changed, []);
+	});
+
+	test('Remove this empty pocket moves every later pocket back one, and only an empty pocket', () => {
+		const list = UNOVA();
+		const result = binders.closePocket(list, {at: at(5), binderId: 'b', page: 1, position: 4});
+		const after = merged(list, result.changed);
+
+		assert.deepEqual(pocketsOf(after.find((binder) => binder.id === 'b')), [[1, 'c1'], [2, 'c2'], [3, 'w1'], [4, 'empty'], [5, 'c3'], [6, 'art'], [7, 'c4'], [8, 'c5']]);
+		assert.throws(() => binders.closePocket(list, {at: at(5), binderId: 'b', page: 1, position: 1}), /is not empty/);
+	});
+});
+
 describe('a hand-made binder: Move to...', () => {
 	// The Unova binder: Victini first, then the starters.
 	const unova = () => [hand('u', [holding(1, 1, 'victini'), holding(1, 2, 'snivy'), holding(1, 3, 'tepig'), holding(1, 4, 'oshawott'), holding(2, 1, 'patrat')])];
@@ -481,6 +534,69 @@ describe('a binder from a list: exceptions', () => {
 
 		assert.deepEqual(keysOf(gap), ['', 'dex:495', 'dex:498', 'dex:501', 'dex:504']);
 		assert.deepEqual(gap.added, [], 'a gap is not a pocket added');
+	});
+});
+
+describe('a binder from a list: inserted pockets (Eric, 2026-11-24)', () => {
+	// Unova's pockets: Victini 494, Snivy 495, Tepig 498, Oshawott 501,
+	// Patrat 504.
+	const items = ['dex:494', 'dex:495', 'dex:498', 'dex:501', 'dex:504'].map((key) => ({copies: [], key}));
+	const blank = (id, before, minute = 5) => rules.blankEdit({at: at(minute), before, id});
+
+	test('a blank goes just before its pocket, or at the end, and lays out as Empty', () => {
+		const keys = items.map((item) => item.key);
+
+		assert.deepEqual(rules.applyListEdits(keys, [blank('x', 'dex:498')]), ['dex:494', 'dex:495', '', 'dex:498', 'dex:501', 'dex:504']);
+		assert.deepEqual(rules.applyListEdits(keys, [blank('x', '')]), [...keys, '']);
+		assert.deepEqual(rules.applyListEdits(keys, [blank('x', 'dex:999')]), [...keys, ''], 'a pocket no longer in the list: the end');
+		assert.deepEqual(rules.listMarks(keys, [blank('x', 'dex:498'), {at: at(6), key: 'dex:501', kind: 'gap'}]), {2: 'blank:x', 4: 'gap:dex:501'});
+	});
+
+	test('a refresh keeps the inserted pocket and says which empty pocket it is; taking it away closes it', () => {
+		const binder = generated({list_edits: [blank('x', 'dex:498')]});
+		const plan = rules.planRefresh(binder, items, {at: at(10), rankOf: () => ({})});
+
+		assert.deepEqual(plan.snapshot.keys, ['dex:494', 'dex:495', '', 'dex:498', 'dex:501', 'dex:504']);
+		assert.deepEqual(plan.snapshot.marks, {2: 'blank:x'});
+		assert.equal(plan.page_count, 2);
+
+		const again = rules.planRefresh({...binder, page_count: plan.page_count, snapshot: plan.snapshot}, items, {at: at(11), rankOf: () => ({})});
+
+		assert.equal(again.changed, false);
+
+		const closed = rules.planRefresh({...binder, list_edits: [blank('x', 'dex:498'), {at: at(12), key: 'blank:x', kind: 'none'}]}, items, {at: at(13), rankOf: () => ({})});
+
+		assert.deepEqual(closed.snapshot.keys, items.map((item) => item.key));
+		assert.equal(closed.snapshot.marks, undefined);
+	});
+
+	test('a card added in the inserted pocket keeps that place: its own pocket before the next one', () => {
+		// Add a card here on the blank before Tepig: the blank goes, and the
+		// card (added by hand) sits before Tepig.
+		const binder = generated({
+			extra_cards: [{at: at(7), key: 'international|bw1-020', kind: 'add'}],
+			list_edits: [blank('x', 'dex:498'), {at: at(7), key: 'blank:x', kind: 'none'}, {at: at(7), before: 'dex:498', key: 'international|bw1-020', kind: 'before'}],
+		});
+		const withExtra = rules.withExtraItems(items, binder, (key) => ({copies: [], key}));
+
+		assert.deepEqual(rules.planRefresh(binder, withExtra, {at: at(10), rankOf: () => ({})}).snapshot.keys, ['dex:494', 'dex:495', 'international|bw1-020', 'dex:498', 'dex:501', 'dex:504']);
+	});
+
+	test('an older phone keeps the inserted pocket\'s entry when it merges, though it does not lay it out', () => {
+		const base = generated();
+		const edits = [blank('x', 'dex:498')];
+		const mine = stampEntry(base, {...structuredClone(base), list_edits: edits, updated_at: at(6)});
+		// The older phone renames the binder, saving a clone.
+		const theirs = v47.stampEntry(mine, {...structuredClone(mine), name: 'Unova 2', updated_at: at(8)});
+
+		for (const merge of [mergeDocuments, v47.mergeDocuments]) {
+			for (const [left, right] of [[[mine], [theirs]], [[theirs], [mine]]]) {
+				const [binder] = merge({binders: left}, {binders: right}).binders;
+
+				assert.deepEqual(binder.list_edits, edits);
+				assert.equal(binder.name, 'Unova 2');
+			}
+		}
 	});
 });
 

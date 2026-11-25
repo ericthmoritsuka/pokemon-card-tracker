@@ -403,4 +403,54 @@ describe('a hand-made binder', () => {
 		assert.deepEqual(handPockets(doc), [[1, 1, 'c4'], [1, 2, 'c7'], [1, 3, 'tst3-155'], [1, 4, 'c152'], [2, 1, 'c1']]);
 		await done();
 	});
+
+	test('Insert a pocket before a card spills onto a new page and Undo takes it away; Remove this empty pocket closes one (Eric, 2026-11-24)', async () => {
+		const {done, page} = await open(PHONE);
+		// One full page of 2 × 2.
+		const full = {...HAND, page_count: 1, slots: HAND.slots.filter((slot) => slot.page === 1)};
+
+		await seed(page, documentWith({binders: [full], cards: [card('c1', 'tst1-001'), card('c4', 'tst1-004'), card('c7', 'tst1-007')]}));
+		await page.goto(url('binders/hand'));
+		await page.waitForSelector('#binder-spread .bs-page');
+		await openPage(page, 1);
+		await page.click(zoomed(2));
+		await waitOpen(page);
+		await page.click('#pv-details');
+		await page.waitForSelector('#pocket-sheet[open] #pocket-insert-before');
+		await page.click('#pocket-insert-before');
+		await undoOn(page, 'The binder now has 2 pages.').waitFor();
+
+		let doc = await localDoc(page);
+
+		assert.equal(doc.binders[0].page_count, 2);
+		assert.deepEqual(handPockets(doc), [[1, 1, 'c1'], [1, 3, 'c4'], [1, 4, 'c7'], [2, 1, 'tst3-155']]);
+
+		await undoOn(page, 'The binder now has 2 pages.').click();
+		await untilInPage(page, 'back to one page', async () => {
+			const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
+
+			return (await loadDocument()).binders[0].page_count === 1;
+		});
+		doc = await localDoc(page);
+		assert.deepEqual(handPockets(doc), [[1, 1, 'c1'], [1, 2, 'c4'], [1, 3, 'c7'], [1, 4, 'tst3-155']]);
+
+		// Insert again, then the new empty pocket's own sheet closes it.
+		await page.waitForTimeout(300);
+		await page.click(zoomed(2));
+		await waitOpen(page);
+		await page.click('#pv-details');
+		await page.waitForSelector('#pocket-sheet[open] #pocket-insert-before');
+		await page.click('#pocket-insert-before');
+		await undoOn(page, 'The binder now has 2 pages.').waitFor();
+		await page.waitForTimeout(300);
+		await page.click(zoomed(2));
+		await page.waitForSelector('#pocket-sheet[open] #pocket-close');
+		await page.waitForTimeout(300);
+		await page.screenshot({path: `${SHOTS}/hand-empty-pocket-360.png`});
+		await page.click('#pocket-close');
+		await undoOn(page, 'The empty pocket is gone').waitFor();
+		doc = await localDoc(page);
+		assert.deepEqual(handPockets(doc), [[1, 1, 'c1'], [1, 2, 'c4'], [1, 3, 'c7'], [1, 4, 'tst3-155']]);
+		await done();
+	});
 });

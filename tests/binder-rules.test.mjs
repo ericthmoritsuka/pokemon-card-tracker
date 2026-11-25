@@ -762,6 +762,16 @@ const DEX = [
 	{dexId: [7], id: 'tst1-007'},
 	{dexId: [25], id: 'tst1-025'},
 	{dexId: null, id: 'tst1-090'},
+	// Eric's Kalos cats (2026-11-24): Espurr, and Meowstic male and female.
+	{dexId: [677], id: 'tst3-077'},
+	{dexId: [678], id: 'tst3-078'},
+	{dexId: [678], id: 'tst3-079'},
+];
+
+const CAT_RECORDS = [
+	record('tst3-077', '077', 'Test Espurr', {dex_ids: [677], set_id: 'tst3', types: ['Psychic']}),
+	record('tst3-078', '078', 'Test Meowstic', {dex_ids: [678], set_id: 'tst3', types: ['Psychic']}),
+	record('tst3-079', '079', 'Test Meowstic F', {dex_ids: [678], set_id: 'tst3', types: ['Psychic']}),
 ];
 
 // Set tst1 for a set goal: four cards, one of them not owned.
@@ -1033,6 +1043,72 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		await waitForPocket(page, zoomPocket(2), {kind: 'card', picked: 'true'});
 		doc = await localDoc(page);
 		assert.deepEqual(doc.binder_picks.map((pick) => [pick.binder_id, pick.key, pick.entry_id]), [[younger.id, 'dex:4', 'c4']]);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('Meowstic: a pocket inserted after #678 takes the female, which shows there though #678 fits her too (Eric, 2026-11-24)', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const cats = [
+			card('e1', 'tst3-077', {created_at: '2026-09-01T00:00:00.000Z'}),
+			card('m1', 'tst3-078', {created_at: '2026-09-02T00:00:00.000Z'}),
+			card('f1', 'tst3-079', {created_at: '2026-09-03T00:00:00.000Z'}),
+		];
+
+		await seedLocal(page, documentWith({cards: cats, goals: [{...CHECKLIST, dex_list: [677, 678], id: 'list-cats', name: 'Kalos cats'}]}), [...RECORDS, ...CAT_RECORDS]);
+		await page.click('.tabs a[data-tab="binders"]');
+		await page.click('#new-binder');
+		await page.check('#new-binder-list');
+		await page.waitForSelector('#rule-section');
+		await page.check('#rule-kind input[value="checklist"]');
+		await page.selectOption('#rule-list', 'list-cats');
+		await page.click('.binder-preset[data-preset="4-pocket"]');
+		await page.waitForFunction(() => /2 pockets/.test((document.getElementById('rule-count') || {}).textContent), null, {timeout: 15000});
+		await page.click('#binder-save');
+		await page.waitForSelector('#binder-spread .bs-page');
+
+		let doc = await localDoc(page);
+
+		// The newest Meowstic, the female, shows in #678 by default.
+		assert.deepEqual(doc.binders[0].snapshot.keys, ['dex:677', 'dex:678']);
+		assert.equal(doc.binders[0].snapshot.shown['dex:678'], 'f1');
+
+		// Insert a pocket after Meowstic's.
+		await openPage(page, 1);
+		await page.click(zoomPocket(2));
+		await page.waitForFunction(() => document.getElementById('pocket-viewer')?.dataset.state === 'open');
+		await page.click('#pv-details');
+		await page.waitForSelector('#list-insert-after');
+		await page.click('#list-insert-after');
+		await page.waitForFunction(() => import('/pokemon-card-tracker/js/collection.js').then((m) => m.loadDocument()).then((d) => d.binders[0].snapshot.keys.length === 3), null, {timeout: 15000});
+		doc = await localDoc(page);
+		assert.deepEqual(doc.binders[0].snapshot.keys, ['dex:677', 'dex:678', '']);
+		assert.match(doc.binders[0].snapshot.marks[2], /^blank:/);
+		await page.waitForFunction(() => !document.querySelector('#pocket-sheet[open]'));
+		await waitForPocket(page, zoomPocket(3), {kind: 'open'});
+
+		// Add a card here: the female Meowstic.
+		await page.click(zoomPocket(3));
+		await page.waitForSelector('#list-add-here');
+		assert.deepEqual(await page.locator('#list-sheet-actions, .list-arrange button').evaluateAll((nodes) => nodes.map((node) => node.id)), ['list-add-here', 'list-insert-before', 'list-insert-after', 'list-close']);
+		await page.click('#list-add-here');
+		await page.waitForSelector('#owned-results .pick[data-entry="f1"]');
+		await page.click('#owned-results .pick[data-entry="f1"]');
+		await waitForPocket(page, zoomPocket(3), {kind: 'card', label: 'Test Meowstic F.*picked by hand', picked: 'true'});
+		// #678 shows the male now: the female is his pick in the new pocket.
+		await waitForPocket(page, zoomPocket(2), {kind: 'card', label: 'Test Meowstic,'});
+		await page.screenshot({path: `${SHOTS}/meowstic-360.png`});
+
+		doc = await localDoc(page);
+		assert.deepEqual(doc.binders[0].snapshot.keys, ['dex:677', 'dex:678', 'international|tst3-079']);
+		assert.deepEqual(doc.binders[0].extra_cards.map((entry) => [entry.key, entry.kind]), [['international|tst3-079', 'add']]);
+		assert.deepEqual(doc.binder_picks.filter((pick) => pick.entry_id).map((pick) => [pick.key, pick.entry_id]), [['international|tst3-079', 'f1']]);
+
+		// A refresh keeps it all where it is, and stores the male as #678's.
+		await page.click('#binder-refresh');
+		await page.waitForFunction(() => import('/pokemon-card-tracker/js/collection.js').then((m) => m.loadDocument()).then((d) => d.binders[0].snapshot.shown['dex:678'] === 'm1'), null, {timeout: 15000});
+		doc = await localDoc(page);
+		assert.deepEqual(doc.binders[0].snapshot.keys, ['dex:677', 'dex:678', 'international|tst3-079']);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
