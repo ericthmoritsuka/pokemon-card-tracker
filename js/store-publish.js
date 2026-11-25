@@ -8,6 +8,7 @@
 
 import {getClient} from './auth.js';
 import {cardImage} from './catalog.js';
+import {kitNamesHolding} from './kits.js';
 import {relayRead} from './photos/save.js';
 import {photoUrl} from './photos/store.js';
 
@@ -81,6 +82,27 @@ export async function withdrawListings(ids) {
 	}
 
 	return data || [];
+}
+
+// The names of the kits that are on and hold any of the copies ids
+// (plans/hotaru-bundles-plan.md sections 6 and 7), for the owner's card
+// page: store_bundles_admin (supabase/store-bundles.sql). An empty list when
+// there are none, and when the kits cannot be read (offline, not the owner,
+// or the script not run), since this only explains what happened.
+export async function kitNamesFor(ids) {
+	if (!ids || !ids.length) {
+		return [];
+	}
+
+	try {
+		const client = await getClient();
+		const {data, error} = await client.rpc('store_bundles_admin');
+
+		return error ? [] : kitNamesHolding(Array.isArray(data) ? data : [], ids);
+	}
+	catch {
+		return [];
+	}
 }
 
 // What the card page says when the withdrawal did not happen. Before

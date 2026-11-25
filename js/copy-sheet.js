@@ -45,7 +45,8 @@ import {CONDITIONS} from './scan/session.js';
 import {openDialogSheet} from './sheet.js';
 import {setAddAndSell, shopOwnerKnown, wantsAddAndSell} from './shop-owner.js';
 import {toast} from './shell.js';
-import {withdrawListings} from './store-publish.js';
+import {kitNamesText} from './kits.js';
+import {kitNamesFor, withdrawListings} from './store-publish.js';
 
 // The most copies one Add sheet makes: enough for a box of the same card,
 // few enough that a slip of the thumb cannot add thousands (Q-08).
@@ -574,6 +575,9 @@ export function openEditSheet({card, catalog, entries, finishes, forSale = null,
 	const saleBox = saleStates ? h('input', {'aria-describedby': 'copy-for-sale-hint', checked: saleStart, class: 'copy-for-sale-box', id: 'copy-for-sale', type: 'checkbox'}) : null;
 	const saleHint = saleStates ? h('p', {class: 'muted copy-for-sale-hint', id: 'copy-for-sale-hint'}) : null;
 	const saleChange = () => (saleBox && saleBox.checked !== saleStart ? {for_sale: saleBox.checked} : {});
+	// The kits on HOTARU that hold these copies (v114), read once as the
+	// sheet opens, so the hint says what For sale does to them.
+	let kitNames = [];
 
 	function drawSaleHint() {
 		if (!saleBox) {
@@ -586,8 +590,9 @@ export function openEditSheet({card, catalog, entries, finishes, forSale = null,
 				typedPrice().error ? PRICE_FORM_TEXT : priceNow() === null ? 'Not on HOTARU until this finish has a price in the Shop.' : `On HOTARU at ${formatBrl(priceNow())}.`,
 				place ? `It leaves ${placeText(place)} when it sells.` : null,
 				first.is_favorite === true ? 'A favorite: For sale lists it anyway.' : null,
+				kitNames.length ? `In ${kitNamesText(kitNames)}: it sells alone or in the kit.` : null,
 			]
-			: [saleStart ? 'Kept: it comes off HOTARU when you close this.' : 'Not for sale.'];
+			: [saleStart ? `Kept: it comes off HOTARU when you close this${kitNames.length ? `, and ${kitNamesText(kitNames)} with it` : ''}.` : 'Not for sale.'];
 
 		saleHint.textContent = lines.filter(Boolean).join(' ');
 	}
@@ -600,6 +605,16 @@ export function openEditSheet({card, catalog, entries, finishes, forSale = null,
 		}
 
 		drawSaleHint();
+
+		if (saleStart) {
+			kitNamesFor(entries.map((entry) => entry.id)).then((names) => {
+				kitNames = names;
+
+				if (names.length) {
+					drawSaleHint();
+				}
+			});
+		}
 	}
 
 	const saleField = saleBox

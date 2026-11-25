@@ -44,7 +44,8 @@ import {memberCards, memberDocumentKept, memberRecords, whenMemberName} from './
 import {addToWishlist, listWishlist, markedForSale, sparesFor} from './wishlist.js';
 import {listingByCopy, salePrice, shopGroups, shopKey} from './shop.js';
 import {checkShopOwner, shopOwnerKnown} from './shop-owner.js';
-import {withdrawListings, withdrawNoticeText} from './store-publish.js';
+import {kitNamesText} from './kits.js';
+import {kitNamesFor, withdrawListings, withdrawNoticeText} from './store-publish.js';
 import {isCustomId} from './custom-card.js';
 import {customCardView} from './custom-card-view.js';
 import {artistLink, setGoalControl} from './goals-view.js';
@@ -89,7 +90,11 @@ async function takeOffHotaru(entries) {
 		const gone = await withdrawListings(priced.map((entry) => entry.id));
 
 		if (gone.length) {
-			toast(`Starred and taken off HOTARU (${copiesText(gone.length)}).`);
+			// A kit holding one of them left HOTARU with it (v114).
+			const kits = await kitNamesFor(gone);
+			const kitLine = kits.length ? ` ${kitNamesText(kits).replace(/^k/, 'K')} left HOTARU too.` : '';
+
+			toast(`Starred and taken off HOTARU (${copiesText(gone.length)}).${kitLine}`);
 		}
 	}
 	catch (err) {

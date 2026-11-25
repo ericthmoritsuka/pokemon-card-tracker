@@ -177,6 +177,29 @@ export function kitDefaultName(names) {
 	return joined.length <= 80 ? joined : `${joined.slice(0, 79)}…`;
 }
 
+// The names of the kits that are on and hold any of ids, from
+// store_bundles_admin's rows, each name once, in the kits' order: what the
+// card page says when a copy in a kit is kept or starred (v114).
+export function kitNamesHolding(kits, ids) {
+	const wanted = new Set(ids || []);
+	const names = (kits || [])
+		.filter((kit) => kit.active !== false && (kit.items || []).some((item) => wanted.has(item.listing_id)))
+		.map((kit) => kit.name);
+
+	return [...new Set(names)];
+}
+
+// "kit Trio" or "kits Trio and Duo", for a sentence.
+export function kitNamesText(names) {
+	if (!names.length) {
+		return '';
+	}
+
+	const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+
+	return `${names.length === 1 ? 'kit' : 'kits'} ${list}`;
+}
+
 // An order's cards as the Shop lists them: singles as they come, and each
 // kit's cards together under its name, with the kit's price (the sum of the
 // shares the server split it into).

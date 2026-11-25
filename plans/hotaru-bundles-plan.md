@@ -9,10 +9,9 @@ Status, 2026-11-25: Eric chose every default in section 9. Built: `supabase/stor
 `js/shop-kits.js`, hooks in `js/shop-view.js`), and HOTARU's Kits (pull request #14). Release slot:
 v113; its release commit adds `js/kits.js` and `js/shop-kits.js` to `sw.js`'s precache.
 
-Not built yet, because both touch `js/copy-sheet.js` and the card page, which v112 changes: the
-"In kit" note under the For sale switch (section 7) and the star toast's "left HOTARU too" line
-(section 6). The kit itself already leaves HOTARU at once when a starred or unmarked copy is
-withdrawn, so these only explain what happened.
+v114 adds the two card page lines: the For sale hint names the kits a copy is in (section 7), and the
+star's toast says which kits left HOTARU with it (section 6), both read from `store_bundles_admin` by
+`kitNamesFor` (`js/store-publish.js`).
 
 Builds on: `store_listings` (one row per copy, keyed by the copy's ID, `supabase/store.sql`);
 `place_order`, which reserves a list of listing IDs all or none (`supabase/store-orders.sql`);

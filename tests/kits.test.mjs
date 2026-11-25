@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
-import {copiesInKits, groupOfItem, kitDefaultName, kitPrice, kitRecord, kitSum, orderGroups, parsePercent, percentOff, pickCopy, refillKit} from '../js/kits.js';
+import {copiesInKits, groupOfItem, kitDefaultName, kitNamesHolding, kitNamesText, kitPrice, kitRecord, kitSum, orderGroups, parsePercent, percentOff, pickCopy, refillKit} from '../js/kits.js';
 
 const copy = (id, condition, created = '2026-11-01') => ({condition, created_at: `${created}T00:00:00Z`, id});
 const group = (cardId, listed, fields = {}) => ({card_id: cardId, catalog: 'international', key: `${cardId}|en|`, language: 'en', listed, price: 5, ...fields});
@@ -150,5 +150,27 @@ describe('kitRecord, kitDefaultName, orderGroups', () => {
 		assert.equal(groups[1].name, 'Trio');
 		assert.equal(groups[1].price, 14.25);
 		assert.equal(groups[1].items.length, 3);
+	});
+});
+
+describe('kitNamesHolding and kitNamesText', () => {
+	const kits = [
+		{active: true, items: [{listing_id: 'a'}, {listing_id: 'b'}], name: 'Trio'},
+		{active: false, items: [{listing_id: 'a'}], name: 'Off'},
+		{active: true, items: [{listing_id: 'c'}], name: 'Duo'},
+		{active: true, items: [{listing_id: 'b'}], name: 'Trio'},
+	];
+
+	test('only kits that are on and hold a copy asked about, each name once', () => {
+		assert.deepEqual(kitNamesHolding(kits, ['a']), ['Trio']);
+		assert.deepEqual(kitNamesHolding(kits, ['b', 'c']), ['Trio', 'Duo']);
+		assert.deepEqual(kitNamesHolding(kits, ['z']), []);
+		assert.deepEqual(kitNamesHolding(null, ['a']), []);
+	});
+
+	test('names read as a phrase', () => {
+		assert.equal(kitNamesText([]), '');
+		assert.equal(kitNamesText(['Trio']), 'kit Trio');
+		assert.equal(kitNamesText(['Trio', 'Duo', 'Uno']), 'kits Trio, Duo and Uno');
 	});
 });

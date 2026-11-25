@@ -392,14 +392,20 @@ describe('Shop publishing', () => {
 		assert.equal(await page.locator('a.tile[href$="/tsa1-004"] .tile-for-sale').count(), 0, 'Charmander has no price');
 		await page.screenshot({path: `${SHOTS}/shop-for-sale-tile.png`});
 
-		// Taking it off keeps it, and it leaves HOTARU at once.
+		// Taking it off keeps it, and it leaves HOTARU at once, with the kit
+		// that holds it (v114: the hint names the kit).
+		await page.route('**/rest/v1/rpc/store_bundles_admin', (route) => route.fulfill({body: JSON.stringify([
+			{active: true, items: [{listing_id: 'c-01'}, {listing_id: 'c-07'}], name: 'Duo'},
+			{active: false, items: [{listing_id: 'c-01'}], name: 'Off kit'},
+		]), contentType: 'application/json', status: 200}));
 		await page.goto(`${server.origin}${BASE}cards/en/tsa1-001`);
 		await page.locator('.copy-row').first().click();
 		await page.locator('#copy-for-sale').waitFor(TIMEOUT);
 		assert.equal(await page.isChecked('#copy-for-sale'), true);
-		assert.match(plain(await page.locator('#copy-for-sale-hint').textContent()), /^On HOTARU at R\$ 4,00\./);
+		await page.waitForFunction(() => /In kit Duo/.test(document.getElementById('copy-for-sale-hint').textContent), null, TIMEOUT);
+		assert.match(plain(await page.locator('#copy-for-sale-hint').textContent()), /^On HOTARU at R\$ 4,00\. .*In kit Duo: it sells alone or in the kit\.$/);
 		await page.uncheck('#copy-for-sale');
-		assert.equal(plain(await page.locator('#copy-for-sale-hint').textContent()), 'Kept: it comes off HOTARU when you close this.');
+		assert.equal(plain(await page.locator('#copy-for-sale-hint').textContent()), 'Kept: it comes off HOTARU when you close this, and kit Duo with it.');
 		await page.click('#copy-save');
 		await toastWith('Taken off HOTARU (1 copy).');
 		assert.deepEqual(asked, [['c-01']]);
@@ -615,12 +621,14 @@ describe('Shop publishing', () => {
 		await page.click('#shop-save-all');
 		await waitLine(page, /^On HOTARU: 2 cards, 2 copies\.$/);
 
-		// The star: the priced copies are asked for, the two listed ones go.
+		// The star: the priced copies are asked for, the two listed ones go,
+		// and the toast names the kit one of them was in (v114).
+		await page.route('**/rest/v1/rpc/store_bundles_admin', (route) => route.fulfill({body: JSON.stringify([{active: true, items: [{listing_id: 'c-03'}, {listing_id: 'c-10'}], name: 'Trio'}]), contentType: 'application/json', status: 200}));
 		await page.goto(`${server.origin}${BASE}cards/en/tsa1-004`);
 		await page.locator('#favorite-toggle[aria-pressed="false"]').waitFor(TIMEOUT);
 		await page.click('#favorite-toggle');
 		await page.waitForFunction(() => [...document.querySelectorAll('.toast-text')].some((node) => /taken off HOTARU/.test(node.textContent)), null, TIMEOUT);
-		assert.equal(plain(await page.locator('.toast-text', {hasText: 'HOTARU'}).last().textContent()), 'Starred and taken off HOTARU (2 copies).');
+		assert.equal(plain(await page.locator('.toast-text', {hasText: 'HOTARU'}).last().textContent()), 'Starred and taken off HOTARU (2 copies). Kit Trio left HOTARU too.');
 		assert.deepEqual(asked, [['c-02', 'c-03', 'c-04']], 'the Charmander EN copies, which carry the sale price; PT has none');
 		assert.deepEqual([...store.listings.values()].map((row) => row.status), ['withdrawn', 'withdrawn']);
 
