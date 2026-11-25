@@ -794,7 +794,9 @@ describe('the card tile', () => {
 		inset([corners.qty.right, corners.qty.top], 'the count sits top-right');
 		inset([corners.finish.bottom], 'the finish sits on the bottom edge');
 		assert.ok(corners.finish.left >= corners.lang.left + 20 && corners.finish.left <= corners.lang.left + 34, `the finish beside the flag (${JSON.stringify(corners)})`);
-		assert.equal(await pt.locator('.badge-qty').textContent(), '×2');
+		// ×2, with the free copy beside it on green (js/tile.js qtyBadge).
+		assert.equal(await pt.locator('.badge-qty .qty-all').textContent(), '×2');
+		assert.equal(await pt.locator('.badge-qty').getAttribute('aria-label'), '2 copies, 1 free');
 		assert.equal(await pt.locator('.badge-lang').getAttribute('aria-label'), 'Printed in Portuguese');
 		assert.equal(await pt.locator('.badge-finish').textContent(), 'REV');
 		assert.equal(await pt.locator('.badge-finish').getAttribute('aria-label'), 'Reverse holo');
