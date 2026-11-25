@@ -15,6 +15,18 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-11-25
+
+- **v112:** a new listing gets its card's HOTARU picture, a For sale tag on binder pockets, and the Shop price on Edit copy. `cea9db0`, `5540ed3`, `044e9d4`, `e874419`
+  - Fixed: a copy newly listed for a card whose other listing already had a picture went to HOTARU without one,
+    because Publish only looked for pictures when no copy of the card had one. Now any listed copy without a
+    picture counts, takes the path its sibling already has (no upload), and the "no picture yet" count includes it.
+    Not settled yet: some me03, me04, and 30th listings had no picture at all, and the cause was not found.
+  - Added: binder pockets that hold a copy on HOTARU show a small For sale tag at the top edge and a thin outline,
+    named "For sale on HOTARU" for screen readers, for the owner only.
+  - Added: Edit copy shows the Shop price of the copy's finish, and setting it there writes the same price as the
+    Shop row (one finish, one price).
+
 ### 2026-11-24
 
 - **v111:** For sale on any copy, one pocket per copy, insert pockets, and holo corners. `c96563c`, `1ada41d`, `792b766`, `1e57e2b`, `113fa61`, `2ebd2d4`, `c55382b`, `f380cd6`, `42bc7a0`, `3720139`
