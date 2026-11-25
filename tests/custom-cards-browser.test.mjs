@@ -234,6 +234,51 @@ describe('hand-made cards', () => {
 		await done();
 	});
 
+	// Eric, 2026-11-24: his hand-made Chinese Relicanth (Gem Pack Vol.4) was
+	// left off his Hoenn list. Lists read a hand-made card's Pokémon from its
+	// name, and the form can name it (dex_number on every copy).
+	test('the Pokémon a hand-made card is, for lists: read from its name, or picked on its form', async () => {
+		const {done, page} = await phone();
+		const note = () => page.locator('#hand-pokemon-note').textContent();
+
+		await page.click('#cards-empty-hand');
+		await fillHandSheet(page, {count: 2, language: 'zh-cn', name: '古空棘鱼', number: '0703/07', setCode: 'CBB4C', setName: 'Gem Pack Vol.4'});
+		await page.waitForFunction(() => /Relicanth \(#369\), from its name/.test(document.getElementById('hand-pokemon-note').textContent));
+		assert.equal(await page.locator('#hand-pokemon').inputValue(), '', 'nothing picked: lists read the name');
+		await page.screenshot({path: `${SHOTS}/custom-pokemon-from-name.png`});
+		await page.click('#hand-save');
+		await page.waitForSelector('#custom-detail .copies .copy-row');
+		assert.ok((await liveEntries(page)).every((entry) => !('dex_number' in entry) || entry.dex_number === null));
+
+		// A name lists cannot read: the form says so, refuses a Pokémon that
+		// is not one, and keeps the one picked on every copy.
+		await page.click('#custom-edit');
+		await page.waitForSelector('#hand-sheet[open]');
+		await page.fill('#hand-name', 'Gem Pack card');
+		assert.equal(await note(), 'Lists cannot tell which Pokémon this is from its name. Pick it to count it on your lists.');
+		await page.fill('#hand-pokemon', 'Relicanthh');
+		await page.click('#hand-save');
+		assert.equal(await page.locator('#hand-error').textContent(), 'Pick a Pokémon from the list, type its number, or leave it empty.');
+		await page.fill('#hand-pokemon', 'Relicanth');
+		assert.equal(await note(), 'Lists count it as Relicanth (#369).');
+		await page.click('#hand-save');
+		await page.waitForFunction(() => document.querySelector('#custom-name').textContent === 'Gem Pack card');
+		assert.deepEqual((await liveEntries(page)).map((entry) => entry.dex_number), [369, 369]);
+
+		// Opened again it shows the Pokémon; emptied, it goes.
+		await page.click('#custom-edit');
+		await page.waitForSelector('#hand-sheet[open]');
+		await page.waitForFunction(() => document.getElementById('hand-pokemon').value === 'Relicanth');
+		await page.fill('#hand-pokemon', '');
+		await page.click('#hand-save');
+		await page.waitForFunction(async () => {
+			const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
+
+			return (await loadDocument()).cards.every((entry) => entry.deleted_at || entry.dex_number === null);
+		});
+		await done();
+	});
+
 	test('a catalog card with the same set and number is offered, and linking keeps the copies', async () => {
 		const {done, page} = await phone();
 
