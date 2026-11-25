@@ -47,7 +47,7 @@ import {onSyncStatus, syncStatus} from './sync.js';
 
 const SHOW_KEY = 'cardTracker.shopShow';
 // HOTARU's admin page for sealed products (ericthmoritsuka/hotaru).
-const HOTARU_ADMIN = 'https://ericthmoritsuka.github.io/hotaru/admin.html';
+const HOTARU_ADMIN = 'https://lojahotaru.com.br/admin.html';
 // The prices typed and not saved yet, {<group key>: <text as typed>}.
 const DRAFTS_KEY = 'cardTracker.shopDrafts';
 const SHOW_LABELS = {all: 'All', priced: 'Priced', unpriced: 'Not priced'};
