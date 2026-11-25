@@ -59,7 +59,7 @@ import {addToBinder, undoAddToBinder} from './placeholder-fill.js';
 import {fillPanel} from './fill-view.js';
 import {artworkUrl, handPocketStatus, listPocketStatus, printablePockets} from './placeholder-print.js';
 import {openPlaceholderPrint} from './placeholder-print-view.js';
-import {applyListEdits, claimIndex, extraPagesOf, indexAt, layoutWaits, listEditEntries, listEditsOf, listPageCount, moveEdit, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy, skipsOf, takenFor, withListEdit} from './binder-rules.js';
+import {applyListEdits, cardKey, claimIndex, extraKeysOf, extraPagesOf, indexAt, layoutWaits, listEditEntries, listEditsOf, listPageCount, moveEdit, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy, skipsOf, takenFor, withExtraItems, withListEdit} from './binder-rules.js';
 import {filterLabels, ruleSection} from './binder-rule-view.js';
 import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceChoices, sourceEntry, sourceText, trayFromChoices, trayFromIds} from './binder-sources.js';
 import {checklistDex, dexLabel, listLanguages, namesLanguages, pokemonNames, spriteUrl} from './checklists.js';
@@ -108,6 +108,8 @@ import {
 	removeFromBinder,
 	reorderBinders,
 	restoreBinder,
+	removeExtraCards,
+	saveListAdds,
 	saveListEdits,
 	saveRefresh,
 	setPocketPick,
@@ -743,6 +745,25 @@ async function planLayout(binderLike, loaded, {claims = [], liveIds = null, pick
 	const plan = planRefresh(binderLike, loaded.items, {anyItems: loaded.anyItems, at: nowIso(), claims, keepOrder: Boolean(loaded.keepOrder), languages: loaded.languages, liveIds, partial: loaded.partial, picks, rankOf, skips});
 
 	return {plan, rankOf};
+}
+
+// The cards added by hand to a binder from a list (extra_cards) join the
+// list's items after them, each with every copy of that print you own
+// (js/binder-rules.js withExtraItems). loaded: js/binder-sources.js
+// loadRuleItems.
+function withExtras(loaded, binderLike, doc, index) {
+	if (!loaded || loaded.gone || !extraKeysOf(binderLike).length) {
+		return loaded;
+	}
+
+	const live = (doc.cards || []).filter(isLive);
+	const itemFor = (key) => cardItem(key, index, {copies: live.filter((entry) => cardKey(entry.catalog, entry.card_id) === key)});
+
+	return {
+		...loaded,
+		items: withExtraItems(loaded.items, binderLike, itemFor),
+		...(Array.isArray(loaded.anyItems) ? {anyItems: withExtraItems(loaded.anyItems, binderLike, itemFor)} : {}),
+	};
 }
 
 // Throws, for a binder form, when the list was read only in part
@@ -2078,13 +2099,14 @@ function binderScreen(root, source, id, pageParam) {
 
 		try {
 			const doc = await loadDocument();
-			const loaded = await loadRuleItems(binder.rule, doc, {force, index, isAlive: () => alive});
+			let loaded = await loadRuleItems(binder.rule, doc, {force, index, isAlive: () => alive});
 
 			if (!alive || !binder || binder.id !== binderId) {
 				return;
 			}
 
 			index = loaded.index || index;
+			loaded = withExtras(loaded, liveBinders(doc.binders).find((item) => item.id === binderId) || binder, doc, index);
 
 			if (loaded.gone) {
 				gen.gone = true;
@@ -2448,6 +2470,27 @@ function binderScreen(root, source, id, pageParam) {
 		// Every copy that fits the pocket now, for Keep the placeholder.
 		const fits = gen.items && gen.items.get(key) ? gen.items.get(key).copies.map((entry) => entry.id) : state.shown ? [state.shown.entry.id] : [];
 
+		// A card added by hand leaves extra_cards: its pocket goes, and the
+		// pockets after it move back one. Undo adds it again, its copy picked.
+		if (extraKeysOf(binder).includes(key)) {
+			const binderId = binder.id;
+			const shownId = state.shown ? state.shown.entry.id : null;
+
+			return removePanel({
+				note: `${item.name} was added by hand. Taking it out moves the pockets after it back one.`,
+				onEmpty: () => act(() => saveListEdit(key, {at: nowIso(), key, kind: 'gap'}, `${item.name} is left out of this binder; its pocket stays empty.`), 'Could not save the binder.'),
+				onPlaceholder: fits.length ? () => act(() => skipCopies(key, item.name, fits), 'Could not save the pocket.') : null,
+				onShift: () => act(async () => {
+					await removeExtraCards(binderId, [key]);
+					toast(`${item.name} is out of this binder.`, {
+						action: () => saveListAdds(binderId, {adds: [{entryId: shownId, key}]}).catch((err) => showError('Could not undo.', err)),
+						actionLabel: 'Undo',
+						timeout: UNDO_MS,
+					});
+				}, 'Could not save the binder.'),
+			});
+		}
+
 		return removePanel({
 			onPlaceholder: fits.length ? () => act(() => skipCopies(key, item.name, fits), 'Could not save the pocket.') : null,
 			note: `${item.name} is left out of this binder: refreshing keeps it out, and cards that join the list later still take their places.`,
@@ -2567,7 +2610,7 @@ function binderScreen(root, source, id, pageParam) {
 				let languages;
 
 				if (!snapshot || ruleKey(rule) !== ruleKey(editing.rule) || fields.rows !== editing.rows || fields.cols !== editing.cols) {
-					const loaded = await section.ready();
+					const loaded = withExtras(await section.ready(), editing, doc, index);
 
 					if (loaded.gone) {
 						throw new Error('That list was deleted. Choose another.');

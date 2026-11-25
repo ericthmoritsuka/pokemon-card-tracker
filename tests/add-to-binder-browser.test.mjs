@@ -281,4 +281,76 @@ describe('Add to binder from a card\'s page', () => {
 		await page.screenshot({path: '/tmp/add-to-binder-all-placed.png'});
 		await done();
 	});
+
+	test('a binder made from a list: a copy in the card\'s own pocket, or the card added after the list, said before the tap (Eric, 2026-11-24)', async () => {
+		const {done, page} = await open();
+		const {copies} = await seed(page);
+		const lists = await page.evaluate(async (cardId) => {
+			const collection = await import('/pokemon-card-tracker/js/collection.js');
+			const collections = await import('/pokemon-card-tracker/js/collections.js');
+			const binders = await import('/pokemon-card-tracker/js/binders.js');
+			const doc = await collection.loadDocument();
+			const other = doc.cards.find((entry) => entry.card_id === 'tst9-002');
+			const mine = doc.cards.find((entry) => entry.card_id === cardId);
+			const withIt = collections.withMembers(collections.newCollection({name: 'Has it'}), [mine.id, other.id]);
+			const without = collections.withMembers(collections.newCollection({name: 'Has not'}), [other.id]);
+
+			await collection.mergeIntoLocal({collections: [withIt, without]});
+
+			const key = (id) => `international|${id}`;
+			const a = await binders.createGeneratedBinder({cols: 2, cover_color: '#1d2e60', name: 'Lista A', rows: 2}, {order: 'set', source: {id: withIt.id, kind: 'collection'}}, {at: new Date().toISOString(), keys: [key(cardId), key('tst9-002')], rule_key: `collection:${withIt.id}|set`, shown: {[key('tst9-002')]: other.id}});
+			const b = await binders.createGeneratedBinder({cols: 2, cover_color: '#7a1f1f', name: 'Lista B', rows: 2}, {order: 'set', source: {id: without.id, kind: 'collection'}}, {at: new Date().toISOString(), keys: [key('tst9-002')], rule_key: `collection:${without.id}|set`, shown: {}});
+
+			return {a: a.id, b: b.id, key: key(cardId)};
+		}, en.id);
+
+		await cardPage(page);
+		await page.click('#copies-binder');
+		await page.waitForSelector('#add-binder-sheet[open]');
+		assert.deepEqual(await page.locator('#add-binder-list .atb-name').allTextContents(), ['Vitrine', 'Estante', 'Lista A', 'Lista B']);
+		assert.deepEqual(await page.locator('#add-binder-list .atb-fill').allTextContents(), ['1 of 18 pockets', '0 of 12 pockets', 'Shows your copy in its pocket, page 1.', 'Adds it after the list, page 1.']);
+		await page.screenshot({path: '/tmp/add-to-binder-lists.png'});
+
+		// Lista A has the card's pocket: the copy becomes its hand pick, and
+		// the binder opens on that page.
+		await page.click('#add-binder-list .atb-binder:has-text("Lista A")');
+		// Page 1 reads as the binder's own address.
+		await page.waitForFunction((id) => /\/binders\/[^/]+(\/1)?$/.test(location.pathname) && location.pathname.includes(id), lists.a);
+		await page.locator('#toasts .toast', {hasText: '1 copy shows in Lista A\'s pockets.'}).waitFor();
+
+		let doc = await page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).loadDocument());
+		const pickA = doc.binder_picks.find((pick) => pick.binder_id === lists.a);
+
+		assert.equal(pickA.key, lists.key);
+		assert.ok(copies.includes(pickA.entry_id));
+
+		// Lista B does not have it: it joins after the list, that copy shown.
+		await page.goBack();
+		await page.waitForSelector('#copies-binder');
+		await page.click('#copies-binder');
+		await page.waitForSelector('#add-binder-sheet[open]');
+		await page.click('#add-binder-list .atb-binder:has-text("Lista B")');
+		await page.waitForFunction((id) => /\/binders\/[^/]+(\/1)?$/.test(location.pathname) && location.pathname.includes(id), lists.b);
+		await page.locator('#toasts .toast', {hasText: '1 card added after the list.'}).waitFor();
+		await page.waitForFunction(() => document.querySelector('#binder-spread button.pocket[data-page="1"][data-position="2"]')?.dataset.kind === 'card', null, {timeout: 15000});
+
+		doc = await page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).loadDocument());
+
+		const b = doc.binders.find((binder) => binder.id === lists.b);
+
+		assert.deepEqual(b.extra_cards.map((entry) => [entry.key, entry.kind]), [[lists.key, 'add']]);
+		assert.deepEqual(b.snapshot.keys, ['international|tst9-002', lists.key]);
+		assert.ok(copies.includes(doc.binder_picks.find((pick) => pick.binder_id === lists.b).entry_id));
+		await page.screenshot({path: '/tmp/add-to-binder-added.png'});
+
+		// Undo takes it out again.
+		await undoOn(page, '1 card added after the list.').click();
+		await page.waitForFunction(async (id) => {
+			const stored = await import('/pokemon-card-tracker/js/collection.js').then((m) => m.loadDocument());
+			const binder = stored.binders.find((one) => one.id === id);
+
+			return binder.snapshot.keys.length === 1 && binder.extra_cards.every((entry) => entry.kind === 'none');
+		}, lists.b, {timeout: 15000});
+		await done();
+	});
 });

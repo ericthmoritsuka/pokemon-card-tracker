@@ -187,7 +187,7 @@ export const MERGE_VERSION = 2;
 // collections that carry stamps of their own inside.
 const BOOKKEEPING = new Set(['id', 'created_at', 'updated_at', 'deleted_at', 'restored_at', 'merged_into', 'field_stamps']);
 const KEYED = new Set(['photos', 'slots', 'hand_ticks', 'hand_unticks', 'entry_ids', 'removed_ids']);
-const OWN_RULE = new Set(['cover_image', 'layout', 'list_edits']);
+const OWN_RULE = new Set(['cover_image', 'extra_cards', 'layout', 'list_edits']);
 
 // -1, 0, or 1, with a missing time counting as the earliest.
 function compareTimes(x, y) {
@@ -522,15 +522,16 @@ function applyMembers(out, a, b) {
 // the one whose text sorts last, so two phones leaving out or moving
 // different Pokémon both keep theirs, and an exception taken away (kind
 // none) wins over the one it replaced. An older app keeps the field as it
-// had it, since it edits a clone of the entry.
-function applyListEdits(out, a, b) {
-	if (!Array.isArray(a.list_edits) && !Array.isArray(b.list_edits)) {
+// had it, since it edits a clone of the entry. The cards added by hand
+// (extra_cards, {key, kind, at}) merge the same way (field).
+function applyListEdits(out, a, b, field = 'list_edits') {
+	if (!Array.isArray(a[field]) && !Array.isArray(b[field])) {
 		return;
 	}
 
 	const latest = new Map();
 
-	for (const edit of [...(Array.isArray(a.list_edits) ? a.list_edits : []), ...(Array.isArray(b.list_edits) ? b.list_edits : [])]) {
+	for (const edit of [...(Array.isArray(a[field]) ? a[field] : []), ...(Array.isArray(b[field]) ? b[field] : [])]) {
 		if (!isObject(edit) || typeof edit.key !== 'string') {
 			continue;
 		}
@@ -543,7 +544,7 @@ function applyListEdits(out, a, b) {
 		}
 	}
 
-	out.list_edits = [...latest.values()].sort((x, y) => compareTimes(x.at, y.at) || (x.key < y.key ? -1 : x.key > y.key ? 1 : 0));
+	out[field] = [...latest.values()].sort((x, y) => compareTimes(x.at, y.at) || (x.key < y.key ? -1 : x.key > y.key ? 1 : 0));
 }
 
 // Two cover images: different pictures go to the one made later (its at),
@@ -688,6 +689,7 @@ function mergeValid(a, b) {
 
 	applyMembers(out, a, b);
 	applyListEdits(out, a, b);
+	applyListEdits(out, a, b, 'extra_cards');
 
 	if ('cover_image' in a || 'cover_image' in b) {
 		const picked = coverPick(a.cover_image, b.cover_image);
@@ -923,6 +925,7 @@ function mergeFallback(a, b) {
 
 	applyMembers(out, winner, loser);
 	applyListEdits(out, winner, loser);
+	applyListEdits(out, winner, loser, 'extra_cards');
 
 	const cover = coverPick(winner.cover_image, loser.cover_image);
 
