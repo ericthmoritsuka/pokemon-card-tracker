@@ -23,6 +23,7 @@ import {after, before, describe, test} from 'node:test';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
 import {startPagesServer} from './pages-server.mjs';
+import {untilInPage} from './poll.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -271,7 +272,7 @@ describe('hand-made cards', () => {
 		await page.waitForFunction(() => document.getElementById('hand-pokemon').value === 'Relicanth');
 		await page.fill('#hand-pokemon', '');
 		await page.click('#hand-save');
-		await page.waitForFunction(async () => {
+		await untilInPage(page, 'the Pokémon cleared on every copy', async () => {
 			const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
 
 			return (await loadDocument()).cards.every((entry) => entry.deleted_at || entry.dex_number === null);

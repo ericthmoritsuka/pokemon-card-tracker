@@ -41,6 +41,7 @@ import {
 import {placeholderList, placements, resizedBinder, setPocket, unplaced} from '../js/binders.js';
 import {mergeDocuments, mergeEntries, stampEntry} from '../js/merge.js';
 import {fakeRates} from './fake-rates.mjs';
+import {untilInPage} from './poll.mjs';
 
 const at = (minute) => `2026-10-05T10:${String(minute).padStart(2, '0')}:00.000Z`;
 
@@ -1208,11 +1209,11 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 			status: 200,
 		}));
 		await seedLocal(page, documentWith({cards: [latias, relicanth], collections: [], goals: [hoenn]}));
-		await page.waitForFunction(async () => {
+		await untilInPage(page, 'the Hoenn list opened to every language', async () => {
 			const doc = await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument();
 
 			return !('languages' in doc.goals.find((goal) => goal.id === 'list-hoenn'));
-		}, null, {timeout: 15000});
+		});
 
 		await page.click('.tabs a[data-tab="binders"]');
 		await page.click('#new-binder');
