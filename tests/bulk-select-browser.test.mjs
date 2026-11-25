@@ -447,7 +447,7 @@ describe('bulk select on My Cards', () => {
 		await tile(page, TEST_BALL_PT).click();
 		await action(page, 'bulk-binder');
 		await page.locator('#bulk-binder-list').waitFor();
-		assert.equal(await page.locator('#bulk-binder-intro').textContent(), 'Choose a binder for 2 copies. They wait in its tray until you place them. Binders made from a list are not shown.');
+		assert.equal(await page.locator('#bulk-binder-intro').textContent(), 'In a binder you arrange by hand, 2 copies wait in its tray until you place them.');
 		assert.equal(await page.locator('#bulk-binder-kept').textContent(), '2 copies already in a pocket or a tray stay where they are.');
 		await page.click('#bulk-binder-list [data-binder="b-1"]');
 
@@ -473,6 +473,49 @@ describe('bulk select on My Cards', () => {
 		});
 		after = await binders(page);
 		assert.deepEqual(after, before, 'every binder is back as it was');
+		await done();
+	});
+
+	test('Add to binder on a binder made from a list: one copy per card in its pocket or after the list, said before the tap, and Undo (Eric, 2026-11-24)', async () => {
+		const {done, page} = await phone();
+		// Lista has one pocket, Charmander's card.
+		const lista = {...BINDERS[0], cols: 2, created_at: '2026-11-01T10:00:00.000Z', id: 'b-list', name: 'Lista', page_count: 1, rows: 2, rule: {order: 'set', source: {id: 'col-x', kind: 'collection'}}, slots: [], snapshot: {at: '2026-11-01T10:00:00.000Z', keys: ['international|tsa1-004'], rule_key: 'collection:col-x|set', shown: {}}};
+
+		await open(page, {binders: [BINDERS[0], lista]});
+		await selecting(page);
+		await tile(page, BULBASAUR).click();
+		await tile(page, CHARMANDER).click();
+		await tile(page, CHARMANDER_PT).click();
+		await tile(page, CHARIZARD).click();
+		await action(page, 'bulk-binder');
+		await page.locator('#bulk-binder-list').waitFor();
+		assert.equal(await page.locator('#bulk-binder-intro').textContent(), 'In a binder you arrange by hand, 3 copies wait in its tray until you place them. In a binder made from a list, one copy of each card shows in its pocket, or the card joins after the list.');
+		assert.equal(await page.locator('#bulk-binder-list [data-binder="b-list"] .atb-fill').textContent(), '1 copy shows in its pocket, 2 cards added after the list.');
+		await page.click('#bulk-binder-list [data-binder="b-list"]');
+
+		const toast = page.locator('.toast', {hasText: 'Lista'});
+
+		await toast.waitFor(TIMEOUT);
+		assert.equal(await toast.locator('.toast-text').textContent(), '1 copy shows in Lista\'s pockets; 2 cards added after the list; 1 copy stays where it is: one copy per card, and one card per pocket.');
+
+		let saved = await page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).loadDocument());
+		const list = saved.binders.find((item) => item.id === 'b-list');
+
+		assert.deepEqual(list.snapshot.keys, ['international|tsa1-004', 'international|tsa1-001', 'international|tsa1-006']);
+		assert.deepEqual(list.extra_cards.map((entry) => entry.key).sort(), ['international|tsa1-001', 'international|tsa1-006']);
+		assert.equal(list.page_count, 1, 'three pockets fit the 2 × 2 page');
+		assert.deepEqual(saved.binder_picks.filter((pick) => pick.binder_id === 'b-list').map((pick) => [pick.key, pick.entry_id]).sort(), [['international|tsa1-001', 'c-01'], ['international|tsa1-004', 'c-03'], ['international|tsa1-006', 'c-04']]);
+
+		await toast.locator('button', {hasText: 'Undo'}).click();
+		await untilInPage(page, 'Undo to take the cards out of Lista', async () => {
+			const doc = await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument();
+			const binder = doc.binders.find((item) => item.id === 'b-list');
+			const picks = doc.binder_picks.filter((pick) => pick.binder_id === 'b-list' && pick.entry_id);
+
+			return binder.snapshot.keys.length === 1 && picks.length === 0;
+		});
+		saved = await page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).loadDocument());
+		assert.deepEqual(saved.binders.find((item) => item.id === 'b-list').snapshot.keys, ['international|tsa1-004']);
 		await done();
 	});
 

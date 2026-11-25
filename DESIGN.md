@@ -3538,6 +3538,23 @@ chosen, for a "Make a binder" button on those screens.
   list" in the form (`extra_pages`, 0 by default; the list's pages plus these stay within 200).
   They draw as empty pockets; a refresh keeps them, and an older app, which counts only the
   list's pages, keeps the field because it edits a clone of the binder.
+- **Add to binder reaches every binder** (Eric, 2026-11-24: "add a card to any binder I have").
+  The card page's Add to binder and My Cards' bulk Add to binder list binders made from a list
+  too, and each such row says before the tap what will happen (`js/binder-add.js`):
+  - *The binder has a pocket for the card* (its card's pocket, or on a checklist a pocket of one of
+    its Pokémon, for a copy in a language the list counts): that copy becomes the pocket's hand
+    pick, "Shows your copy in its pocket, page 3."
+  - *Otherwise* the card joins after the list, always that print, "Adds it after the list, page
+    12.", with that copy picked. Cards added by hand fill the extra pages first and add pages only
+    once those are full; they keep their pocket through refreshes, take Move to, and leave with
+    Remove from this binder (the pockets after move back one).
+  One copy per card goes, a copy not in use in another pocket first, and one card per pocket (a
+  second Cyndaquil print offered to a checklist's Cyndaquil pocket stays where it is); the toast
+  says so and offers Undo. A hand-made binder still takes a copy into the hand to place, and is
+  offered only while a copy is free. Cards added by hand are `extra_cards` on the binder, `{key,
+  kind: add | none, at}`, merged key by key like `list_edits`, so two phones adding different cards
+  both keep theirs; an older app keeps the field when it saves and lays its pages out without them
+  until a new app refreshes the binder.
 - **Not owned yet:** the faded placeholder look of hand-made binders, with Want. A card offers
   Add to wishlist; a Pokémon links to its cards on the checklist, to choose the card to wish for.
 - **Refresh.** Opening the binder reads its list again and saves only what changed: pockets for

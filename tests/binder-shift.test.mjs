@@ -434,6 +434,28 @@ describe('a binder from a list: exceptions', () => {
 		}
 	});
 
+	test('cards added by hand survive an older phone\'s save: it keeps the field it does not know, merged either way (Eric, 2026-11-24)', () => {
+		const base = generated();
+		const extras = [{at: at(5), key: 'international|sv03-025', kind: 'add'}];
+		const mine = stampEntry(base, {...structuredClone(base), extra_cards: extras, snapshot: {...base.snapshot, keys: [...base.snapshot.keys, 'international|sv03-025']}, updated_at: at(5)});
+
+		// The older phone edits a clone (a new name and its own layout, which
+		// leaves the added card out), stamped by its own merge or this one.
+		for (const [label, stamp] of [['v47', v47.stampEntry], ['now', stampEntry]]) {
+			const theirs = stamp(mine, {...structuredClone(mine), name: 'Unova 2', snapshot: {...base.snapshot, at: at(8)}, updated_at: at(8)});
+
+			for (const merge of [mergeDocuments, v47.mergeDocuments]) {
+				for (const [left, right] of [[[mine], [theirs]], [[theirs], [mine]]]) {
+					const [binder] = merge({binders: left}, {binders: right}).binders;
+
+					assert.deepEqual(binder.extra_cards, extras, `${label} save, merged either way`);
+					assert.equal(binder.name, 'Unova 2');
+					assert.deepEqual(rules.extraKeysOf(binder), ['international|sv03-025'], 'the next refresh on a new phone lays it out again');
+				}
+			}
+		}
+	});
+
 	test('Victini to the end on refresh, with a new Pokémon joining at its list place', () => {
 		const binder = generated({list_edits: [{at: at(5), key: 'dex:494', kind: 'end'}]});
 		const plan = rules.planRefresh(binder, UNOVA_LIST, {at: at(10), rankOf: () => ({})});
