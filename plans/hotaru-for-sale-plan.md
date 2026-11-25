@@ -64,29 +64,36 @@ only if the order is cancelled.
 
 ## 3. Where Eric Sees and Changes It
 
-- **Card page, Your copies:** a For sale switch on each copy's edit sheet (`js/copy-sheet.js`
-  openEditSheet), with a line under it when it matters: "Your only copy", "In <binder>, page 3,
-  pocket 5", or "A favorite card". When its finish has no price yet, a Price field sits beside it.
-- **My Cards tiles and binder pockets:** a small "For sale" tag when any copy of the tile or the
-  pocket's copy is listed, in the header's gold, so a card about to be sold is never a surprise.
-  It sits on the tile's bottom edge, under the art, because v111's holo-tag puts the finish corner
-  (REV, HOLO) and the English flag on the art's corners; checked at 360 px with REV, a flag, and For
-  sale on one tile.
-- **Shop:** each row says "2 of 3 copies for sale"; the filter gains **For sale, not a spare**.
+- **Card page, Your copies:** a For sale on HOTARU box on each copy's edit sheet (`js/copy-sheet.js`
+  openEditSheet), for the shop owner only, ticked when the copy is offered now. A line under it says
+  what it means: "On HOTARU at R$ 4,00", or "Not on HOTARU until this finish has a price in the
+  Shop", and "It leaves <binder>, page 3, pocket 5 when it sells" or "A favorite: For sale lists it
+  anyway". Taking it off withdraws the copy from HOTARU at once (`withdrawListings`, as the star
+  does); putting it on lists it the next time the Shop opens. Built: the price stays in the Shop
+  rather than on this sheet, so one finish has one price.
+- **My Cards tiles:** a small outlined For sale chip under the price when a copy of the tile is on
+  HOTARU (priced and listed), so a card about to be sold is never a surprise. It sits under the art,
+  clear of holo-tag's corners (stand-in flag top-left, language flag and finish bottom-left, count
+  top-right, status bottom-right); checked at 360 px, light and dark. Built: not on binder pockets
+  yet, whose art has no text line under it.
+- **Shop:** each row says "2 spares", "1 spare, 1 more for sale", "1 copy for sale", or "1 spare,
+  1 kept"; a priced row with every copy kept says so and is not offered. The counts are copies:
+  "N of M cards priced, K copies for sale in all" and "On HOTARU: N cards, K copies."
 
 ## 4. Sell a Card I Own
 
-A Shop button opens a search over Eric's own copies (the copies picker the binders use, all
-copies, not only loose ones). Picking a copy marks it `true`, closes the picker, and scrolls the
-Shop to that card with its price field focused when it has none.
+A Shop button opens a sheet that searches every card, language, and finish of his with a copy not
+offered yet. Picking one marks one copy `true`: a loose copy before one in a binder, not a
+favorite's, the copy added last first. The sheet closes, the Shop shows the row with its price field
+focused, and the toast offers Undo.
 
 ## 5. Add and Sell
 
-A Shop button opens the catalog search; picking a card opens its page with the Add sheet already
-open in a **For sale** mode: language, finish, condition, how many, an optional price paid
-(`purchase_price`), and the sale price. Saving adds the copies marked `true` and prices that
-finish's group, the card's copies in that language and finish (`pricePatches`), so the card is on HOTARU in one step and in My Cards like
-any other.
+A Shop button sends him to Sets, where card search lives, with a notice that stays until closed. The
+next Add a copy sheet opens with For sale on HOTARU ticked and a Sale price field: saving adds the
+copies marked `true`, with that price. The flag is kept on the tab only (`js/shop-owner.js`) and is
+dropped after that add or when the Shop opens again. The same box is on every Add a copy sheet for
+the owner, unticked.
 
 ## 6. Selling
 
