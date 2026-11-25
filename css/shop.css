@@ -478,3 +478,49 @@
 	margin: 0;
 	padding-left: 1.2em;
 }
+
+/* The ticked cards' bar (js/shop-view.js drawSelBar): sticks to the bottom
+   while anything is ticked, above the Save bar when that shows too. As
+   .actions, it keeps its place at the end of the list, so nothing hides
+   behind it when the list is scrolled to its end. */
+.shop-selbar {
+	bottom: calc(var(--tab-height) + env(safe-area-inset-bottom) + var(--shop-savebar-h, 0px));
+	display: grid;
+	gap: var(--space-1);
+	grid-template-columns: minmax(0, 1fr);
+}
+
+/* Above the Save bar, which keeps the room for the Scan button itself. */
+.shop-selbar:has(+ .shop-savebar:not([hidden])) {
+	padding-bottom: var(--space-2);
+}
+
+.shop-selbar[hidden] {
+	display: none;
+}
+
+.shop-selbar-head {
+	align-items: center;
+	display: flex;
+	justify-content: space-between;
+}
+
+.shop-selbar-head .link-button {
+	margin-top: 0;
+	min-height: 44px;
+	width: auto;
+}
+
+.shop-selbar-count {
+	font-weight: 600;
+}
+
+.shop-selbar-form {
+	margin-bottom: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.shop-selbar:not([hidden]) {
+		animation: sheet-in 200ms ease-out;
+	}
+}

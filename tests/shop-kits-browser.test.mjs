@@ -168,6 +168,13 @@ const text = async (locator) => plain(await locator.textContent());
 
 const tick = (page, cardId) => page.check(`#shop-international-${cardId}-en-pick`);
 
+// The ticked cards' bar slides in; it is measured once it has settled.
+const settled = (page) => page.waitForFunction(() => {
+	const bar = document.getElementById('shop-selbar');
+
+	return bar && !bar.hidden && bar.getAnimations().length === 0;
+}, null, TIMEOUT);
+
 describe('Shop kits', () => {
 	test('ticked cards become a kit at a percent off, and the section shows it on HOTARU', async () => {
 		const {context, errors, page, store} = await ownerPhone();
@@ -224,6 +231,58 @@ describe('Shop kits', () => {
 		assert.equal(await text(kit.locator('.shop-kit-state')), 'On HOTARU.');
 		assert.equal(await page.locator('.shop-picked').count(), 0, 'the ticks clear once saved');
 		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-kits-section.png`});
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a bar at the bottom carries the ticked cards\' actions while anything is ticked', async () => {
+		const {context, errors, page} = await ownerPhone();
+
+		await openShop(page);
+		assert.equal(await page.locator('#shop-selbar').isHidden(), true, 'nothing ticked, no bar');
+
+		await tick(page, 'tsb2-025');
+		await page.locator('#shop-selbar').waitFor(TIMEOUT);
+		assert.equal(await text(page.locator('#shop-selbar-count')), '1 selected');
+		assert.equal(await page.getAttribute('#shop-selbar-count', 'aria-live'), 'polite');
+		assert.equal(await page.isDisabled('#shop-selbar-kit'), true, 'a kit needs two');
+		assert.equal(await page.getAttribute('#shop-selbar-kit', 'aria-label'), 'Kit: tick 2 or more cards');
+
+		// Reachable where the thumb is: inside the viewport, 44 px tall.
+		await settled(page);
+
+		const bar = await page.locator('#shop-selbar').boundingBox();
+		const fill = await page.locator('#shop-selbar-fill').boundingBox();
+
+		assert.ok(bar.y + bar.height <= 844, 'the bar is on screen');
+		assert.ok(fill.height >= 44);
+
+		await tick(page, 'tsa1-006');
+		assert.equal(await text(page.locator('#shop-selbar-count')), '2 selected');
+		assert.equal(await page.isDisabled('#shop-selbar-kit'), false);
+		await page.click('#shop-selbar-kit');
+		await page.locator('#shop-kit-sheet').waitFor(TIMEOUT);
+		assert.equal(await page.locator('#shop-kit-cards li').count(), 2);
+		await page.click('#shop-kit-close');
+		await page.locator('#shop-kit-sheet').waitFor({state: 'detached', ...TIMEOUT});
+
+		// Fill from the bar types the price as a draft and clears the ticks;
+		// the bar leaves and the Save bar shows.
+		await page.fill('#shop-selbar-price', '7');
+		await page.click('#shop-selbar-fill');
+		await page.locator('#shop-selbar').waitFor({state: 'hidden', ...TIMEOUT});
+		await page.locator('#shop-savebar').waitFor(TIMEOUT);
+		assert.equal(await page.inputValue('#shop-international-tsb2-025-en .shop-price-input'), '7,00');
+
+		// Ticked again with the Save bar showing: the bar rides above it.
+		await tick(page, 'tsa1-004');
+		await settled(page);
+
+		const [above, save] = await Promise.all([page.locator('#shop-selbar').boundingBox(), page.locator('#shop-savebar').boundingBox()]);
+
+		assert.ok(above.y + above.height <= save.y + 1, 'the ticked cards\' bar sits above the Save bar');
+		await page.click('#shop-selbar-clear');
+		await page.locator('#shop-selbar').waitFor({state: 'hidden', ...TIMEOUT});
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

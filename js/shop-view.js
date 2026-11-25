@@ -242,6 +242,25 @@ export function shopView(root) {
 	const discardButton = h('button', {id: 'shop-discard', onclick: () => discard(), type: 'button'}, 'Discard');
 	const saveButton = h('button', {class: 'primary', id: 'shop-save-all', onclick: () => saveAll(), type: 'button'}, 'Save');
 	const saveBar = h('div', {class: 'actions shop-savebar', hidden: true, id: 'shop-savebar'}, saveStatus, discardButton, saveButton);
+	// The ticked cards' actions where the thumb is (Eric, 2026-11-25: after
+	// ticking far down the list, Fill and Kit were all the way up): a bar
+	// that sticks to the bottom while anything is ticked, above the Save bar
+	// when that shows too. The row at the top stays as it is.
+	const selCount = h('p', {'aria-live': 'polite', class: 'status shop-selbar-count', id: 'shop-selbar-count'});
+	const selInput = h('input', {'aria-label': 'One price for the ticked cards', autocomplete: 'off', class: 'search shop-price-input', id: 'shop-selbar-price', inputmode: 'decimal', placeholder: '1,00', type: 'text'});
+	const selFill = h('button', {class: 'small', id: 'shop-selbar-fill', type: 'submit'}, 'Fill');
+	const selKit = h('button', {class: 'small', id: 'shop-selbar-kit', onclick: () => makeKit(), type: 'button'}, 'Kit');
+	const selError = h('p', {class: 'form-error', hidden: true, id: 'shop-selbar-error', role: 'alert'});
+	const selBar = h('div', {'aria-label': 'Ticked cards', class: 'actions shop-selbar', hidden: true, id: 'shop-selbar', role: 'region'},
+		h('div', {class: 'shop-selbar-head'}, selCount, h('button', {class: 'link-button', id: 'shop-selbar-clear', onclick: () => {
+			selected.clear();
+			drawList();
+		}, type: 'button'}, 'Clear')),
+		h('form', {class: 'shop-bulk shop-selbar-form', id: 'shop-selbar-form', onsubmit: (event) => {
+			event.preventDefault();
+			fillShown(selInput, selError);
+		}}, h('label', {class: 'shop-bulk-label', for: 'shop-selbar-price'}, 'R$'), selInput, selFill, selKit),
+		selError);
 	// Closing the tab with prices typed and not saved asks first.
 	const warnUnsaved = (event) => {
 		if (drafts.size) {
@@ -279,6 +298,7 @@ export function shopView(root) {
 		bulkError,
 		list,
 		empty,
+		selBar,
 		saveBar
 	);
 
@@ -710,6 +730,28 @@ export function shopView(root) {
 		// A kit is two or more ticked cards, for the owner.
 		kitButton.hidden = selected.size < 2 || sellMore.hidden;
 		kitButton.textContent = `Kit ${formatCount(selected.size)} selected`;
+		drawSelBar();
+	}
+
+	function drawSelBar() {
+		const n = selected.size;
+		const count = `${formatCount(n)} selected`;
+
+		selBar.hidden = !n;
+
+		if (selCount.textContent !== count) {
+			selCount.textContent = count;
+		}
+
+		selFill.setAttribute('aria-label', `Fill ${count}`);
+		selKit.hidden = sellMore.hidden;
+		selKit.disabled = n < 2;
+		selKit.setAttribute('aria-label', n < 2 ? 'Kit: tick 2 or more cards' : `Kit ${count}`);
+		selKit.title = n < 2 ? 'Tick 2 or more cards for a kit' : '';
+
+		if (!n) {
+			selError.hidden = true;
+		}
 	}
 
 	// The ticked cards as a new kit; the ticks clear once it is saved.
@@ -753,6 +795,8 @@ export function shopView(root) {
 		const n = drafts.size;
 
 		saveBar.hidden = !n;
+		// The ticked cards' bar rides above the Save bar.
+		root.style.setProperty('--shop-savebar-h', n ? `${saveBar.offsetHeight}px` : '0px');
 		saveButton.textContent = n === 1 ? 'Save 1 price' : `Save ${formatCount(n)} prices`;
 		saveButton.disabled = saving;
 		discardButton.disabled = saving;
@@ -858,19 +902,20 @@ export function shopView(root) {
 
 	// Types one price into the ticked cards, or every card shown when none
 	// is ticked, as drafts; the ticks are then cleared.
-	function fillShown() {
-		const typed = parsePrice(bulkInput.value);
+	function fillShown(input = bulkInput, error = bulkError) {
+		const typed = parsePrice(input.value);
 		const visible = selected.size ? groups.filter((group) => selected.has(group.key)) : shown();
 
 		if (typed.error || typed.value === null) {
-			bulkError.textContent = typed.error || PRICE_FORM_TEXT;
-			bulkError.hidden = false;
-			bulkInput.focus();
+			error.textContent = typed.error || PRICE_FORM_TEXT;
+			error.hidden = false;
+			input.focus();
 
 			return;
 		}
 
-		bulkError.hidden = true;
+		error.hidden = true;
+		input.value = '';
 
 		for (const group of visible) {
 			if (group.price === typed.value) {
