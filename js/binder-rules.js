@@ -184,8 +184,68 @@ export function extraPagesOf(binder) {
 }
 
 // A binder from a list's pages: the list's pockets, then its extra pages,
-// never more than MAX_PAGES.
-export const listPageCount = (count, rows, cols, extra = 0) => Math.min(MAX_PAGES, pagesFor(count, rows, cols) + extra);
+// never more than MAX_PAGES. count: every pocket; added: how many of them
+// are cards added by hand (extraKeysOf), which fill the extra pages first
+// and add pages only once those are full.
+export const listPageCount = (count, rows, cols, extra = 0, added = 0) => Math.min(MAX_PAGES, Math.max(pagesFor(count, rows, cols), pagesFor(count - added, rows, cols) + extra));
+
+// ------------------------------------------------- cards added by hand
+//
+// A binder from a list can take cards the list does not have (Eric,
+// 2026-11-24: "add a card to any binder"): extra_cards on the binder, one
+// entry per card, {key, kind, at}, the latest per key kept:
+//   add   the card (catalog|card_id, always one print) gets a pocket after
+//         the list's pockets, in the order the cards were added
+//   none  taken out again
+// js/merge.js merges the field key by key, as list_edits, so two phones
+// adding different cards both keep theirs. An older app keeps the field
+// (it edits a clone of the binder) but lays its pages out without them.
+
+export const EXTRA_KINDS = ['add', 'none'];
+
+function cleanExtra(entry) {
+	return isObject(entry) && typeof entry.key === 'string' && parseKey(entry.key) && parseKey(entry.key).kind === 'card' && EXTRA_KINDS.includes(entry.kind) && typeof entry.at === 'string'
+		? {at: entry.at, key: entry.key, kind: entry.kind}
+		: null;
+}
+
+// The latest entry per key, taken-out ones included, as the binder saves
+// them: the later at, then the text that sorts last.
+export function extraCardEntries(binder) {
+	const latest = new Map();
+
+	for (const entry of (binder && Array.isArray(binder.extra_cards) ? binder.extra_cards : []).map(cleanExtra).filter(Boolean)) {
+		const there = latest.get(entry.key);
+
+		if (!there || entry.at > there.at || (entry.at === there.at && JSON.stringify(entry) > JSON.stringify(there))) {
+			latest.set(entry.key, entry);
+		}
+	}
+
+	return [...latest.values()].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+}
+
+// The cards added by hand, in the order added: their keys.
+export const extraKeysOf = (binder) => extraCardEntries(binder).filter((entry) => entry.kind === 'add').map((entry) => entry.key);
+
+// The entries with one put in place of its key's.
+export const withExtraCard = (entries, entry) => [...entries.filter((one) => one.key !== entry.key), entry];
+
+// The items with the cards added by hand after the list's, each once: a
+// card the list has already keeps its list pocket. itemFor(key) builds the
+// item (js/binder-sources.js cardItem with the card's copies).
+export function withExtraItems(items, binder, itemFor) {
+	const have = new Set((items || []).map((item) => item.key));
+
+	return [...(items || []), ...extraKeysOf(binder).filter((key) => !have.has(key)).map(itemFor)];
+}
+
+// How many keys of a layout are cards added by hand.
+export const addedCount = (keys, binder) => {
+	const added = new Set(extraKeysOf(binder));
+
+	return (keys || []).filter((key) => added.has(key)).length;
+};
 
 // Pocket i (from 0) as {page, position}, both from 1.
 export function pocketAt(index, rows, cols) {
@@ -777,7 +837,7 @@ export function planRefresh(binder, items, {anyItems = null, at, claims = [], ed
 
 	const added = keys.filter((key) => key && !oldSet.has(key));
 	const removed = oldKeys.filter((key) => key && !newSet.has(key));
-	const pageCount = listPageCount(keys.length, binder.rows, binder.cols, extraPagesOf(binder));
+	const pageCount = listPageCount(keys.length, binder.rows, binder.cols, extraPagesOf(binder), addedCount(keys, binder));
 	const snapshot = {at, keys, rule_key: ruleKey(binder.rule), shown};
 	const same = before.rule_key === snapshot.rule_key
 		&& oldKeys.length === keys.length && oldKeys.every((key, i) => key === keys[i])

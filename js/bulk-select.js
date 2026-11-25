@@ -17,9 +17,11 @@
 // (a save, a sync, a filter) keeps them; Done or leaving the screen ends it.
 
 import {binderCopies, fieldPatches, finishLabels, finishPlan, languageChoices, languagePlan, undoPatches} from './bulk-edit.js';
-import {binderList} from './binder-hand.js';
-import {handBinders, placements, sortBinders, stagedOf} from './binders.js';
-import {cardDetail, catalogLanguage} from './catalog.js';
+import {addCopiesToListBinder, listLanguagesOf, planListAdds} from './binder-add.js';
+import {binderList, listAddText, listAddUndo} from './binder-hand.js';
+import {claimIndex, isGenerated} from './binder-rules.js';
+import {copyClaims, handBinders, liveBinders, placements, sortBinders, stagedOf} from './binders.js';
+import {cardDetail, cardIndex, catalogLanguage} from './catalog.js';
 import {finishChoices} from './catalog-views.js';
 import {isLive, loadDocument, updateCards} from './collection.js';
 import {
@@ -386,16 +388,50 @@ export function bulkSelect({fullRecord, grid, groups, recordsReady = () => Promi
 	// placeholders automatically" on), as the binder's Add cards to the tray
 	// does (js/placeholder-fill.js addToBinder). Copies already in a pocket
 	// or a tray stay where they are.
+	// A binder made from a list is offered too (Eric, 2026-11-24): each card
+	// shows a copy in its pocket there, or joins after the list, one copy per
+	// card, as on a card's page (js/binder-add.js); its row says how many of
+	// each before the tap.
 	async function binderStep() {
-		const doc = await loadDocument();
+		const [doc, index] = await Promise.all([loadDocument(), cardIndex().catch(() => new Map())]);
 		const placed = placements(doc.binders);
 		const trayed = new Set(handBinders(doc.binders).flatMap((binder) => stagedOf(binder)));
 		const {ids, kept} = binderCopies(chosenTiles(), new Set(placed.keys()), trayed);
-		const binders = sortBinders(handBinders(doc.binders));
-		const keptText = kept ? `${plural(kept, 'copy', 'copies')} already in a pocket or a tray ${kept === 1 ? 'stays where it is' : 'stay where they are'}.` : null;
+		const all = sortBinders(liveBinders(doc.binders));
+		// Hand-made binders only while a selected copy is free to go in.
+		const binders = all.filter((binder) => isGenerated(binder) || ids.length);
+		const keptText = kept && ids.length ? `${plural(kept, 'copy', 'copies')} already in a pocket or a tray ${kept === 1 ? 'stays where it is' : 'stay where they are'}.` : null;
+		const selectedCopies = copiesOf(chosenTiles());
+		const claims = claimIndex(copyClaims(doc));
+		const plans = new Map(all.filter(isGenerated).map((binder) => [binder.id, planListAdds(binder, selectedCopies, {claims, index, languages: listLanguagesOf(binder, doc)})]));
+		const noteOf = (binder) => {
+			const plan = plans.get(binder.id);
+
+			if (!plan) {
+				return null;
+			}
+
+			return [
+				plan.picks.length ? `${plural(plan.picks.length, 'copy shows', 'copies show')} in ${plan.picks.length === 1 ? 'its pocket' : 'their pockets'}` : null,
+				plan.adds.length ? `${plural(plan.adds.length, 'card', 'cards')} added after the list` : null,
+			].filter(Boolean).join(', ') + '.';
+		};
 
 		const choose = async (binder) => {
 			close();
+
+			if (plans.has(binder.id)) {
+				try {
+					const done = await addCopiesToListBinder(binder.id, selectedCopies);
+
+					toast(listAddText(binder, done), {action: listAddUndo(binder, done, toast), actionLabel: 'Undo', timeout: UNDO_MS});
+				}
+				catch (err) {
+					toast(`Could not add the copies to ${binder.name}. ${errorText(err)}`);
+				}
+
+				return;
+			}
 
 			let result;
 
@@ -420,20 +456,23 @@ export function bulkSelect({fullRecord, grid, groups, recordsReady = () => Promi
 
 		let body;
 
-		if (!ids.length) {
-			body = [h('p', {id: 'bulk-binder-none'}, 'Every selected copy is already in a binder pocket or a tray.')];
-		}
-		else if (!binders.length) {
+		if (!binders.length) {
 			body = [
-				h('p', {id: 'bulk-binder-none'}, 'You have no binders to arrange by hand yet.'),
-				h('a', {class: 'button', 'data-link': 'binders', href: `${BASE}binders`, onclick: close}, 'Make a binder'),
+				h('p', {id: 'bulk-binder-none'}, all.length ? 'Every selected copy is already in a binder pocket or a tray.' : 'You have no binders yet.'),
+				all.length ? null : h('a', {class: 'button', 'data-link': 'binders', href: `${BASE}binders`, onclick: close}, 'Make a binder'),
 			];
 		}
 		else {
+			const lists = binders.some(isGenerated);
+			const hands = binders.some((binder) => !isGenerated(binder));
+
 			body = [
-				h('p', {class: 'muted copy-sub', id: 'bulk-binder-intro'}, `Choose a binder for ${plural(ids.length, 'copy', 'copies')}. They wait in its tray until you place them. Binders made from a list are not shown.`),
+				h('p', {class: 'muted copy-sub', id: 'bulk-binder-intro'}, [
+					hands ? `In a binder you arrange by hand, ${plural(ids.length, 'copy waits', 'copies wait')} in its tray until you place ${ids.length === 1 ? 'it' : 'them'}.` : null,
+					lists ? 'In a binder made from a list, one copy of each card shows in its pocket, or the card joins after the list.' : null,
+				].filter(Boolean).join(' ')),
 				keptText ? h('p', {class: 'muted bulk-note', id: 'bulk-binder-kept'}, keptText) : null,
-				binderList({binders, choose, id: 'bulk-binder-list', liveIds: new Set((doc.cards || []).filter(isLive).map((entry) => entry.id)), placed}),
+				binderList({binders, choose, id: 'bulk-binder-list', liveIds: new Set((doc.cards || []).filter(isLive).map((entry) => entry.id)), noteOf, placed}),
 			];
 		}
 

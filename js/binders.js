@@ -68,7 +68,7 @@
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 import {nextStamp, restoreEntry, stampEntry} from './merge.js';
 import {byCreated, orderForNew, sortByOrder, withOrders} from './reorder.js';
-import {CLAIM_RANK, checkBinderRule, checkFits, defaultRank, isGenerated, listEditEntries, listPageCount, pagesFor, pickEntry, pickId, picksOf, ruleKey, skipsOf, withListEdit} from './binder-rules.js';
+import {CLAIM_RANK, addedCount, checkBinderRule, checkFits, defaultRank, extraCardEntries, extraPagesOf, isGenerated, listEditEntries, listPageCount, pagesFor, pickEntry, pickId, picksOf, ruleKey, skipsOf, withExtraCard, withListEdit} from './binder-rules.js';
 
 export {isGenerated};
 
@@ -1369,6 +1369,11 @@ export function updateGeneratedBinder(id, fields, rule, snapshot, {languages} = 
 			next.extra_pages = extra;
 		}
 
+		// Cards added by hand fill the extra pages first (listPageCount).
+		const keys = snapshot && Array.isArray(snapshot.keys) ? snapshot.keys : [];
+
+		next.page_count = listPageCount(keys.length, clean.rows, clean.cols, extra, addedCount(keys, next));
+
 		next.rule = checked;
 		next.snapshot = {...snapshot, at: next.updated_at};
 		next.slots = [];
@@ -1473,6 +1478,95 @@ export function setPocketSkip(binderId, key, ids, skip = true) {
 
 		return entry;
 	});
+}
+
+// Add to binder on a binder from a list (Eric, 2026-11-24), in one write:
+// picks, [{key, entryId}], show those copies in pockets the binder has; adds,
+// [{key, entryId}], put cards it does not have after the list (extra_cards,
+// js/binder-rules.js) with those copies picked. The new pockets join the
+// stored layout at once, so they show before the next refresh, and the
+// pages grow into the extra pages first. Resolves {binder, previous}, the
+// picks replaced, for undoListAdds.
+export function saveListAdds(binderId, {adds = [], picks = []} = {}) {
+	return serial(async () => {
+		const doc = await loadDocument();
+		const binder = findLive(doc.binders || [], binderId);
+
+		if (!isGenerated(binder)) {
+			throw new Error('Only a binder made from a list takes cards this way.');
+		}
+
+		const at = nowIso();
+		const next = copyOf(binder, at);
+		const snapshot = binder.snapshot && typeof binder.snapshot === 'object' ? binder.snapshot : {};
+		const keys = Array.isArray(snapshot.keys) ? [...snapshot.keys] : [];
+
+		if (adds.length) {
+			next.extra_cards = adds.reduce((entries, add) => withExtraCard(entries, {at, key: add.key, kind: 'add'}), extraCardEntries(binder));
+
+			for (const add of adds) {
+				if (!keys.includes(add.key)) {
+					keys.push(add.key);
+				}
+			}
+
+			if (pagesFor(keys.length, binder.rows, binder.cols) > MAX_PAGES) {
+				throw new Error(`${binder.name} is full: a binder has at most ${MAX_PAGES} pages.`);
+			}
+
+			next.snapshot = {...snapshot, keys};
+			next.page_count = listPageCount(keys.length, binder.rows, binder.cols, extraPagesOf(next), addedCount(keys, next));
+		}
+
+		const list = Array.isArray(doc.binder_picks) ? doc.binder_picks : [];
+		const previous = [];
+		const entries = [...picks, ...adds].map(({entryId, key}) => {
+			const id = pickId(binderId, key);
+			const before = list.find((pick) => pick && pick.id === id) || null;
+
+			previous.push({before, key});
+
+			return pickEntry({at: nextStamp(before && before.updated_at), binderId, entryId, key, previous: before});
+		});
+
+		await mergeIntoLocal({binder_picks: entries, ...(adds.length ? {binders: stamped([next])} : {})});
+		schedulePush();
+
+		return {binder: adds.length ? next : binder, previous};
+	});
+}
+
+// Takes cards added by hand out of a binder from a list (extra_cards kind
+// none), and their pockets with them: the pockets after move back one.
+export function removeExtraCards(binderId, keys) {
+	return serial(async () => {
+		const binder = findLive(await allBinders(), binderId);
+		const at = nowIso();
+		const next = copyOf(binder, at);
+		const gone = new Set(keys);
+		const snapshot = binder.snapshot && typeof binder.snapshot === 'object' ? binder.snapshot : {};
+		const left = (Array.isArray(snapshot.keys) ? snapshot.keys : []).filter((key) => !gone.has(key));
+
+		next.extra_cards = keys.reduce((entries, key) => withExtraCard(entries, {at, key, kind: 'none'}), extraCardEntries(binder));
+		next.snapshot = {...snapshot, keys: left};
+		next.page_count = listPageCount(left.length, binder.rows, binder.cols, extraPagesOf(next), addedCount(left, next));
+
+		const [saved] = await saveBinders(stamped([next]));
+
+		return saved;
+	});
+}
+
+// Undo of saveListAdds: the cards added taken out again, and each pick back
+// as it was (a pocket that had none goes back to its default).
+export async function undoListAdds(binderId, {adds = [], previous = []}) {
+	if (adds.length) {
+		await removeExtraCards(binderId, adds.map((add) => add.key));
+	}
+
+	for (const {before, key} of previous) {
+		await setPocketPick(binderId, key, before && !before.deleted_at ? before.entry_id : null);
+	}
 }
 
 // Picks the copy a pocket of a list's binder shows (entryId), or puts the
