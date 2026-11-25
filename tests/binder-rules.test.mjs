@@ -14,7 +14,11 @@ import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
 import {
+	CLAIM_RANK,
 	checkBinderRule,
+	claimIndex,
+	outranks,
+	takenFor,
 	checkFits,
 	cleanBinderRule,
 	defaultCopy,
@@ -226,6 +230,91 @@ describe('not this copy here (Eric, 2026-11-24)', () => {
 		const partial = planRefresh(binder, [cyndaquil([])], {at: at(10), liveIds: new Set(['c30']), partial: true, rankOf: () => ({}), skips});
 
 		assert.equal(partial.snapshot.shown['dex:155'], undefined);
+	});
+});
+
+describe('a copy is in one pocket at a time (Eric, 2026-11-24)', () => {
+	// Johto (a checklist, older) and the 30th-anniversary binder both want
+	// the 30th print of Cyndaquil, c30.
+	const johto = (fields = {}) => generated('johto', {created_at: at(1), snapshot: {at: at(1), keys: ['dex:155', 'dex:158'], rule_key: 'checklist:list-1|dex', shown: {'dex:155': 'c30'}}, ...fields});
+	const cyndaquil = (copies) => ({copies, dex: 155, key: 'dex:155', name: 'Cyndaquil'});
+	const totodile = {copies: [], dex: 158, key: 'dex:158', name: 'Totodile'};
+	const c30 = copy('c30', 'cel25-155', {created_at: at(3)});
+	const neo = copy('neo', 'neo1-155', {created_at: at(2)});
+	const claim = (fields) => ({age: at(5), binderId: 'b30', binderName: '30 anos', entryId: 'c30', index: 4, key: 'international|cel25-155', rank: CLAIM_RANK.card, ...fields});
+
+	test('the order: a hand-made binder, a hand pick, a card pocket, a Pokémon pocket; then the older binder; then the earlier pocket', () => {
+		const pokemon = claim({key: 'dex:155', rank: CLAIM_RANK.pokemon});
+
+		assert.equal(outranks(claim({rank: CLAIM_RANK.hand}), claim({rank: CLAIM_RANK.pick})), true);
+		assert.equal(outranks(claim({rank: CLAIM_RANK.pick}), claim({age: at(0), rank: CLAIM_RANK.card})), true);
+		assert.equal(outranks(claim({age: at(9)}), {...pokemon, age: at(0), binderId: 'johto'}), true, 'a card pocket beats an older Pokémon pocket');
+		assert.equal(outranks({...pokemon, age: at(1), binderId: 'johto'}, {...pokemon, age: at(5)}), true, 'the older binder');
+		assert.equal(outranks({...pokemon, age: at(1), binderId: 'a'}, {...pokemon, age: at(1), binderId: 'b'}), true, 'same age: the lower id');
+		assert.equal(outranks({...pokemon, index: 1}, {...pokemon, index: 7}), true, 'same binder: the earlier pocket');
+		assert.equal(outranks(pokemon, pokemon), false);
+		assert.equal(outranks({...pokemon, age: undefined, binderId: 'new'}, pokemon), false, 'a binder not saved yet is the newest');
+	});
+
+	test('a set goal\'s card pocket takes the print: Johto shows another Cyndaquil, else its placeholder', () => {
+		const claims = [claim({})];
+		const withNeo = planRefresh(johto(), [cyndaquil([c30, neo]), totodile], {at: at(10), claims, rankOf: () => ({})});
+
+		assert.equal(withNeo.snapshot.shown['dex:155'], 'neo');
+		assert.deepEqual(withNeo.inUse, ['dex:155']);
+		assert.deepEqual(withNeo.updated, []);
+		assert.equal(refreshText(withNeo, () => 'Cyndaquil'), '1 pocket no longer shows a copy in use in another binder or pocket (Cyndaquil).');
+
+		const only = planRefresh(johto(), [cyndaquil([c30]), totodile], {at: at(10), claims, rankOf: () => ({})});
+
+		assert.equal(only.snapshot.shown['dex:155'], undefined, 'the placeholder');
+		assert.deepEqual(only.inUse, ['dex:155']);
+		assert.deepEqual(only.emptied, [], 'not "no copy you own fits it"');
+	});
+
+	test('two Pokémon pockets: the older binder keeps the copy, so an older Johto needs Not this copy here', () => {
+		const younger = claim({age: at(5), key: 'dex:155', rank: CLAIM_RANK.pokemon});
+		const older = claim({age: at(0), key: 'dex:155', rank: CLAIM_RANK.pokemon});
+
+		assert.equal(planRefresh(johto(), [cyndaquil([c30]), totodile], {at: at(10), claims: [younger], rankOf: () => ({})}).snapshot.shown['dex:155'], 'c30');
+		assert.equal(planRefresh(johto(), [cyndaquil([c30]), totodile], {at: at(10), claims: [older], rankOf: () => ({})}).snapshot.shown['dex:155'], undefined);
+	});
+
+	test('a hand-made binder and a hand pick elsewhere both outrank a default; this pocket\'s own pick always shows', () => {
+		const hand = claim({binderName: 'Favorites', index: 0, key: null, rank: CLAIM_RANK.hand});
+		const pickThere = claim({rank: CLAIM_RANK.pick});
+
+		assert.equal(planRefresh(johto(), [cyndaquil([c30, neo]), totodile], {at: at(10), claims: [hand], rankOf: () => ({})}).snapshot.shown['dex:155'], 'neo');
+		assert.equal(planRefresh(johto(), [cyndaquil([c30, neo]), totodile], {at: at(10), claims: [pickThere], rankOf: () => ({})}).snapshot.shown['dex:155'], 'neo');
+
+		const item = cyndaquil([c30, neo]);
+		const taken = takenFor(claimIndex([hand]), item.copies, {age: at(1), binderId: 'johto', index: 0, key: 'dex:155'});
+
+		assert.deepEqual([...taken.keys()], ['c30']);
+		assert.equal(shownCopy(item, {pick: 'c30', taken}).entry.id, 'c30', 'his own pick stands');
+		assert.equal(shownCopy(item, {stored: 'c30', taken}).entry.id, 'neo');
+	});
+
+	test('this binder\'s own last defaults are worked out again, and within it a copy fills one pocket: card pockets first, then the earlier pocket', () => {
+		// A tag team fits #155 and #158; the binder last showed it in both.
+		const tag = copy('tag', 'sm12-155', {created_at: at(4)});
+		const own = [
+			{age: at(1), binderId: 'johto', entryId: 'tag', index: 0, key: 'dex:155', rank: CLAIM_RANK.pokemon},
+			{age: at(1), binderId: 'johto', entryId: 'tag', index: 1, key: 'dex:158', rank: CLAIM_RANK.pokemon},
+		];
+		const binder = johto({snapshot: {at: at(1), keys: ['dex:155', 'dex:158'], rule_key: 'checklist:list-1|dex', shown: {'dex:155': 'tag', 'dex:158': 'tag'}}});
+		const plan = planRefresh(binder, [cyndaquil([tag]), {...totodile, copies: [tag]}], {at: at(10), claims: own, rankOf: () => ({})});
+
+		assert.deepEqual(plan.snapshot.shown, {'dex:155': 'tag'});
+		assert.deepEqual(plan.inUse, ['dex:158']);
+	});
+
+	test('no claims: the layout is today\'s', () => {
+		const plan = planRefresh(johto(), [cyndaquil([c30, neo]), totodile], {at: at(10), rankOf: () => ({})});
+
+		assert.equal(plan.snapshot.shown['dex:155'], 'c30');
+		assert.deepEqual(plan.inUse, []);
+		assert.equal(plan.changed, false);
 	});
 });
 
@@ -849,6 +938,52 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		await pages?.close();
 	});
 
+	test('a copy in use in an older binder from a list leaves a younger one\'s pocket to another copy or its placeholder (Eric, 2026-11-24)', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const makeFromList = async (name) => {
+			await page.click('.tabs a[data-tab="binders"]');
+			await page.click('#new-binder');
+			await page.check('#new-binder-list');
+			await page.waitForSelector('#rule-section');
+			await page.check('#rule-kind input[value="checklist"]');
+			await page.selectOption('#rule-list', 'list-1');
+			await page.click('.binder-preset[data-preset="4-pocket"]');
+			await page.fill('#binder-name', name);
+			await page.waitForFunction(() => /4 pockets/.test((document.getElementById('rule-count') || {}).textContent), null, {timeout: 15000});
+			await page.click('#binder-save');
+			await page.waitForSelector('#binder-spread .bs-page');
+		};
+
+		await seedLocal(page, documentWith());
+		await makeFromList('Older');
+		await makeFromList('Younger');
+
+		// Bulbasaur has three copies: the older binder shows the best, the
+		// younger the next. Charmander and Squirtle have one each, so the
+		// younger binder shows their placeholders.
+		let doc = await localDoc(page);
+		const [older, younger] = [...doc.binders].sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+		assert.deepEqual(older.snapshot.shown, {'dex:1': 'c1', 'dex:4': 'c4', 'dex:7': 'c5'});
+		assert.equal(younger.snapshot.shown['dex:4'], undefined);
+		assert.equal(younger.snapshot.shown['dex:7'], undefined);
+		assert.ok(younger.snapshot.shown['dex:1'] && younger.snapshot.shown['dex:1'] !== 'c1', `another Bulbasaur: ${younger.snapshot.shown['dex:1']}`);
+
+		await openPage(page, 1);
+		await waitForPocket(page, zoomPocket(2), {kind: 'want'});
+		await page.click(zoomPocket(2));
+		await page.waitForSelector('#list-copies .list-copy[data-entry="c4"] .list-in-use-tag');
+		assert.equal(await page.locator('#list-copies .list-copy[data-entry="c4"] .list-in-use-tag').textContent(), 'In use in Older');
+
+		// A hand pick is his say: it shows here too.
+		await page.click('#list-copies .list-copy[data-entry="c4"]');
+		await waitForPocket(page, zoomPocket(2), {kind: 'card', picked: 'true'});
+		doc = await localDoc(page);
+		assert.deepEqual(doc.binder_picks.map((pick) => [pick.binder_id, pick.key, pick.entry_id]), [[younger.id, 'dex:4', 'c4']]);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('extra pages after the list, Not this copy here, and Keep the placeholder (Eric, 2026-11-24)', async () => {
 		const {context, errors, page} = await device(null, 'phone');
 
@@ -1089,13 +1224,15 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		assert.deepEqual(doc.wishlist.filter((wish) => !wish.deleted_at).map((wish) => wish.card_id), ['tst1-025']);
 		await closeSheet(page);
 
-		// The collection: its two cards.
+		// The collection: its two cards. Test Ember's one copy is in use in
+		// the older goal binder's pocket for that card, so here it is a
+		// placeholder (a copy is in one pocket at a time, Eric, 2026-11-24).
 		await page.goto(url('binders/new/collection/col-1'));
 		await page.waitForSelector('#rule-section');
 		await page.waitForFunction(() => /2 pockets \(2 with a card you own\)/.test((document.getElementById('rule-count') || {}).textContent), null, {timeout: 15000});
 		await page.click('#binder-save');
 		await page.waitForSelector('#binder-spread .bs-page');
-		await waitForPocket(page, spreadPocket(1, 1), {kind: 'card', label: 'Test Ember'});
+		await waitForPocket(page, spreadPocket(1, 1), {kind: 'want', label: 'Test Ember, placeholder: your copies are kept out of this pocket'});
 
 		// A filter: Fire type, from the Binders tab.
 		await page.goto(url('binders'));

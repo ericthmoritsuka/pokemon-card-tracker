@@ -390,6 +390,82 @@ const cleanSkipped = (ids) => (Array.isArray(ids) ? [...new Set(ids.filter((id) 
 
 const NO_SKIPS = new Set();
 
+// ------------------------------------------------- copies in use elsewhere
+//
+// A copy is in one pocket at a time (Eric, 2026-11-24: the Cyndaquil in his
+// 30th-anniversary binder kept showing in Johto's pocket too). Every pocket
+// that holds or shows a copy claims it, and a pocket's default passes over
+// a copy claimed by anything that outranks it, so it shows another copy,
+// else its placeholder. Strongest first (Eric's order):
+//   hand     a hand-made binder's pocket, where the copy really is
+//   pick     a hand pick in a binder from a list (two picks of one copy both
+//            stand: each was asked for)
+//   card     the default in a card's pocket, which only that print fits
+//   pokemon  the default in a Pokémon's pocket, which any print of it fits
+// then the older binder (created_at, then id), then the earlier pocket.
+// Each pocket looks only at claims above its own, so no two binders can
+// take a copy back and forth. Nothing new is stored: the claims come from
+// the binders, the picks, and each binder's last layout (js/binders.js
+// copyClaims).
+//
+// A claim: {entryId, rank, age, binderId, binderName, index, key}; age is
+// the binder's created_at, index the pocket's place in the binder.
+export const CLAIM_RANK = {card: 2, hand: 0, pick: 1, pokemon: 3};
+
+// The rank of a pocket's default: a card's, else a Pokémon's.
+export const defaultRank = (key) => (parseKey(key) && parseKey(key).kind === 'card' ? CLAIM_RANK.card : CLAIM_RANK.pokemon);
+
+// A binder not saved yet is the newest.
+const NEWEST = '\uffff';
+
+export function outranks(a, b) {
+	if (a.rank !== b.rank) {
+		return a.rank < b.rank;
+	}
+
+	if (a.binderId !== b.binderId) {
+		const ageA = text(a.age) || NEWEST;
+		const ageB = text(b.age) || NEWEST;
+
+		return ageA !== ageB ? ageA < ageB : text(a.binderId) < text(b.binderId);
+	}
+
+	return a.index < b.index;
+}
+
+// Claims by copy: Map entry id -> [claim].
+export function claimIndex(claims) {
+	const out = new Map();
+
+	for (const claim of claims || []) {
+		if (claim && typeof claim.entryId === 'string') {
+			out.set(claim.entryId, [...(out.get(claim.entryId) || []), claim]);
+		}
+	}
+
+	return out;
+}
+
+// The copies a pocket's default passes over: Map entry id -> the claim that
+// outranks it. index: claimIndex(); copies: the pocket's copies; pocket:
+// {age, binderId, index, key}. The pocket's own pick never counts.
+export function takenFor(index, copies, pocket) {
+	const me = {...pocket, rank: defaultRank(pocket.key)};
+	const out = new Map();
+
+	for (const entry of copies || []) {
+		const best = (index.get(entry.id) || [])
+			.filter((claim) => !(claim.binderId === me.binderId && claim.key === me.key) && outranks(claim, me))
+			.sort((a, b) => (outranks(a, b) ? -1 : outranks(b, a) ? 1 : 0))[0];
+
+		if (best) {
+			out.set(entry.id, best);
+		}
+	}
+
+	return out;
+}
+
 // The hand picks of one binder: Map key -> entry id. A pick set back to the
 // default (entry_id null) or deleted is not one.
 export function picksOf(list, binderId) {
@@ -558,22 +634,24 @@ export function moveEdit(keys, from, to, at) {
 // now. skipped: the copies not wanted in this pocket (skipsOf), which only
 // a hand pick shows. Returns {entry, picked} or null when nothing fits: the
 // pocket's placeholder.
-export function shownCopy(item, {pick = null, rankOf, skipped = NO_SKIPS, stored = null} = {}) {
+export function shownCopy(item, {pick = null, rankOf, skipped = NO_SKIPS, stored = null, taken = NO_SKIPS} = {}) {
 	const copies = (item && item.copies) || [];
 	const find = (id) => (id ? copies.find((entry) => entry.id === id && !entry.deleted_at) || null : null);
 	const picked = find(pick);
+	// taken: copies in use where they outrank this pocket (takenFor).
+	const passed = (id) => skipped.has(id) || taken.has(id);
 
 	if (picked) {
 		return {entry: picked, picked: true};
 	}
 
-	const kept = skipped.has(stored) ? null : find(stored);
+	const kept = passed(stored) ? null : find(stored);
 
 	if (kept) {
 		return {entry: kept, picked: false};
 	}
 
-	const fresh = defaultCopy(copies.filter((entry) => !skipped.has(entry.id)), rankOf);
+	const fresh = defaultCopy(copies.filter((entry) => !passed(entry.id)), rankOf);
 
 	return fresh ? {entry: fresh, picked: false} : null;
 }
@@ -598,6 +676,10 @@ export function shownCopy(item, {pick = null, rankOf, skipped = NO_SKIPS, stored
 //
 // edits: the binder's list_edits (listEditsOf), applied after the order.
 // skips: skipsOf(), the copies a pocket's default passes over.
+// claims: the copies in use (js/binders.js copyClaims), passed over where
+// they outrank the pocket; this binder's own last defaults are worked out
+// again here, its pockets in rank order. inUse: pockets that show another
+// copy, or their placeholder, because their copy is in use elsewhere.
 // The pages are the pockets' and the binder's extra pages (extraPagesOf).
 //
 // keepOrder: the stored pockets keep their places and keys new to the list
@@ -621,7 +703,7 @@ export function shownCopy(item, {pick = null, rankOf, skipped = NO_SKIPS, stored
 //                   it: the screen leaves it alone on opening, as for
 //                   languageOnly (DESIGN.md, "Left out and moved")
 //   languages       as given, for saveRefresh to record on the binder
-export function planRefresh(binder, items, {anyItems = null, at, edits = listEditsOf(binder), keepOrder = false, languages = undefined, liveIds = null, partial = false, picks = new Map(), rankOf, skips = new Map()} = {}) {
+export function planRefresh(binder, items, {anyItems = null, at, claims = [], edits = listEditsOf(binder), keepOrder = false, languages = undefined, liveIds = null, partial = false, picks = new Map(), rankOf, skips = new Map()} = {}) {
 	const before = isObject(binder.snapshot) ? binder.snapshot : {};
 	const oldKeys = Array.isArray(before.keys) ? before.keys : [];
 	const oldShown = isObject(before.shown) ? before.shown : {};
@@ -634,22 +716,36 @@ export function planRefresh(binder, items, {anyItems = null, at, edits = listEdi
 	const filled = [];
 	const emptied = [];
 	const updated = [];
+	const inUse = [];
+	// Others' claims, and this binder's picks; its own last defaults are
+	// replaced by the ones worked out below, card pockets first, then in
+	// pocket order, each claiming its copy for the pockets after it.
+	const index = claimIndex((claims || []).filter((claim) => !(claim.binderId === binder.id && claim.rank >= CLAIM_RANK.card)));
+	const place = new Map(keys.map((key, i) => [key, i]));
+	const order = items.filter((item) => newSet.has(item.key))
+		.sort((a, b) => (defaultRank(a.key) - defaultRank(b.key)) || (place.get(a.key) - place.get(b.key)));
 
-	for (const item of items) {
-		if (!newSet.has(item.key)) {
-			continue;
-		}
-
+	for (const item of order) {
 		const skipped = skips.get(item.key) || NO_SKIPS;
-		const fresh = defaultCopy(item.copies.filter((entry) => !skipped.has(entry.id)), rankOf);
+		const pocket = {age: binder.created_at, binderId: binder.id, index: place.get(item.key), key: item.key};
+		const taken = takenFor(index, item.copies, pocket);
+		const open = item.copies.filter((entry) => !skipped.has(entry.id));
+		const fresh = defaultCopy(open.filter((entry) => !taken.has(entry.id)), rankOf);
+		const unclaimed = taken.size ? defaultCopy(open, rankOf) : fresh;
 		let id = fresh ? fresh.id : null;
+		const kept = oldShown[item.key];
 
-		if (!id && partial && oldShown[item.key] && !skipped.has(oldShown[item.key]) && (!liveIds || liveIds.has(oldShown[item.key]))) {
-			id = oldShown[item.key];
+		if (!id && partial && kept && !skipped.has(kept) && !taken.has(kept) && (!liveIds || liveIds.has(kept))) {
+			id = kept;
 		}
 
 		if (id) {
 			shown[item.key] = id;
+
+			// A pocket picked by hand claims its pick (in claims), not this.
+			if (!picks.has(item.key)) {
+				index.set(id, [...(index.get(id) || []), {...pocket, entryId: id, rank: defaultRank(item.key)}]);
+			}
 		}
 
 		if (!oldSet.has(item.key)) {
@@ -657,8 +753,12 @@ export function planRefresh(binder, items, {anyItems = null, at, edits = listEdi
 		}
 
 		const had = oldShown[item.key] || null;
+		const elsewhere = Boolean(unclaimed) && (!fresh || fresh.id !== unclaimed.id) && had !== id && !picks.has(item.key);
 
-		if (!had && id) {
+		if (elsewhere) {
+			inUse.push(item.key);
+		}
+		else if (!had && id) {
 			filled.push(item.key);
 		}
 		else if (had && !id) {
@@ -668,6 +768,12 @@ export function planRefresh(binder, items, {anyItems = null, at, edits = listEdi
 			updated.push(item.key);
 		}
 	}
+
+	// In pocket order, as the other lists are.
+	inUse.sort((a, b) => place.get(a) - place.get(b));
+	filled.sort((a, b) => place.get(a) - place.get(b));
+	emptied.sort((a, b) => place.get(a) - place.get(b));
+	updated.sort((a, b) => place.get(a) - place.get(b));
 
 	const added = keys.filter((key) => key && !oldSet.has(key));
 	const removed = oldKeys.filter((key) => key && !newSet.has(key));
@@ -684,11 +790,11 @@ export function planRefresh(binder, items, {anyItems = null, at, edits = listEdi
 	// What an older phone saves: the list's own order, without the edits it
 	// does not know (v57 to v64), and from any language (v56).
 	if (changed && edits.length && !keepOrder) {
-		editsOnly = !planRefresh(binder, items, {at, edits: [], liveIds, partial, picks, rankOf, skips}).changed;
+		editsOnly = !planRefresh(binder, items, {at, claims, edits: [], liveIds, partial, picks, rankOf, skips}).changed;
 	}
 
 	if (changed && !keepOrder && Array.isArray(anyItems) && typeof languages === 'string' && binder.list_languages === languages) {
-		languageOnly = !planRefresh(binder, anyItems, {at, edits: [], liveIds, partial, picks, rankOf, skips}).changed;
+		languageOnly = !planRefresh(binder, anyItems, {at, claims, edits: [], liveIds, partial, picks, rankOf, skips}).changed;
 	}
 
 	return {
@@ -697,6 +803,7 @@ export function planRefresh(binder, items, {anyItems = null, at, edits = listEdi
 		editsOnly,
 		emptied,
 		filled,
+		inUse,
 		languageOnly,
 		languages,
 		page_count: pageCount,
@@ -874,6 +981,10 @@ export function refreshText(plan, nameOf = (key) => key) {
 
 	if (plan.updated.length) {
 		parts.push(`${plan.updated.length === 1 ? '1 pocket shows' : `${plan.updated.length} pockets show`} another copy by default`);
+	}
+
+	if (plan.inUse && plan.inUse.length) {
+		parts.push(`${plan.inUse.length === 1 ? '1 pocket no longer shows a copy' : `${plan.inUse.length} pockets no longer show copies`} in use in another binder or pocket (${named(plan.inUse)})`);
 	}
 
 	return parts.length ? `${parts.join('; ')}.` : '';
