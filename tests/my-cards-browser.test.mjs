@@ -1158,9 +1158,11 @@ describe('card images', () => {
 
 		const img = frame.querySelector('img');
 
-		const note = frame.querySelector('.art-note');
+		// The English stand-in is marked by a small flag, named for a screen
+		// reader (js/tile.js noteStandIn).
+		const note = frame.querySelector('.badge-standin');
 
-		return {back: Boolean(frame.querySelector('.card-back')), fallback: frame.dataset.fallback || null, note: note ? note.textContent : null, shown: img && img.naturalWidth > 0 ? img.currentSrc : null};
+		return {back: Boolean(frame.querySelector('.card-back')), fallback: frame.dataset.fallback || null, note: note ? note.getAttribute('aria-label') : null, shown: img && img.naturalWidth > 0 ? img.currentSrc : null};
 	}, src);
 
 	const english = (src) => src.replace(/\/(?:pt|fr)\//, '/en/');
@@ -1397,14 +1399,16 @@ describe('card images', () => {
 
 			document.body.append(node);
 
-			for (let i = 0; i < 100 && !node.querySelector('.art-by') && !node.querySelector('.card-back'); i++) {
+			for (let i = 0; i < 100 && !node.querySelector('.badge-standin') && !node.querySelector('.card-back'); i++) {
 				await new Promise((resolve) => setTimeout(resolve, 100));
 			}
 
-			return {lines: [...node.querySelectorAll('.tile-meta')].map((line) => line.textContent), overlay: Boolean(node.querySelector('.art-note'))};
+			const flag = node.querySelector('.badge-standin');
+
+			return {flag: flag ? flag.getAttribute('aria-label') : null, lines: [...node.querySelectorAll('.tile-meta')].map((line) => line.textContent), overlay: Boolean(node.querySelector('.art-note'))};
 		}, pt('003'));
 
-		assert.deepEqual(tile, {lines: ['#003 · Test Alpha', 'English image'], overlay: false}, 'a tile says it under its meta line, clear of the corners');
+		assert.deepEqual(tile, {flag: 'English image', lines: ['#003 · Test Alpha'], overlay: false}, 'a tile marks it with a small flag on the art, with no caption line');
 
 		// A French image never seen: the English one kept for the Portuguese
 		// card of the same number stands in.
@@ -1416,10 +1420,10 @@ describe('card images', () => {
 		assert.deepEqual(await art(page, pt('009')), {back: true, fallback: 'en', note: null, shown: null});
 		await page.locator('body > .tile').last().screenshot({path: `${SHOTS}/my-cards-english-stand-in-tile.png`});
 		// The art on its own at a tile's width, clear of the tab bar.
-		await page.locator('body > .art:has(.art-note)').last().evaluate((node) => {
+		await page.locator('body > .art:has(.badge-standin)').last().evaluate((node) => {
 			node.style.cssText = 'left: 16px; position: fixed; top: 80px; width: 110px; z-index: 10;';
 		});
-		await page.locator('body > .art:has(.art-note)').last().screenshot({path: `${SHOTS}/my-cards-english-stand-in-art.png`});
+		await page.locator('body > .art:has(.badge-standin)').last().screenshot({path: `${SHOTS}/my-cards-english-stand-in-art.png`});
 
 		// Online again, and TCGdex has fixed the header: new images go cors
 		// at once.

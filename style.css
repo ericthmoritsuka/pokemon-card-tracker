@@ -1460,22 +1460,6 @@ select {
 	opacity: 0.85;
 }
 
-/* The caption on art that stands in for a missing image ("English image",
-   js/tile.js). A tile says it in a line under its meta line instead, clear
-   of the corner badges. */
-.art-note {
-	background: rgba(0, 0, 0, 0.7);
-	border-radius: var(--radius-badge);
-	bottom: var(--space-2);
-	color: #ffffff;
-	font-size: 0.875rem;
-	left: 50%;
-	padding: 2px var(--space-2);
-	position: absolute;
-	transform: translateX(-50%);
-	white-space: nowrap;
-}
-
 /* A card-back in the detail's hero reads at body size. */
 .hero-art .card-back {
 	font-size: 0.875rem;
@@ -3014,6 +2998,14 @@ progress {
 	width: 19px;
 }
 
+/* Top-left: the English flag on art that stands in for a missing image
+   (js/tile.js noteStandIn). The one corner no other badge uses. */
+.badge-standin {
+	bottom: auto;
+	left: var(--space-1);
+	top: var(--space-1);
+}
+
 /* Top-right: the quantity, ×2 and up. */
 .badge-qty {
 	background: var(--badge-ink);
@@ -3089,7 +3081,7 @@ progress {
 /* Small tiles keep only the right-hand corners. */
 @container (max-width: 87px) {
 	.badge-corner,
-	.badge-lang,
+	.badge-lang:not(.badge-standin),
 	.badge-finish {
 		display: none;
 	}
@@ -3131,6 +3123,25 @@ progress {
 .card-grid[data-view="mini"] .badge-corner .ball {
 	height: 9px;
 	width: 9px;
+}
+
+/* The English stand-in flag, as small as the bottom-left corner's. */
+.pocket .badge-standin,
+.card-grid[data-view="mini"] .badge-standin {
+	gap: 1px;
+	height: 13px;
+	left: 2px;
+	min-width: 18px;
+	padding: 0;
+	top: 2px;
+}
+
+.pocket .badge-standin .flag,
+.card-grid[data-view="mini"] .badge-standin .flag {
+	border: 0;
+	border-radius: 1px;
+	height: 11px;
+	width: 16px;
 }
 
 /* A notice or message in a grid spans the whole row, never one column. */
