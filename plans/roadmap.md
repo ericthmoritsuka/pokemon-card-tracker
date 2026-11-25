@@ -446,6 +446,13 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
     under each card.
   Generated on the phone from cached images (the design never hot-links them). A card with no
   catalog image uses his own photo, as v54 does elsewhere. Large.
+- **Checklists could offer one pocket per form (gender, regional) as an option (Eric, 2026-11-24):**
+  a checklist binder gives one pocket per Pokédex number, so a Pokémon whose male and female cards
+  differ gets one pocket for both. The cases that prompted it: Meowstic (#678) and Pyroar (#668),
+  where Eric wants the female and the male side by side. Until then, Insert a pocket after (built
+  in r3b, a blank list edit) and Add a card here give the second form its own pocket by hand. A
+  later build would read the form from the card (TCGdex names it, or the Pokémon's form list from
+  PokeAPI) and add a "One pocket per form" switch to the binder's rule. Medium; not started.
 
 ## Scan a trade or a sale (Eric, 2026-11-06): built on branch `scan-trade`, to check on the phone
 

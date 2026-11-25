@@ -38,7 +38,7 @@ import {
 	setIdOfCard,
 	viewingLanguage,
 } from './catalog.js';
-import {isLive, loadDocument, onChange, sourceNames} from './collection.js';
+import {isLive, loadDocument, newId, onChange, sourceNames} from './collection.js';
 import {customRoute} from './custom-card.js';
 import {alikeKey, copyStepper} from './copy-sheet.js';
 import {BASE, backWords, errorText, fromHistory, go, h, rememberInHistory, showError} from './dom.js';
@@ -59,7 +59,7 @@ import {addToBinder, undoAddToBinder} from './placeholder-fill.js';
 import {fillPanel} from './fill-view.js';
 import {artworkUrl, handPocketStatus, listPocketStatus, printablePockets} from './placeholder-print.js';
 import {openPlaceholderPrint} from './placeholder-print-view.js';
-import {applyListEdits, cardKey, claimIndex, extraKeysOf, extraPagesOf, indexAt, layoutWaits, listEditEntries, listEditsOf, listPageCount, moveEdit, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy, skipsOf, takenFor, withExtraItems, withListEdit} from './binder-rules.js';
+import {BLANK, applyListEdits, blankEdit, cardKey, claimIndex, extraKeysOf, extraPagesOf, indexAt, layoutWaits, listEditEntries, listEditsOf, listPageCount, moveEdit, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy, skipsOf, takenFor, withExtraItems, withListEdit} from './binder-rules.js';
 import {filterLabels, ruleSection} from './binder-rule-view.js';
 import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceChoices, sourceEntry, sourceText, trayFromChoices, trayFromIds} from './binder-sources.js';
 import {checklistDex, dexLabel, listLanguages, namesLanguages, pokemonNames, spriteUrl} from './checklists.js';
@@ -97,6 +97,8 @@ import {
 	getBinder,
 	movePocket,
 	moveWithShift,
+	insertPocketAt,
+	closePocketAt,
 	moveToTray,
 	pageSlots,
 	placeCard,
@@ -110,6 +112,7 @@ import {
 	restoreBinder,
 	removeExtraCards,
 	saveListAdds,
+	undoListAdds,
 	saveListEdits,
 	saveRefresh,
 	setPocketPick,
@@ -1956,8 +1959,13 @@ function binderScreen(root, source, id, pageParam) {
 			'data-position': position,
 		};
 
+		// An empty pocket: inserted, left empty, or after the list. Your own
+		// binder's opens Add a card here, Remove this empty pocket, and the
+		// inserts (Eric, 2026-11-24).
 		if (!state) {
-			return h('div', attrs, content.node);
+			return source.readOnly || !binder.snapshot
+				? h('div', attrs, content.node)
+				: h('button', {...attrs, onclick: () => openListEmptySheet(pg, position), type: 'button'}, content.node);
 		}
 
 		// A copy shown comes out of its pocket (viewListPocket); a pocket
@@ -2346,6 +2354,8 @@ function binderScreen(root, source, id, pageParam) {
 
 				parts.push(h('div', {class: 'button-row list-arrange'},
 					h('button', {id: 'list-move', onclick: open('move'), type: 'button'}, 'Move to…'),
+					h('button', {id: 'list-insert-before', onclick: () => act(() => insertListPocket(i, 'before'), 'Could not insert the pocket.'), type: 'button'}, 'Insert a pocket before'),
+					h('button', {id: 'list-insert-after', onclick: () => act(() => insertListPocket(i, 'after'), 'Could not insert the pocket.'), type: 'button'}, 'Insert a pocket after'),
 					h('button', {class: 'danger', id: 'list-remove', onclick: open('remove'), type: 'button'}, 'Remove from this binder')));
 			}
 
@@ -2432,6 +2442,118 @@ function binderScreen(root, source, id, pageParam) {
 		}
 		catch (err) {
 			showError('Could not undo.', err);
+		}
+	}
+
+	// ------------------------------------ inserted pockets, from a list
+	//
+	// Insert a pocket before or after one (Eric, 2026-11-24: a third pocket
+	// after Meowstic, for the female and the male): a blank list edit
+	// (js/binder-rules.js), anchored on the next pocket of the list, so it
+	// keeps its place through refreshes. Undo is the list edit's own.
+
+	// The first pocket of the list at or after place i, or '' for the end.
+	function anchorFrom(i) {
+		return listKeys().slice(i).find((key) => key) || '';
+	}
+
+	function insertListPocket(i, where) {
+		const before = where === 'before' ? anchorFrom(i) : anchorFrom(i + 1);
+		const edit = blankEdit({at: nowIso(), before, id: newId()});
+
+		return saveListEdit(edit.key, edit, where === 'before' ? 'An empty pocket was inserted before it.' : 'An empty pocket was inserted after it.');
+	}
+
+	// What an empty pocket of a list's binder is: {kind: 'blank', key} for
+	// one inserted, {kind: 'gap', key} for one left empty, or null (after the
+	// list, or a layout saved before marks were).
+	function emptyMark(i) {
+		const mark = ((binder.snapshot && binder.snapshot.marks) || {})[i];
+
+		if (typeof mark !== 'string') {
+			return null;
+		}
+
+		return mark.startsWith(BLANK) ? {key: mark, kind: 'blank'} : mark.startsWith('gap:') ? {key: mark.slice(4), kind: 'gap'} : null;
+	}
+
+	// Add a card here: the copy chosen joins the binder in this very pocket,
+	// as a card added by hand with that copy picked, so it shows here even
+	// when another pocket fits it too (a hand pick always wins). An inserted
+	// pocket it fills goes; one left empty leaves the binder. One write.
+	async function placeInList(i, entry) {
+		const binderId = binder.id;
+		const key = cardKey(entry.catalog, entry.card_id);
+		const inside = i < listKeys().length && listKeys()[i] === '';
+		const mark = inside ? emptyMark(i) : null;
+		const at = nowIso();
+		const anchor = anchorFrom(i + 1);
+		const edits = [];
+		const blank = mark && mark.kind === 'blank' ? listEdits().find((edit) => edit.key === mark.key) || null : null;
+
+		if (mark) {
+			edits.push(mark.kind === 'blank' ? {at, key: mark.key, kind: 'none'} : {at, key: mark.key, kind: 'out'});
+		}
+
+		if (inside) {
+			edits.push(anchor ? {at, before: anchor, key, kind: 'before'} : {at, key, kind: 'end'});
+		}
+
+		const result = await saveListAdds(binderId, {adds: [{entryId: entry.id, index: inside ? i : undefined, key}], edits});
+		const name = entryInfo(entry, index, viewing).name;
+
+		toast(`${name} is in this pocket now.`, {
+			action: async () => {
+				try {
+					await undoListAdds(binderId, {adds: [{key}], previous: result.previous});
+
+					if (blank) {
+						await saveListEdits(binderId, [{...blank, at: nowIso()}], null);
+					}
+				}
+				catch (err) {
+					showError('Could not undo.', err);
+				}
+			},
+			actionLabel: 'Undo',
+			timeout: UNDO_MS,
+		});
+	}
+
+	// The sheet of an empty pocket in a list's binder.
+	function openListEmptySheet(page, position) {
+		const i = indexAt(page, position, binder.rows, binder.cols);
+		const message = h('p', {'aria-live': 'polite', class: 'form-error'});
+		const inside = i < listKeys().length;
+		const mark = inside ? emptyMark(i) : null;
+		const picker = h('div', {hidden: true, id: 'list-add-panel'});
+		const buttons = [
+			h('button', {class: 'primary', id: 'list-add-here', onclick: (event) => {
+				event.currentTarget.closest('.button-row').hidden = true;
+				picker.hidden = false;
+			}, type: 'button'}, 'Add a card here'),
+			inside ? h('button', {id: 'list-insert-before', onclick: () => act(() => insertListPocket(i, 'before'), 'Could not insert the pocket.'), type: 'button'}, 'Insert a pocket before') : null,
+			inside ? h('button', {id: 'list-insert-after', onclick: () => act(() => insertListPocket(i, 'after'), 'Could not insert the pocket.'), type: 'button'}, 'Insert a pocket after') : null,
+			mark ? h('button', {class: 'danger', id: 'list-close', onclick: () => act(() => (mark.kind === 'blank'
+				? saveListEdit(mark.key, {at: nowIso(), key: mark.key, kind: 'none'}, 'The empty pocket is gone; the pockets after it moved back one.')
+				: saveListEdit(mark.key, {at: nowIso(), key: mark.key, kind: 'out'}, 'The empty pocket is gone; the pockets after it moved back one.')), 'Could not remove the pocket.'), type: 'button'}, 'Remove this empty pocket') : null,
+		];
+
+		picker.append(...ownedPicker(page, position, message, {onChoose: (entry) => act(() => placeInList(i, entry), 'Could not add the card.')}));
+		sheet.replaceChildren(
+			h('div', {class: 'sheet-head'},
+				h('h3', {id: 'sheet-title'}, `Page ${page}, pocket ${position}`),
+				h('button', {'aria-label': 'Close', class: 'small', id: 'sheet-close', onclick: closeSheet, type: 'button'}, 'Close')),
+			h('p', {class: 'muted', id: 'list-empty-note'}, mark && mark.kind === 'blank'
+				? 'An empty pocket you inserted. A card added here keeps this place.'
+				: inside ? 'An empty pocket. A card added here keeps this place.' : 'An empty pocket after the list. A card added here joins after the list.'),
+			h('div', {class: 'button-row list-arrange'}, buttons),
+			picker,
+			message
+		);
+
+		if (!sheet.open) {
+			openDialogSheet(sheet);
 		}
 	}
 
@@ -3772,6 +3894,46 @@ function binderScreen(root, source, id, pageParam) {
 		);
 	}
 
+	// The pocket after {page, position}, in reading order, as [page,
+	// position]; past the last page when it is the last pocket.
+	function pocketAfter(page, position) {
+		return position < pocketsPerPage(binder) ? [page, position + 1] : [page + 1, 1];
+	}
+
+	// Insert a pocket here (js/binders.js insertPocket), with Undo.
+	async function insertHere(page, position) {
+		if (page > binder.page_count) {
+			toast('That is after the last pocket: nothing to move.');
+
+			return;
+		}
+
+		const result = await insertPocketAt(binder.id, {page, position});
+
+		if (!result.changed.length) {
+			toast('No pocket after this one is in use, so nothing moved.');
+
+			return;
+		}
+
+		const grew = result.done.pages ? ` The binder now has ${plural(result.done.pages.to, 'page', 'pages')}.` : '';
+
+		toast(`An empty pocket is now page ${page}, pocket ${position}; the pockets after it moved on one.${grew}`, shiftUndo(result.done));
+	}
+
+	// Remove this empty pocket (js/binders.js closePocket), with Undo.
+	async function closeHere(page, position) {
+		const result = await closePocketAt(binder.id, {page, position});
+
+		if (!result.changed.length) {
+			toast('No pocket after this one is in use, so nothing moved.');
+
+			return;
+		}
+
+		toast('The empty pocket is gone; the pockets after it moved back one.', shiftUndo(result.done));
+	}
+
 	// Undo on the toast of a shift: every pocket back, only while each holds
 	// what the shift put there (js/binders.js undoShift).
 	const shiftUndo = (done) => ({
@@ -4456,6 +4618,8 @@ function binderScreen(root, source, id, pageParam) {
 					content.kind === 'card'
 						? h('button', {id: 'pocket-to-tray', onclick: () => act(() => moveToTray(binder.id, page, position, slot.entry_id), 'Could not move the card to the tray.'), type: 'button'}, 'To the tray')
 						: null,
+					h('button', {id: 'pocket-insert-before', onclick: () => act(() => insertHere(page, position), 'Could not insert the pocket.'), type: 'button'}, 'Insert a pocket before'),
+					h('button', {id: 'pocket-insert-after', onclick: () => act(() => insertHere(...pocketAfter(page, position)), 'Could not insert the pocket.'), type: 'button'}, 'Insert a pocket after'),
 					slot.art
 						? h('p', {class: 'muted'}, 'Michi art is edited with the art tools, which are not here yet.')
 						: h('button', {class: 'danger', id: 'pocket-clear', onclick: (event) => {
@@ -4467,6 +4631,15 @@ function binderScreen(root, source, id, pageParam) {
 			: null;
 
 		chooser.append(...pocketChooser(page, position, message));
+
+		// An empty pocket: Insert a pocket here moves every later pocket on
+		// one; Remove this empty pocket moves them back (Eric, 2026-11-24).
+		if (!slot) {
+			chooser.append(h('div', {class: 'button-row pocket-shift-row'},
+				h('button', {id: 'pocket-insert-here', onclick: () => act(() => insertHere(page, position), 'Could not insert the pocket.'), type: 'button'}, 'Insert a pocket here'),
+				h('button', {id: 'pocket-close', onclick: () => act(() => closeHere(page, position), 'Could not remove the pocket.'), type: 'button'}, 'Remove this empty pocket')));
+		}
+
 		sheet.replaceChildren(header, current || '', mover || '', remover || '', chooser, message);
 		// On a phone focus goes to Close, not the search field: most people
 		// scroll the list, and a focused field raises the keyboard over it.
@@ -4530,7 +4703,9 @@ function binderScreen(root, source, id, pageParam) {
 	// pocket share one tile with a count (pickKey), and a tap places one of
 	// them, one in no tray if it can; a copy in a pocket keeps its own tile,
 	// which says where it is.
-	function ownedPicker(page, position, message) {
+	// onChoose(entry): a binder made from a list's Add a card here, which
+	// takes any copy, one already in a pocket too (a hand pick).
+	function ownedPicker(page, position, message, {onChoose = null} = {}) {
 		const search = h('input', {'aria-label': 'Search your cards', autocomplete: 'off', class: 'search', id: 'owned-search', placeholder: 'Search your cards', type: 'search'});
 		const filter = h('div', {class: 'segmented', id: 'owned-filter', role: 'radiogroup'},
 			h('label', null, h('input', {checked: true, name: 'owned-filter', type: 'radio', value: 'unplaced'}), h('span', null, 'Not in a binder')),
@@ -4557,6 +4732,12 @@ function binderScreen(root, source, id, pageParam) {
 
 		function choose(item) {
 			const {entry, where} = item;
+
+			if (onChoose) {
+				onChoose(entry);
+
+				return;
+			}
 
 			if (where && where.binder_id === binder.id && where.page === page && where.position === position) {
 				closeSheet();
