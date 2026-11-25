@@ -96,7 +96,7 @@ describe('Shop', () => {
 		assert.equal(new URL(page.url()).pathname, `${BASE}shop`);
 		await pickShow(page, 'all');
 		assert.equal(await page.locator('.shop-row').count(), 6, 'the five Spares tiles, Charmander EN split by finish');
-		assert.match(await summary(page), /^0 of 6 cards priced, 6 spares in all\.$/);
+		assert.match(await summary(page), /^0 of 6 cards priced, 6 copies for sale in all\.$/);
 		assert.match(plain(await page.locator(`${CHARMANDER_EN} .shop-meta`).textContent()), /1 spare$/);
 		assert.match(plain(await page.locator(`${CHARMANDER_EN_REVERSE} .shop-meta`).textContent()), /1 spare$/);
 		assert.equal(plain(await page.locator(`${CHARMANDER_EN} .shop-finish`).textContent()), 'Normal');
@@ -141,7 +141,7 @@ describe('Shop', () => {
 		await saveAll(page);
 		assert.match(await state(page, CHARMANDER_EN), /^For sale at R\$ 2,30 each$/);
 		assert.match(await state(page, CHARIZARD), /^For sale at R\$ 150,00 each$/);
-		assert.match(await summary(page), /^2 of 6 cards priced, 6 spares in all\. The priced spares come to R\$ 152,30\.$/);
+		assert.match(await summary(page), /^2 of 6 cards priced, 6 copies for sale in all\. The priced copies come to R\$ 152,30\.$/);
 		assert.match(await state(page, CHARMANDER_EN_REVERSE), /^Not priced/, 'the other finish keeps its own price');
 		await page.locator('.toast:has-text("2 prices saved.")').waitFor(TIMEOUT);
 

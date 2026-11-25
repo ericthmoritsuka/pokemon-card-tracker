@@ -5,13 +5,24 @@
 // and the suggestions beside it never leave this screen. Worked out without
 // the page, so node can test it; js/shop-view.js draws it.
 //
-// A shop group is one finish of one card in one language that has spares:
-// {key, catalog, card_id, language, finish_key, spares, copies, price}.
-// spares are the copies of that finish spareEntries picks; copies are every
-// live copy of the card in that language and finish, keeper included. The
-// sale price is saved on every copy of the finish, so a change of keeper (a
-// new favorite) never leaves a spare unpriced, and only the spares are ever
-// published.
+// A shop group is one finish of one card in one language that has spares or
+// a copy marked For sale: {key, catalog, card_id, language, finish_key,
+// spares, marked, listed, copies, price}. spares are the copies of that
+// finish spareEntries picks; marked, the other copies marked For sale;
+// listed, the ones offered on HOTARU; copies, every live copy of the card in
+// that language and finish, keeper included. The sale price is saved on
+// every copy of the finish, so a change of keeper (a new favorite) never
+// leaves a spare unpriced, and only the listed copies are ever published.
+//
+// For sale (plans/hotaru-for-sale-plan.md, Eric, 2026-11-24: the mark is the
+// listing). A copy's for_sale is true when Eric put it up for sale, false
+// when he took it off, and absent for today's rule:
+//
+//   listed = (spares whose for_sale is not false) + (copies marked true)
+//
+// So a priced spare is offered as before, a copy marked true is offered even
+// when it is the last one, in a binder, or a favorite, and a spare marked
+// false stays his.
 
 import {tileKey} from './bulk-edit.js';
 import {setIdOfCard} from './catalog.js';
@@ -77,26 +88,40 @@ export function shopGroups(cards, {codeOf = () => null, held} = {}) {
 	const asCard = (entry) => (twins.has(entry.id) ? {...entry, ...twins.get(entry.id)} : {...entry, catalog: entry.catalog || 'international'});
 	const counted = live.map(asCard);
 	const groups = new Map();
-
-	for (const spare of spareEntries(counted, {held})) {
-		const entry = byId.get(spare.id) || spare;
-		const key = shopKey(spare);
+	const groupOf = (card) => {
+		const key = shopKey(card);
 
 		if (!groups.has(key)) {
 			groups.set(key, {
-				card_id: spare.card_id,
-				catalog: spare.catalog || 'international',
+				card_id: card.card_id,
+				catalog: card.catalog || 'international',
 				copies: [],
-				finish_key: finishKey(spare),
+				finish_key: finishKey(card),
 				key,
-				language: spare.language,
+				listed: [],
+				language: card.language,
+				marked: [],
 				price: null,
-				set_id: setIdOfCard(spare.card_id),
+				set_id: setIdOfCard(card.card_id),
 				spares: [],
 			});
 		}
 
-		groups.get(key).spares.push(entry);
+		return groups.get(key);
+	};
+	const spares = spareEntries(counted, {held});
+	const spareIds = new Set(spares.map((spare) => spare.id));
+
+	for (const spare of spares) {
+		groupOf(spare).spares.push(byId.get(spare.id) || spare);
+	}
+
+	// A copy marked For sale that is not a spare: the last one, one in a
+	// binder, or one the keeper rule keeps.
+	for (const card of counted) {
+		if (card.for_sale === true && !spareIds.has(card.id)) {
+			groupOf(card).marked.push(byId.get(card.id) || card);
+		}
 	}
 
 	for (const entry of live) {
@@ -109,10 +134,34 @@ export function shopGroups(cards, {codeOf = () => null, held} = {}) {
 
 	for (const group of groups.values()) {
 		group.price = groupPrice(group);
+		group.listed = [...group.spares.filter((entry) => entry.for_sale !== false), ...group.marked];
 	}
 
 	return [...groups.values()];
 }
+
+// The copies a group offers. A group made by hand, without listed (an older
+// caller, a test), offers its spares, as before For sale.
+export const listedOf = (group) => (group && (group.listed || group.spares)) || [];
+
+// The copy a group is shown and described by: one offered, else a spare,
+// else any copy (a group whose spares were all taken off sale).
+export const groupCopy = (group) => listedOf(group)[0] || (group.spares || [])[0] || (group.marked || [])[0] || (group.copies || [])[0];
+
+// [{id, patch}] marking copies For sale (true), taking them off (false), or
+// back to today's rule (null). Copies that already say it are left alone.
+export function forSalePatches(entries, value) {
+	return (entries || [])
+		.filter((entry) => (entry.for_sale ?? null) !== value)
+		.map((entry) => ({id: entry.id, patch: {for_sale: value}}));
+}
+
+// Undo's patches for forSalePatches: each copy back to what it says now.
+export const undoForSalePatches = (entries, patches) => {
+	const byId = new Map((entries || []).map((entry) => [entry.id, entry]));
+
+	return patches.map(({id}) => ({id, patch: {for_sale: byId.has(id) ? byId.get(id).for_sale ?? null : null}}));
+};
 
 // A hand-made copy's number, and the same number without a set code in
 // front ("MEP 012" is 012), for matching it to a catalog card.
@@ -222,7 +271,7 @@ function marketAmount(entry, record, market) {
 // full TCGdex record, or null when it is not on the phone yet.
 export function suggestion(group, record, {euroRates = null, rates = null} = {}) {
 	const none = {cardmarket: null, tcgplayer: null, use: null};
-	const entry = group && group.spares[0];
+	const entry = group && groupCopy(group);
 
 	if (!entry || !record || isAsianPrint(entry)) {
 		return none;
@@ -253,23 +302,24 @@ export function priceFilter(groups, show) {
 	return groups;
 }
 
-// {groups, priced, spares, value}: how many cards and spare copies the Shop
-// holds, how many cards are priced, and what the priced spares would bring.
+// {groups, priced, listed, value}: how many cards the Shop holds and how
+// many are priced, how many copies are for sale, and what the priced ones
+// would bring.
 export function shopTotals(groups) {
 	let priced = 0;
-	let spares = 0;
+	let listed = 0;
 	let value = 0;
 
 	for (const group of groups) {
-		spares += group.spares.length;
+		listed += listedOf(group).length;
 
 		if (group.price !== null) {
 			priced++;
-			value += group.price * group.spares.length;
+			value += group.price * listedOf(group).length;
 		}
 	}
 
-	return {groups: groups.length, priced, spares, value: Math.round(value * 100) / 100};
+	return {groups: groups.length, listed, priced, value: Math.round(value * 100) / 100};
 }
 
 // ------------------------------------------------------------- publishing
@@ -317,8 +367,9 @@ const text = (value, max) => {
 	return clean ? clean.slice(0, max) : null;
 };
 
-// The rows store_sync takes: one per spare copy of every priced card, and
-// nothing for a card without a price, so publishing them withdraws the rest.
+// The rows store_sync takes: one per listed copy of every priced card, and
+// nothing for a card without a price or a copy taken off sale, so
+// publishing them withdraws the rest.
 // Each group carries what js/shop-view.js worked out for it: info ({name,
 // number, setName}), rarity, and picturePath, the bucket path once the
 // picture is there (omitted until then, so the stored one is kept).
@@ -333,7 +384,7 @@ export function listingRows(groups, {finishOf = () => null} = {}) {
 
 		const info = group.info || {};
 
-		for (const entry of group.spares) {
+		for (const entry of listedOf(group)) {
 			const row = {
 				card_id: group.card_id,
 				catalog: group.catalog,
@@ -360,15 +411,18 @@ export function listingRows(groups, {finishOf = () => null} = {}) {
 }
 
 // What a priced card shows about its listings, from store_sync's answer
-// ({<id>: {status}}): 'reserved' when any spare is held by an order,
-// 'published' when every spare is for sale, 'pending' when some are not
-// published yet, and null for a card without a price.
+// ({<id>: {status}}): 'reserved' when any listed copy is held by an order,
+// 'published' when every one is for sale, 'pending' when some are not
+// published yet, and null for a card without a price or with nothing
+// listed.
 export function groupMark(group, states) {
-	if (group.price === null) {
+	const listed = listedOf(group);
+
+	if (group.price === null || !listed.length) {
 		return null;
 	}
 
-	const statuses = group.spares.map((entry) => (states && states[entry.id] ? states[entry.id].status : null));
+	const statuses = listed.map((entry) => (states && states[entry.id] ? states[entry.id].status : null));
 
 	if (statuses.includes('reserved')) {
 		return 'reserved';

@@ -36,7 +36,7 @@ import {finishLabel} from './monprice.js';
 import {applyMove, parsePrice, priceForInput, PRICE_FORM_TEXT} from './moves.js';
 import {addPhotoButton, mainSlide, slideSrc} from './photos/index.js';
 import {euroRates, exchangeRates, extractPrices, finishFits, finishOf, formatBrl, savedEuroRates, savedRates} from './prices.js';
-import {PRICE_FILTERS, groupMark, hasCards, listingRows, orderCheck, ownPicturePath, priceFilter, pricePatches, saleFields, shopGroups, shopTotals, storePicturePath, suggestion, timeLeft, undoPricePatches} from './shop.js';
+import {PRICE_FILTERS, groupCopy, groupMark, hasCards, listingRows, orderCheck, ownPicturePath, priceFilter, pricePatches, saleFields, shopGroups, shopTotals, storePicturePath, suggestion, timeLeft, undoPricePatches} from './shop.js';
 import {setPicker} from './set-picker.js';
 import {checkShopOwner, shopOwnerKnown} from './shop-owner.js';
 import {announceOrders, cancelOrder, markDelivered, markPaid, openOrders, orderErrorText, receiptLink} from './store-orders.js';
@@ -234,12 +234,12 @@ export function shopView(root) {
 
 	// Each group's name, set, and rarity, worked out once per load.
 	function describe(group) {
-		const info = entryInfo(group.spares[0], index, viewingLanguage());
+		const info = entryInfo(groupCopy(group), index, viewingLanguage());
 		const record = index.get(indexKey(group.catalog, group.card_id)) || null;
 
 		// What the catalog shows: the name and set in the copies' own
 		// language, the one the buyer gets, and the picture.
-		const sold = entryInfo(group.spares[0], index, group.language);
+		const sold = entryInfo(groupCopy(group), index, group.language);
 
 		group.info = info;
 		group.publishInfo = sold;
@@ -270,7 +270,7 @@ export function shopView(root) {
 	function searchText(group) {
 		const {info} = group;
 
-		return fold([info.search, info.name, info.setName, info.number, group.card_id, languageLabel(group.language), finishName(group.spares[0], group)].filter(Boolean).join(' '));
+		return fold([info.search, info.name, info.setName, info.number, group.card_id, languageLabel(group.language), finishName(groupCopy(group), group)].filter(Boolean).join(' '));
 	}
 
 	const recordOf = (group) => saved.get(`${group.catalog}|${group.card_id}`) || null;
@@ -346,7 +346,7 @@ export function shopView(root) {
 		const totals = shopTotals(groups);
 
 		summary.textContent = totals.groups
-			? `${formatCount(totals.priced)} of ${plural(totals.groups, 'card', 'cards')} priced, ${plural(totals.spares, 'spare', 'spares')} in all.${totals.priced ? ` The priced spares come to ${formatBrl(totals.value)}.` : ''}`
+			? `${formatCount(totals.priced)} of ${plural(totals.groups, 'card', 'cards')} priced, ${plural(totals.listed, 'copy', 'copies')} for sale in all.${totals.priced ? ` The priced copies come to ${formatBrl(totals.value)}.` : ''}`
 			: '';
 	}
 
@@ -414,12 +414,37 @@ export function shopView(root) {
 		(next || (saveBar.hidden ? input : saveButton)).focus();
 	}
 
+	// "2 spares", or with For sale marks "1 spare, 1 more for sale" and "1
+	// spare, kept". Only the listed copies go to HOTARU.
+	function listedText(group) {
+		const kept = group.spares.length - group.spares.filter((entry) => entry.for_sale !== false).length;
+		const parts = [group.spares.length ? plural(group.spares.length, 'spare', 'spares') : null];
+
+		if (group.marked.length) {
+			parts.push(group.spares.length ? `${formatCount(group.marked.length)} more for sale` : `${plural(group.marked.length, 'copy', 'copies')} for sale`);
+		}
+
+		if (kept) {
+			parts.push(`${formatCount(kept)} kept`);
+		}
+
+		return parts.filter(Boolean).join(', ');
+	}
+
+	function stateText(group) {
+		if (group.price === null) {
+			return 'Not priced: not offered';
+		}
+
+		return group.listed.length ? `For sale at ${formatBrl(group.price)} each` : `Priced at ${formatBrl(group.price)}, every copy kept: not offered`;
+	}
+
 	function row(group) {
 		const {info} = group;
 		const id = rowId(group);
 		const dirty = drafts.has(group.key);
 		// Each finish is its own row and price, so every row names its finish.
-		const named = finishName(group.spares[0], group);
+		const named = finishName(groupCopy(group), group);
 		const finish = named || 'Finish not set';
 		const input = h('input', {'aria-describedby': `${id}-error`, 'aria-label': `Sale price for ${info.name}, ${finish}`, autocomplete: 'off', class: 'search shop-price-input', enterkeyhint: 'next', id: `${id}-price`, inputmode: 'decimal', placeholder: 'Not priced', type: 'text', value: fieldText(group)});
 		const error = h('p', {class: 'form-error', hidden: true, id: `${id}-error`, role: 'alert'});
@@ -448,7 +473,7 @@ export function shopView(root) {
 			use,
 			clear);
 
-		const meta = [info.number ? `#${info.number}` : null, info.setName, languageLabel(group.language), group.rarity, plural(group.spares.length, 'spare', 'spares')].filter(Boolean).join(' · ');
+		const meta = [info.number ? `#${info.number}` : null, info.setName, languageLabel(group.language), group.rarity, listedText(group)].filter(Boolean).join(' · ');
 		const pick = h('input', {'aria-label': `Select ${info.name}, ${finish}`, checked: selected.has(group.key), class: 'shop-pick', id: `${id}-pick`, onchange: (event) => {
 			if (event.target.checked) {
 				selected.add(group.key);
@@ -467,7 +492,7 @@ export function shopView(root) {
 				h('a', {class: 'shop-name', 'data-link': info.route, href: BASE + info.route}, info.name),
 				h('p', {class: 'shop-finish-line'}, h('span', {class: `shop-finish${named ? '' : ' shop-finish-unset'}`}, finish)),
 				h('p', {class: 'muted shop-meta'}, meta),
-				h('p', {class: 'shop-state'}, group.price !== null ? `For sale at ${formatBrl(group.price)} each` : 'Not priced: not offered'),
+				h('p', {class: 'shop-state'}, stateText(group)),
 				h('p', {class: 'shop-draft', hidden: !dirty}, 'Changed, not saved yet'),
 				markNode(group),
 				suggestionNode(group),
@@ -864,7 +889,7 @@ export function shopView(root) {
 			// each picture is copied at most once. A card the catalog has no
 			// picture for takes the owner's photo.
 			const missing = priced().filter((group) => (group.pictureBase || group.ownPhoto)
-				&& group.spares.every((entry) => !(states[entry.id] && states[entry.id].image_path)));
+				&& group.listed.length && group.listed.every((entry) => !(states[entry.id] && states[entry.id].image_path)));
 			const stored = new Set(Object.values(states || {}).map((one) => one && one.image_path).filter(Boolean));
 			const copied = new Map();
 			const uploaded = [];
@@ -899,11 +924,11 @@ export function shopView(root) {
 			drawMarks();
 
 			const live = priced().filter((group) => groupMark(group, states) === 'published').length;
-			const spares = priced().filter((group) => groupMark(group, states) === 'published').reduce((n, group) => n + group.spares.length, 0);
-			const noPicture = priced().filter((group) => !group.spares.some((entry) => states[entry.id] && states[entry.id].image_path)).length;
+			const copies = priced().filter((group) => groupMark(group, states) === 'published').reduce((n, group) => n + group.listed.length, 0);
+			const noPicture = priced().filter((group) => group.listed.length && !group.listed.some((entry) => states[entry.id] && states[entry.id].image_path)).length;
 
 			publishLine.textContent = live
-				? `On HOTARU: ${plural(live, 'card', 'cards')}, ${plural(spares, 'spare', 'spares')}.${noPicture ? ` ${plural(noPicture, 'card has', 'cards have')} no picture yet.` : ''}`
+				? `On HOTARU: ${plural(live, 'card', 'cards')}, ${plural(copies, 'copy', 'copies')}.${noPicture ? ` ${plural(noPicture, 'card has', 'cards have')} no picture yet.` : ''}`
 				: 'Nothing on HOTARU yet: give a card a price to offer it.';
 		}
 		catch (err) {
@@ -1189,7 +1214,7 @@ export function shopView(root) {
 			|| compareNumbers(a.info.number || '', b.info.number || '')
 			|| a.language.localeCompare(b.language)
 			// A card's finishes sit together, by name.
-			|| (finishName(a.spares[0], a) || '').localeCompare(finishName(b.spares[0], b) || ''));
+			|| (finishName(groupCopy(a), a) || '').localeCompare(finishName(groupCopy(b), b) || ''));
 		// A draft for a card that is no longer a spare, or that now says what
 		// is saved (another phone saved it), is dropped.
 		for (const [key, text] of drafts) {
@@ -1251,7 +1276,7 @@ export function shopView(root) {
 	// read one at a time, the shown rows first, stopping after a few
 	// failures in a row.
 	async function fillRecords() {
-		const order = shown().concat(groups).flatMap((group) => group.spares);
+		const order = shown().concat(groups).map(groupCopy);
 		const due = (await pricesDue(order)).filter((item) => !item.at);
 		let failures = 0;
 
@@ -1294,7 +1319,7 @@ export function shopView(root) {
 
 		await refreshPictures();
 
-		saved = await savedCardRecords(groups.flatMap((group) => group.spares)).catch(() => new Map());
+		saved = await savedCardRecords(groups.map(groupCopy)).catch(() => new Map());
 
 		if (!alive) {
 			return;

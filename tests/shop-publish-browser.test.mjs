@@ -181,7 +181,7 @@ describe('Shop publishing', () => {
 		await openShop(page);
 		await page.fill(`${CHARMANDER_EN} .shop-price-input`, '2,30');
 		await page.click('#shop-save-all');
-		await waitLine(page, /^On HOTARU: 1 card, 1 spare\.$/);
+		await waitLine(page, /^On HOTARU: 1 card, 1 copy\.$/);
 		assert.deepEqual([...store.listings.values()].map((row) => [row.id, row.image_path]), [['c-04', 'tcgdex/en/tsa/tsa1/004.webp']]);
 		assert.deepEqual(errors, []);
 		await context.close();
@@ -260,7 +260,7 @@ describe('Shop publishing', () => {
 		await page.fill(`${CHARMANDER_EN} .shop-price-input`, '2,30');
 		await page.fill(`${CHARMANDER_EN_REVERSE} .shop-price-input`, '6');
 		await page.click('#shop-save-all');
-		await waitLine(page, /^On HOTARU: 2 cards, 2 spares\.$/);
+		await waitLine(page, /^On HOTARU: 2 cards, 2 copies\.$/);
 
 		const rows = [...store.listings.values()].sort((a, b) => a.id.localeCompare(b.id));
 
@@ -288,7 +288,7 @@ describe('Shop publishing', () => {
 		// and keeps the reserved copy; clearing the other withdraws it.
 		await page.click(`${CHARMANDER_EN_REVERSE} .shop-clear`);
 		await page.click('#shop-save-all');
-		await waitLine(page, /^On HOTARU: 1 card, 1 spare\.$/);
+		await waitLine(page, /^On HOTARU: 1 card, 1 copy\.$/);
 		assert.equal(store.listings.get('c-03').status, 'reserved');
 		assert.equal(store.listings.get('c-04').status, 'available');
 		await page.click(`${CHARMANDER_EN} .shop-clear`);
@@ -331,7 +331,7 @@ describe('Shop publishing', () => {
 		await page.fill(`${CHARMANDER_EN} .shop-price-input`, '2,30');
 		await page.fill(`${CHARMANDER_EN_REVERSE} .shop-price-input`, '6');
 		await page.click('#shop-save-all');
-		await waitLine(page, /^On HOTARU: 2 cards, 2 spares\.$/);
+		await waitLine(page, /^On HOTARU: 2 cards, 2 copies\.$/);
 
 		// The star: the priced copies are asked for, the two listed ones go.
 		await page.goto(`${server.origin}${BASE}cards/en/tsa1-004`);
@@ -381,7 +381,7 @@ describe('Shop publishing', () => {
 		await openShop(page);
 		await page.fill(`${CHARIZARD} .shop-price-input`, '150');
 		await page.click('#shop-save-all');
-		await waitLine(page, /^On HOTARU: 1 card, 1 spare\.$/);
+		await waitLine(page, /^On HOTARU: 1 card, 1 copy\.$/);
 
 		const path = `own/${photoId}.webp`;
 
