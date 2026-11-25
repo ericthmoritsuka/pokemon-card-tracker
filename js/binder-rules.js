@@ -740,6 +740,46 @@ export function moveEdit(keys, from, to, at) {
 
 // ------------------------------------------------------------ the layout
 
+// A pocket's copies as different cards (Eric, 2026-11-25: a pocket said 4
+// cards fit and all four were the same card). Copies of one card in one
+// language are one card there, whatever their finish: the pocket counts
+// the cards, its sheet and viewer show each card once, and the finishes
+// show as badges on it. Groups keep the order of the copies given.
+export const cardLanguageKey = (entry) => JSON.stringify([entry.catalog || 'international', entry.card_id, entry.language || null]);
+
+export function cardGroups(copies) {
+	const groups = new Map();
+
+	for (const entry of copies || []) {
+		const key = cardLanguageKey(entry);
+
+		if (!groups.has(key)) {
+			groups.set(key, []);
+		}
+
+		groups.get(key).push(entry);
+	}
+
+	return [...groups.values()];
+}
+
+export const distinctCards = (copies) => cardGroups(copies).length;
+
+// The copy that stands for a group of one card: the one the pocket shows
+// when it is in the group, else the copy the default would pick among them
+// (skipped and taken passed over), else the first.
+export function groupFace(group, {rankOf, shownId = null, skipped = NO_SKIPS, taken = NO_SKIPS} = {}) {
+	const shown = shownId ? group.find((entry) => entry.id === shownId) : null;
+
+	if (shown) {
+		return shown;
+	}
+
+	const best = shownCopy({copies: group}, {rankOf, skipped, taken});
+
+	return best ? best.entry : group[0];
+}
+
 // The copy a pocket shows: a hand pick while it still fits, else the
 // default the last refresh stored while it still fits, else the default
 // now. skipped: the copies not wanted in this pocket (skipsOf), which only

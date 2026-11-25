@@ -353,6 +353,23 @@ export function finishBadge(code) {
 	return badge;
 }
 
+// The finishes of one card's copies, one badge each, when they differ
+// (Eric, 2026-11-25: "REG e HOLO ou REV"): REG for the plain print, then
+// the others in a fixed order. One finish is the usual single corner, or
+// nothing for the plain print.
+const FINISH_ORDER = [null, 'holo', 'reverse', 'first', 'pokeball', 'masterball'];
+
+export function finishBadges(codes) {
+	const unique = [...new Set((codes || []).map((code) => (FINISHES[code] ? code : null)))];
+
+	if (unique.length < 2) {
+		return [finishBadge(unique[0])].filter(Boolean);
+	}
+
+	return unique.sort((a, b) => FINISH_ORDER.indexOf(a) - FINISH_ORDER.indexOf(b))
+		.map((code) => finishBadge(code) || h('span', {'aria-label': 'Regular', class: 'badge badge-finish badge-finish-regular', role: 'img', title: 'Regular'}, 'REG'));
+}
+
 function statusBadge(code, label) {
 	const status = STATUSES[code];
 
@@ -370,10 +387,12 @@ function statusBadge(code, label) {
 // viewing null shows every language (a picker choosing one physical copy).
 export function tileArt({
 	count = 0,
+	countLabel = null,
 	decorative = false,
 	eager = false,
 	favorite = false,
 	finish = null,
+	finishes = null,
 	info,
 	languages = [],
 	src = null,
@@ -384,15 +403,16 @@ export function tileArt({
 	const frame = h('div', {class: 'art-wrap'}, cardArt(info, src, {decorative, eager}));
 	const flags = [...new Set(languages.filter((code) => code && code !== viewing))];
 	const flagNode = flags.length ? flagBadge(flags, {className: 'badge badge-lang'}) : null;
-	const finishNode = finishBadge(finish);
+	// finishes: every copy's finish, for a tile of one card in several.
+	const finishNodes = finishes ? finishBadges(finishes) : [finishBadge(finish)].filter(Boolean);
 
 	// The flag and the finish share the bottom-left corner, in that order.
-	if (flagNode || finishNode) {
-		frame.append(h('span', {class: 'badge-corner'}, flagNode, finishNode));
+	if (flagNode || finishNodes.length) {
+		frame.append(h('span', {class: finishNodes.length > 1 ? 'badge-corner badge-corner-many' : 'badge-corner'}, flagNode, ...finishNodes));
 	}
 
 	if (count > 1) {
-		frame.append(h('span', {'aria-label': `${count} copies`, class: 'badge badge-qty', role: 'img'}, `×${count}`));
+		frame.append(h('span', {'aria-label': countLabel || `${count} copies`, class: 'badge badge-qty', role: 'img'}, `×${count}`));
 	}
 
 	if (favorite) {

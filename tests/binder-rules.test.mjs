@@ -15,6 +15,8 @@ import {after, before, describe, test} from 'node:test';
 
 import {
 	CLAIM_RANK,
+	cardGroups,
+	cardLanguageKey,
 	checkBinderRule,
 	claimIndex,
 	outranks,
@@ -22,9 +24,11 @@ import {
 	checkFits,
 	cleanBinderRule,
 	defaultCopy,
+	distinctCards,
 	extraCardEntries,
 	extraKeysOf,
 	extraPagesOf,
+	groupFace,
 	indexAt,
 	isGenerated,
 	keptOrder,
@@ -171,6 +175,37 @@ describe('the default copy', () => {
 		assert.deepEqual(shownCopy(item, {pick: 'gone', stored: 'a'}), {entry: item.copies[0], picked: false});
 		assert.deepEqual(shownCopy(item, {pick: null, stored: 'gone'}), {entry: item.copies[1], picked: false});
 		assert.equal(shownCopy({copies: []}, {pick: 'a'}), null);
+	});
+});
+
+describe('a pocket counts different cards, not copies (Eric, 2026-11-25)', () => {
+	// Bulbasaur: one card in three copies (two plain, one reverse), and
+	// two other cards; the pocket said 5 copies when 3 cards fit.
+	const copies = [
+		copy('a1', 'tst1-001', {created_at: at(1)}),
+		copy('alt', 'tst2-001', {created_at: at(2)}),
+		copy('a2', 'tst1-001', {created_at: at(3)}),
+		copy('pt', 'tst1-001', {created_at: at(4), language: 'pt'}),
+		copy('a3', 'tst1-001', {created_at: at(5), finish_raw: 'REVERSE_HOLOFOIL'}),
+	];
+
+	test('copies of one card in one language are one card, whatever their finish; another language or catalog is another', () => {
+		assert.deepEqual(cardGroups(copies).map((group) => group.map((entry) => entry.id)), [['a1', 'a2', 'a3'], ['alt'], ['pt']]);
+		assert.equal(distinctCards(copies), 3);
+		assert.equal(distinctCards([]), 0);
+		assert.equal(distinctCards(undefined), 0);
+		assert.notEqual(cardLanguageKey(copy('j', 'tst1-001', {catalog: 'ja'})), cardLanguageKey(copies[0]));
+		assert.equal(cardLanguageKey(copy('n', 'tst1-001', {catalog: null})), cardLanguageKey(copies[0]), 'no catalog is the international one');
+	});
+
+	test('a group stands as the copy the pocket shows, else the copy the default picks among them, passing over skipped and taken copies', () => {
+		const [group] = cardGroups(copies);
+
+		assert.equal(groupFace(group, {shownId: 'a2'}).id, 'a2');
+		assert.equal(groupFace(group, {shownId: 'alt'}).id, 'a3', 'the shown copy is another card: the newest of these');
+		assert.equal(groupFace(group, {skipped: new Set(['a3'])}).id, 'a2');
+		assert.equal(groupFace(group, {skipped: new Set(['a3']), taken: new Map([['a2', {}]])}).id, 'a1');
+		assert.equal(groupFace(group, {skipped: new Set(['a1', 'a2', 'a3'])}).id, 'a1', 'every copy passed over: the first');
 	});
 });
 
@@ -1184,7 +1219,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		assert.deepEqual(doc.binders[0].list_edits || [], []);
 
 		// Bulbasaur's three copies: skipping the one shown shows the next.
-		await waitForPocket(page, zoomPocket(1), {kind: 'card', label: 'Bulbasaur: Test Sprout, .*3 copies fit'});
+		await waitForPocket(page, zoomPocket(1), {kind: 'card', label: 'Bulbasaur: Test Sprout, .*3 cards fit'});
 		await page.click(zoomPocket(1));
 		await page.waitForFunction(() => document.getElementById('pocket-viewer')?.dataset.state === 'open');
 		await page.click('#pv-details');
@@ -1196,6 +1231,74 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 			return Boolean(shown) && shown !== 'c1';
 		}), null, {timeout: 15000});
 		await waitForPocket(page, zoomPocket(1), {kind: 'card'});
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// Eric, 2026-11-25: a pocket said four cards fit, and all four were
+	// the same card. The pocket counts different cards ("2 cards fit, 5
+	// copies"), its sheet and its viewer show each card once, with its
+	// copies as ×N and its finishes as badges, REG only beside another.
+	test('a pocket counts different cards: its sheet and viewer show each once, with its copies and its finishes', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const cards = [
+			card('c1', 'tst1-001', {created_at: '2026-09-01T00:00:00.000Z', price_manual: {avg: 40, currency: 'BRL', date: '2026-09-02'}}),
+			card('s1', 'tst1-001', {created_at: '2026-09-04T00:00:00.000Z'}),
+			card('s2', 'tst1-001', {created_at: '2026-09-05T00:00:00.000Z'}),
+			card('s3', 'tst1-001', {created_at: '2026-09-06T00:00:00.000Z', finish_raw: 'REVERSE_HOLOFOIL'}),
+			card('c3', 'tst2-001', {created_at: '2026-09-02T00:00:00.000Z', finish_raw: 'HOLOFOIL'}),
+			card('c4', 'tst1-004'),
+			card('c4b', 'tst1-004', {created_at: '2026-09-07T00:00:00.000Z'}),
+			card('c5', 'tst1-007'),
+		];
+		const list = generated('b-list', {cols: 2, rows: 2, snapshot: {at: AT, keys: ['dex:1', 'dex:4', 'dex:7', 'dex:25'], rule_key: 'checklist:list-1|dex', shown: {'dex:1': 'c1', 'dex:4': 'c4', 'dex:7': 'c5'}}});
+
+		await seedLocal(page, documentWith({binders: [list], cards}));
+		await page.goto(url('binders/b-list'));
+		await page.waitForSelector('#binder-spread .bs-page');
+		await openPage(page, 1);
+
+		// Bulbasaur: two cards in five copies; Charmander: one card, two
+		// copies, so no ×; Squirtle: one copy.
+		await waitForPocket(page, zoomPocket(1), {kind: 'card', label: 'Bulbasaur: Test Sprout, .*2 cards fit, 5 copies'});
+		assert.equal(await page.locator(`${zoomPocket(1)} .badge-qty`).textContent(), '×2');
+		assert.equal(await page.locator(`${zoomPocket(1)} .badge-qty`).getAttribute('aria-label'), '2 cards fit, 5 copies');
+		await waitForPocket(page, zoomPocket(2), {kind: 'card', label: '.*, 2 copies$'});
+		assert.equal(await page.locator(`${zoomPocket(2)} .badge-qty`).count(), 0);
+		assert.doesNotMatch(await page.locator(zoomPocket(3)).getAttribute('aria-label'), /fit|copies/);
+
+		// The viewer swipes two cards, not five.
+		await page.click(zoomPocket(1));
+		await page.waitForFunction(() => document.getElementById('pocket-viewer')?.dataset.state === 'open');
+		assert.equal(await page.locator('#pv-count').textContent(), '1 of 2 in this pocket');
+
+		// The sheet: one tile per card, the shown one first with its four
+		// copies and REG beside REV; the holo card alone keeps its HOLO.
+		await page.click('#pv-details');
+		await page.waitForSelector('#list-copies .list-copy[data-entry="c3"]');
+		assert.match(await page.locator('#list-sheet-count').textContent(), /^2 cards fit this pocket\./);
+
+		const tiles = await page.locator('#list-copies .list-copy').evaluateAll((nodes) => nodes.map((node) => ({
+			copies: node.dataset.copies || null,
+			entry: node.dataset.entry,
+			finishes: [...node.querySelectorAll('.badge-finish')].map((badge) => badge.textContent),
+			pressed: node.getAttribute('aria-pressed'),
+			qty: node.querySelector('.badge-qty')?.textContent || null,
+		})));
+
+		assert.deepEqual(tiles, [
+			{copies: '4', entry: 'c1', finishes: ['REG', 'REV'], pressed: 'true', qty: '×4'},
+			{copies: null, entry: 'c3', finishes: ['HOLO'], pressed: 'false', qty: null},
+		]);
+		await page.screenshot({path: `${SHOTS}/distinct-cards-360.png`});
+
+		// Picking the other card stores one copy, as ever.
+		await page.click('#list-copies .list-copy[data-entry="c3"]');
+		await waitForPocket(page, zoomPocket(1), {kind: 'card', label: 'Test Sprout ex.*picked by hand', picked: 'true'});
+
+		const doc = await localDoc(page);
+
+		assert.deepEqual(doc.binder_picks.map((pick) => [pick.id, pick.entry_id]), [['b-list|dex:1', 'c3']]);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
@@ -1357,7 +1460,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 
 		// Pocket 1: three copies fit, the priced one shows; pocket 4 (#025)
 		// is not owned.
-		await waitForPocket(page, spreadPocket(1, 1), {kind: 'card', label: 'Bulbasaur: Test Sprout, .*3 copies fit'});
+		await waitForPocket(page, spreadPocket(1, 1), {kind: 'card', label: 'Bulbasaur: Test Sprout, .*3 cards fit'});
 		assert.equal(await page.locator(`${spreadPocket(1, 1)} .badge-qty`).textContent(), '×3');
 		await waitForPocket(page, spreadPocket(1, 4), {item: 'pokemon', kind: 'want', label: '#025 Pikachu, not owned yet'});
 		await page.screenshot({path: `${SHOTS}/binder-360.png`});

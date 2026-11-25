@@ -301,19 +301,21 @@ describe('make a list binder from this', () => {
 		// Each pocket shows the copy from the hand-made binder, picked by
 		// hand: Test Sprout Alt, though the priced Test Sprout is the default.
 		await openPage(page, 1);
-		await waitForPocket(page, zoomPocket(1), {kind: 'card', label: 'Bulbasaur: Test Sprout Alt, .*3 copies fit, picked by hand', picked: 'true'});
+		await waitForPocket(page, zoomPocket(1), {kind: 'card', label: 'Bulbasaur: Test Sprout Alt, .*2 cards fit, 3 copies, picked by hand', picked: 'true'});
 		await waitForPocket(page, zoomPocket(2), {kind: 'card', label: 'Test Ember.*picked by hand', picked: 'true'});
-		await waitForPocket(page, zoomPocket(3), {kind: 'card', label: 'Squirtle: Test Splash, .*2 copies fit, picked by hand', picked: 'true'});
+		await waitForPocket(page, zoomPocket(3), {kind: 'card', label: 'Squirtle: Test Splash, .*2 copies, picked by hand', picked: 'true'});
 		await waitForPocket(page, zoomPocket(4), {item: 'pokemon', kind: 'want', label: '#025 Pikachu, not owned yet'});
 		await page.screenshot({path: `${SHOTS}/list-binder-360.png`});
 
 		// Tapping the first pocket lifts the card out; Edit pocket lists
-		// every copy of Bulbasaur, the hand pick pressed.
+		// each of Bulbasaur's cards once, the hand pick pressed: Test
+		// Sprout's two copies are one tile, standing as the loose one, since
+		// the priced one is in use in the hand-made binder (Eric, 2026-11-25).
 		await page.click(zoomPocket(1));
 		await page.waitForFunction(() => document.getElementById('pocket-viewer')?.dataset.state === 'open');
 		await page.click('#pv-details');
 		await page.waitForSelector('#list-copies .list-copy[data-entry="c1-loose"]');
-		assert.deepEqual((await page.locator('#list-copies .list-copy').evaluateAll((nodes) => nodes.map((node) => node.dataset.entry))).sort(), ['c1-alt', 'c1-loose', 'c1-priced']);
+		assert.deepEqual((await page.locator('#list-copies .list-copy').evaluateAll((nodes) => nodes.map((node) => [node.dataset.entry, node.dataset.copies || null]))).sort(), [['c1-alt', null], ['c1-loose', '2']]);
 		assert.equal(await page.locator('#list-copies .list-copy[aria-pressed="true"]').getAttribute('data-entry'), 'c1-alt');
 		await page.screenshot({path: `${SHOTS}/copies-360.png`});
 
@@ -342,13 +344,14 @@ describe('make a list binder from this', () => {
 		const made = (await localDoc(page)).binders.find((binder) => binder.id !== 'kanto');
 
 		await openPage(page, 1);
-		await waitForPocket(page, zoomPocket(1), {label: 'Test Sprout Alt, .*3 copies fit'});
+		await waitForPocket(page, zoomPocket(1), {label: 'Test Sprout Alt, .*2 cards fit, 3 copies'});
 
-		// Bulbasaur's pocket holds three copies: the one on top first, then
-		// the rest newest first (Eric, 2026-11-18).
+		// Bulbasaur's pocket holds three copies of two cards: the one on top
+		// first, then the rest newest first (Eric, 2026-11-18), each card
+		// once (Eric, 2026-11-25).
 		await page.click(zoomPocket(1));
 		await page.waitForFunction(() => document.getElementById('pocket-viewer')?.dataset.state === 'open');
-		assert.equal(await page.textContent('#pv-count'), '1 of 3 in this pocket');
+		assert.equal(await page.textContent('#pv-count'), '1 of 2 in this pocket');
 		assert.equal(await page.textContent('#pv-name'), 'Test Sprout Alt');
 		assert.equal(await page.isDisabled('#pv-prev'), true);
 		assert.equal(await page.isDisabled('#pv-pick'), true, 'the card on top already shows here');
@@ -356,17 +359,16 @@ describe('make a list binder from this', () => {
 		assert.equal(await page.locator('#pv-details').isVisible(), true, 'Edit pocket is still offered');
 
 		await page.click('#pv-next');
-		assert.equal(await page.textContent('#pv-count'), '2 of 3 in this pocket');
+		assert.equal(await page.textContent('#pv-count'), '2 of 2 in this pocket');
 		assert.equal(await page.textContent('#pv-name'), 'Test Sprout');
+		assert.match(await page.textContent('#pv-meta'), /2 copies/);
 		assert.equal(await page.isDisabled('#pv-pick'), false);
 		assert.equal(await page.textContent('#pv-pick'), 'Show this one here');
 
 		// The arrow keys move too, and stop at the last card.
-		await page.keyboard.press('ArrowRight');
-		assert.equal(await page.textContent('#pv-count'), '3 of 3 in this pocket');
 		assert.equal(await page.isDisabled('#pv-next'), true);
 		await page.keyboard.press('ArrowRight');
-		assert.equal(await page.textContent('#pv-count'), '3 of 3 in this pocket');
+		assert.equal(await page.textContent('#pv-count'), '2 of 2 in this pocket');
 
 		// A sideways swipe at zoom 1 goes back one.
 		const box = await page.locator('#pv-lift').boundingBox();
@@ -380,7 +382,7 @@ describe('make a list binder from this', () => {
 		}
 
 		await page.mouse.up();
-		await page.waitForFunction(() => document.getElementById('pv-count')?.textContent === '2 of 3 in this pocket');
+		await page.waitForFunction(() => document.getElementById('pv-count')?.textContent === '1 of 2 in this pocket');
 		await page.screenshot({path: `${SHOTS}/stack-viewer-360.png`});
 
 		// The card and every action fit on a 360 x 740 screen.
@@ -391,16 +393,18 @@ describe('make a list binder from this', () => {
 		assert.ok(last.y + last.height <= PHONE.height, `the last action ends on screen: ${last.y + last.height}`);
 
 		// Show this one here: the viewer closes and the pocket shows it.
+		await page.click('#pv-next');
+		await page.waitForFunction(() => document.getElementById('pv-count')?.textContent === '2 of 2 in this pocket');
 		await page.click('#pv-pick');
 		await page.waitForSelector('#pocket-viewer', {state: 'detached'});
 		const pickOf = async () => ((await localDoc(page)).binder_picks || []).find((one) => one.id === `${made.id}|dex:1`);
 
-		for (let tries = 0; tries < 50 && (await pickOf())?.entry_id !== 'c1-priced'; tries++) {
+		for (let tries = 0; tries < 50 && (await pickOf())?.entry_id !== 'c1-loose'; tries++) {
 			await page.waitForTimeout(200);
 		}
 
-		assert.equal((await pickOf())?.entry_id, 'c1-priced', 'the pick is saved');
-		await waitForPocket(page, zoomPocket(1), {label: 'Bulbasaur: Test Sprout, .*3 copies fit, picked by hand', picked: 'true'});
+		assert.equal((await pickOf())?.entry_id, 'c1-loose', 'the pick is saved: Test Sprout\'s copy not in use in Kanto');
+		await waitForPocket(page, zoomPocket(1), {label: 'Bulbasaur: Test Sprout, .*2 cards fit, 3 copies, picked by hand', picked: 'true'});
 		await done();
 	});
 });
