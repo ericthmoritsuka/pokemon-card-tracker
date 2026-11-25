@@ -8,7 +8,7 @@
 // Catalog JSON is not cached here: the app keeps it in IndexedDB
 // (js/catalog.js), which lets it show a saved copy and refresh it behind.
 
-const VERSION = 'v109';
+const VERSION = 'v110';
 const PREFIX = 'card-tracker-shell-';
 const CACHE = PREFIX + VERSION;
 

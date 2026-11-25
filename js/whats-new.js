@@ -23,6 +23,16 @@ export const RELEASES = [
 	{
 		date: '2026-11-24',
 		items: [
+			'A card with no catalog picture is listed on HOTARU with your own photo, and a copy added by hand counts with the same catalog card in the Shop.',
+			'A price typed the moment the Shop opens is no longer lost.',
+			'In a binder made from a list, Not this copy here skips a copy, Keep the placeholder keeps the pocket for a copy you get later, and Extra pages adds blank pages after the list.',
+			'Lists count every language unless you pick some, and Japanese and Chinese prints with no Pokédex number, and hand-made cards, now count on lists and fill list binders.',
+		],
+		version: 'v110',
+	},
+	{
+		date: '2026-11-24',
+		items: [
 			'The Shop bag at the top shows how many HOTARU orders are open, so a new one is seen at once.',
 			'Shop: Add sealed products on HOTARU opens its page for sealed products, already signed in.',
 			'The Shop\'s set filter shows each set\'s code before its name, like (CRI) Caos Ascendente, and the older sets\' symbols.',
