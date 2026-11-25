@@ -369,3 +369,106 @@
 .shop-select-tools [hidden] {
 	display: none;
 }
+
+/* Kits (js/shop-kits.js, plans/hotaru-bundles-plan.md): several cards sold
+   together on HOTARU. */
+.shop-kits {
+	display: grid;
+	gap: var(--space-2);
+	margin: 0 0 var(--space-3);
+}
+
+.shop-kits h3,
+.shop-kits > p {
+	margin: 0;
+}
+
+.shop-kit {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.shop-kit p,
+.shop-kit h4 {
+	margin: 0;
+}
+
+.shop-kit-live {
+	box-shadow: inset 3px 0 0 var(--accent, currentColor);
+}
+
+.shop-kit-price {
+	font-weight: 600;
+}
+
+.shop-kit-cards {
+	font-size: 0.92em;
+	margin: 0;
+	padding-left: 1.2em;
+}
+
+.shop-kit-off {
+	text-decoration: line-through;
+}
+
+.shop-kit-actions {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	margin-top: var(--space-1);
+}
+
+.shop-kit-ask {
+	flex-basis: 100%;
+	font-weight: 600;
+}
+
+.shop-kit-form {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.shop-kit-form p,
+.shop-kit-form .shop-kit-cards {
+	margin: 0;
+}
+
+.shop-kit-label {
+	font-weight: 600;
+}
+
+.shop-kit-description {
+	resize: vertical;
+}
+
+.shop-kit-amount {
+	align-items: center;
+	display: flex;
+	gap: var(--space-2);
+}
+
+.shop-kit-amount .shop-price-input {
+	max-width: 8em;
+}
+
+.shop-kit-unit {
+	font-weight: 600;
+	min-width: 2.5em;
+}
+
+.shop-kit-buttons {
+	display: grid;
+	gap: var(--space-2);
+	grid-template-columns: 1fr 1fr;
+	margin-top: var(--space-1);
+}
+
+.shop-order-kit-name {
+	font-weight: 600;
+}
+
+.shop-order-kit ul {
+	margin: 0;
+	padding-left: 1.2em;
+}
