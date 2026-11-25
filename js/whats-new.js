@@ -23,6 +23,16 @@ export const RELEASES = [
 	{
 		date: '2026-11-25',
 		items: [
+			'A card you own more than once shows how many copies are free beside the count: ×3 | 1 is three copies, one free to trade or sell.',
+			'A copy in a binder pocket, a favorite card, the one copy kept, and a spare you took off sale are not free.',
+			'Check spares, from Spares or Check under Your copies, shows where every copy is and why it counts as free or not.',
+			'I don\'t have this one logs a copy you cannot find as given away in Trades, so your spares and the Shop follow. Undo takes it back.',
+		],
+		version: 'v116',
+	},
+	{
+		date: '2026-11-25',
+		items: [
 			'A binder pocket counts different cards, not copies: ×2 means two different cards fit, however many spares you have.',
 			'Edit pocket and the pocket viewer show each card once, with ×N for its copies.',
 			'A card you own in more than one finish shows a badge for each, such as REG and REV.',
