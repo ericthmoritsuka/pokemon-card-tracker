@@ -17,6 +17,30 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-24
 
+- **v111:** For sale on any copy, one pocket per copy, insert pockets, and holo corners. `c96563c`, `1ada41d`, `792b766`, `1e57e2b`, `113fa61`, `2ebd2d4`, `c55382b`, `f380cd6`, `42bc7a0`, `3720139`
+  - Added (Eric): For sale on HOTARU is a mark on a copy, and the mark is the listing (`plans/hotaru-for-sale-plan.md`).
+    A copy's `for_sale` is true when he puts it up, false when he keeps it, and absent for the spare rule, so a
+    priced spare still lists by itself. The Shop lists, per finish, the spares not marked false plus the copies
+    marked true, even the last copy, one in a binder, or a favorite (For sale beats the star). Edit copy has the box
+    for the owner; taking it off withdraws the copy at once (`withdrawListings`). My Cards tags the copies on
+    HOTARU with a For sale chip under the price, clear of the art's corners.
+  - Added: the Shop's Sell a card I own (search every copy, mark one, price it) and Add and sell (to Sets, then the
+    next Add a copy sheet ticked For sale with a sale price). Its counts are copies: "On HOTARU: N cards, K copies."
+  - Added (Eric): a copy fills one binder pocket at a time; list binders that share a copy show a placeholder where
+    an older or more specific binder uses it, and a hand pick always shows (`1ada41d`). Add to binder lists every
+    binder and says first whether the copy fills its pocket or goes after the list (`extra_cards`, `js/binder-add.js`).
+    Insert a pocket before or after, and remove an empty one, in hand and list binders (a `blank` list edit).
+  - Added: a HOLO corner on holo cards, including unowned holo-only catalog tiles (the set's printings, read once per
+    set), each copy's finish in the binder copy pickers and the tray, and a small English flag for the English
+    stand-in image instead of the caption.
+  - Fixed: the Shop's owner controls (Add sealed products on HOTARU, and the new buttons) stayed hidden when the Shop
+    opened from its address before the session was back; the Shop now hears the owner answer when it comes
+    (`onShopOwner`).
+  - Suite before release: 163 files, 2,404 pass, 4 fail: whats-new (seven items for a cap of six, merged),
+    test-hygiene (an async wait in add-to-binder-browser, now `untilInPage`), twins-browser (the set view's new
+    printings query counted as a twin request; exempted), all fixed in `3720139` and passing alone; and the
+    scan-holder-browser timing flake, 5/5 alone.
+
 - **v110:** own photos on HOTARU, kept list placeholders, and every language on lists. `7d05de3`, `7a86159`, `b3d7363`, `53b8264`, `68d5ffc`, `79175bd`, `e65003c`, `a702b6e`, `312b057`
   - Added: a card the catalog has no picture for is listed on HOTARU with the owner's own photo, copied to
     `own/<photo id>` in the store bucket (`supabase/store-own-pictures.sql`, run by Eric); a photo that cannot be
