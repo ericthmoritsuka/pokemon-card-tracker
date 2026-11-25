@@ -4,6 +4,35 @@
 	margin: 0 0 var(--space-3);
 }
 
+/* Sell a card I own and Add and sell (plans/hotaru-for-sale-plan.md). */
+.shop-sell-more {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	margin: 0 0 var(--space-3);
+}
+
+.shop-sell-list {
+	display: grid;
+	gap: var(--space-2);
+	list-style: none;
+	margin: var(--space-3) 0 0;
+	padding: 0;
+}
+
+.shop-sell-choice {
+	align-items: flex-start;
+	display: flex;
+	flex-direction: column;
+	text-align: left;
+	width: 100%;
+}
+
+.shop-sell-meta {
+	font-size: 0.875rem;
+	font-weight: 400;
+}
+
 .shop-intro,
 .shop-summary {
 	margin: 0 0 var(--space-2);

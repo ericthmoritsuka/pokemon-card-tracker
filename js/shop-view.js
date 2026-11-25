@@ -29,16 +29,17 @@ import {heldCopies} from './binders.js';
 import {loadedSpeciesNames} from './catalog-views.js';
 import {cardIndex, compareNumbers, importApi, indexKey, pricesDue, printedCode, readPriceRecord, savedCardRecords, saveToCardIndex, setFacts, setIdOfCard, setList, shopSetMark, viewingLanguage} from './catalog.js';
 import {listCards, loadDocument, updateCards} from './collection.js';
-import {BASE, errorText, h} from './dom.js';
+import {BASE, errorText, go, h} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {languageLabel} from './languages.js';
 import {finishLabel} from './monprice.js';
 import {applyMove, parsePrice, priceForInput, PRICE_FORM_TEXT} from './moves.js';
 import {addPhotoButton, mainSlide, slideSrc} from './photos/index.js';
 import {euroRates, exchangeRates, extractPrices, finishFits, finishOf, formatBrl, savedEuroRates, savedRates} from './prices.js';
-import {PRICE_FILTERS, groupCopy, groupMark, hasCards, listingRows, orderCheck, ownPicturePath, priceFilter, pricePatches, saleFields, shopGroups, shopTotals, storePicturePath, suggestion, timeLeft, undoPricePatches} from './shop.js';
+import {PRICE_FILTERS, forSalePatches, groupCopy, groupMark, hasCards, listingRows, orderCheck, ownPicturePath, priceFilter, pricePatches, saleFields, shopGroups, shopKey, shopTotals, storePicturePath, suggestion, timeLeft, undoForSalePatches, undoPricePatches} from './shop.js';
 import {setPicker} from './set-picker.js';
-import {checkShopOwner, shopOwnerKnown} from './shop-owner.js';
+import {checkShopOwner, onShopOwner, setAddAndSell, shopOwnerKnown} from './shop-owner.js';
+import {openDialogSheet} from './sheet.js';
 import {announceOrders, cancelOrder, markDelivered, markPaid, openOrders, orderErrorText, receiptLink} from './store-orders.js';
 import {publishErrorText, syncListings, uploadOwnPicture, uploadPicture} from './store-publish.js';
 import {onSyncStatus, syncStatus} from './sync.js';
@@ -147,8 +148,32 @@ export function shopView(root) {
 	const sealedAdmin = h('p', {class: 'shop-sealed-admin', hidden: true, id: 'shop-sealed-admin'},
 		h('a', {class: 'button small', href: HOTARU_ADMIN, id: 'shop-sealed-admin-link'}, 'Add sealed products on HOTARU'));
 
-	checkShopOwner().then((owner) => {
+	// For sale beyond the spares (plans/hotaru-for-sale-plan.md, sections 4
+	// and 5): one of his own copies, or a card added to sell.
+	const sellMore = h('div', {class: 'shop-sell-more', hidden: true, id: 'shop-sell-more'},
+		h('button', {class: 'small', id: 'shop-sell-own', onclick: () => openSellOwn(), type: 'button'}, 'Sell a card I own'),
+		h('button', {class: 'small', id: 'shop-add-sell', onclick: () => {
+			setAddAndSell(true);
+			go('sets');
+			import('./shell.js').then((shell) => shell.toast('Add and sell: find the card, open it, and tap Add. For sale on HOTARU is ticked.', {key: 'add-and-sell', timeout: 0})).catch(() => {});
+		}, type: 'button'}, 'Add and sell'));
+
+	// Opening the Shop ends an Add and sell left unfinished.
+	setAddAndSell(false);
+
+	// The owner's controls, shown at once from the answer kept on the phone,
+	// and as the server answers, now or once the session is back.
+	const drawOwner = (owner) => {
 		sealedAdmin.hidden = owner !== true;
+		sellMore.hidden = owner !== true;
+	};
+	const stopOwner = onShopOwner(drawOwner);
+
+	drawOwner(shopOwnerKnown());
+	checkShopOwner().then((owner) => {
+		if (owner !== null) {
+			drawOwner(owner);
+		}
 	});
 
 	const summary = h('p', {class: 'muted shop-summary', id: 'shop-summary'}, 'Reading your spares…');
@@ -221,6 +246,7 @@ export function shopView(root) {
 		h('div', {class: 'view-head'}, h('h2', null, 'Shop')),
 		h('p', {class: 'muted shop-intro'}, 'Price your spares for HOTARU. Only cards with a price will be offered, and the suggestions stay on this screen.'),
 		sealedAdmin,
+		sellMore,
 		summary,
 		publishLine,
 		ordersBox,
@@ -777,6 +803,137 @@ export function shopView(root) {
 	// holo on a card listed only as Normal, is named by its word, as My Cards
 	// names it (js/cards-view.js), so its row and its HOTARU listing are not
 	// taken for the Normal's.
+	// Sell a card I own: every card, language, and finish of his with a copy
+	// not offered yet, searchable; picking one marks one copy For sale, a
+	// loose one before one in a binder, and shows it in the Shop to price.
+	async function openSellOwn() {
+		let cards;
+		let held;
+
+		try {
+			const [list, doc] = await Promise.all([listCards(), loadDocument()]);
+
+			cards = list;
+			held = heldCopies(doc);
+		}
+		catch (err) {
+			toast(`Your cards could not be read. ${errorText(err)}`);
+
+			return;
+		}
+
+		const offered = new Set(groups.flatMap((group) => group.listed).map((entry) => entry.id));
+		const byKey = new Map();
+
+		for (const entry of cards) {
+			if (offered.has(entry.id)) {
+				continue;
+			}
+
+			const key = shopKey({...entry, catalog: entry.catalog || 'international'});
+
+			if (!byKey.has(key)) {
+				byKey.set(key, {card_id: entry.card_id, catalog: entry.catalog || 'international', entries: [], key, language: entry.language});
+			}
+
+			byKey.get(key).entries.push(entry);
+		}
+
+		const choices = [...byKey.values()].map((choice) => {
+			const info = entryInfo(choice.entries[0], index, viewingLanguage());
+			const finish = finishName(choice.entries[0], choice);
+
+			return {...choice, finish, info, search: fold([info.search, info.name, info.setName, info.number, choice.card_id, languageLabel(choice.language), finish].filter(Boolean).join(' '))};
+		}).sort((a, b) => (a.info.setName || '').localeCompare(b.info.setName || '') || compareNumbers(a.info.number || '', b.info.number || ''));
+
+		const sheet = h('dialog', {'aria-labelledby': 'shop-sell-title', class: 'sheet shop-sell-sheet', id: 'shop-sell-sheet'});
+		const field = h('input', {'aria-label': 'Search your cards', class: 'search', id: 'shop-sell-search', placeholder: 'Search your cards', type: 'search'});
+		const list = h('ul', {class: 'shop-sell-list', id: 'shop-sell-list'});
+		const MAX_SHOWN = 40;
+
+		function drawChoices() {
+			const words = fold(field.value).split(/\s+/).filter(Boolean);
+			const found = choices.filter((choice) => words.every((word) => choice.search.includes(word)));
+
+			list.replaceChildren(...found.slice(0, MAX_SHOWN).map((choice) => {
+				const loose = choice.entries.filter((entry) => !held.has(entry.id)).length;
+				const where = loose ? `${plural(choice.entries.length, 'copy', 'copies')}` : `${plural(choice.entries.length, 'copy', 'copies')}, in a binder`;
+
+				return h('li', null, h('button', {class: 'shop-sell-choice', 'data-key': choice.key, onclick: () => pick(choice), type: 'button'},
+					h('span', {class: 'shop-sell-name'}, choice.info.name),
+					h('span', {class: 'muted shop-sell-meta'}, [choice.info.number ? `#${choice.info.number}` : null, choice.info.setName, languageLabel(choice.language), choice.finish, where].filter(Boolean).join(' · '))));
+			}), found.length > MAX_SHOWN ? h('li', {class: 'muted shop-sell-more-note'}, `${formatCount(found.length - MAX_SHOWN)} more: search to narrow them.`) : '');
+		}
+
+		async function pick(choice) {
+			// A loose copy before one in a binder, and not a favorite's, the
+			// copy added last first.
+			const copy = [...choice.entries].sort((a, b) => Number(held.has(a.id)) - Number(held.has(b.id))
+				|| Number(a.is_favorite === true) - Number(b.is_favorite === true)
+				|| String(b.created_at).localeCompare(String(a.created_at)))[0];
+			const patches = forSalePatches([copy], true);
+			const undo = undoForSalePatches([copy], patches);
+
+			sheet.close();
+
+			try {
+				await updateCards(patches);
+			}
+			catch (err) {
+				toast(`Not marked. ${errorText(err)}`);
+
+				return;
+			}
+
+			await reload();
+
+			const group = groups.find((one) => one.listed.some((entry) => entry.id === copy.id));
+
+			if (group && group.price === null && show === 'priced') {
+				show = 'all';
+				keepShow(show);
+				filter.querySelector('input[value="all"]').checked = true;
+			}
+
+			query = '';
+			search.value = '';
+			drawList();
+
+			const input = group ? document.getElementById(`${rowId(group)}-price`) : null;
+
+			if (input) {
+				input.scrollIntoView({block: 'center'});
+				input.focus();
+			}
+
+			toast(`${choice.info.name} is For sale${held.has(copy.id) ? ': it leaves its binder pocket when it sells' : ''}. ${group && group.price !== null ? 'It goes on HOTARU now.' : 'Give it a price to put it on HOTARU.'}`, {
+				action: () => updateCards(undo).then(reload).then(publish).catch((err) => toast(`Not put back. ${errorText(err)}`)),
+				actionLabel: 'Undo',
+				timeout: 8000,
+			});
+			publish();
+		}
+
+		field.addEventListener('input', drawChoices);
+		sheet.addEventListener('click', (event) => {
+			if (event.target === sheet) {
+				sheet.close();
+			}
+		});
+		sheet.append(
+			h('div', {class: 'sheet-head'},
+				h('h2', {id: 'shop-sell-title'}, 'Sell a card I own'),
+				h('button', {class: 'small', id: 'shop-sell-close', onclick: () => sheet.close(), type: 'button'}, 'Close')),
+			h('p', {class: 'muted'}, 'One copy of the card you pick is marked For sale, even your last one or one in a binder. It leaves your cards when it sells.'),
+			field,
+			list
+		);
+		document.body.append(sheet);
+		drawChoices();
+		openDialogSheet(sheet, {onClose: () => sheet.remove()});
+		field.focus();
+	}
+
 	function finishName(entry, group) {
 		const record = recordOf(group);
 		const matched = record ? finishOf(entry, extractPrices(record)) : null;
@@ -1354,6 +1511,7 @@ export function shopView(root) {
 
 	return () => {
 		alive = false;
+		stopOwner();
 		window.removeEventListener('beforeunload', warnUnsaved);
 		document.removeEventListener('visibilitychange', ordersOnReturn);
 
