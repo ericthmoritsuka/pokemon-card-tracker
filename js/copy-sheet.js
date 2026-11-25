@@ -38,11 +38,12 @@ import {errorText, go, h} from './dom.js';
 import {plural} from './format.js';
 import {catalogFor, copyLanguageCodes, languageLabel} from './languages.js';
 import {FINISHES, finishLabel} from './monprice.js';
-import {isStandardSize} from './prices.js';
+import {formatBrl, isStandardSize} from './prices.js';
 import {setPendingMove} from './moves.js';
 import {CONDITIONS} from './scan/session.js';
 import {openDialogSheet} from './sheet.js';
 import {toast} from './shell.js';
+import {withdrawListings} from './store-publish.js';
 
 // The most copies one Add sheet makes: enough for a box of the same card,
 // few enough that a slip of the thumb cannot add thousands (Q-08).
@@ -502,7 +503,10 @@ function head(title, close) {
 //   places      Map entry id -> binder place, for the placed copies
 //   offline     the card page is showing what the phone saved because
 //               TCGdex failed (finishOptions)
-export function openEditSheet({card, catalog, entries, finishes, offline = false, places = new Map()}) {
+// forSale, given to the shop owner only (js/catalog-views.js), maps each
+// copy's id to {listed, price} as the Shop works it out (js/shop.js
+// listingByCopy): with it, the sheet shows For sale on HOTARU.
+export function openEditSheet({card, catalog, entries, finishes, forSale = null, offline = false, places = new Map()}) {
 	const sheet = sheetElement();
 	const first = entries[0];
 	const many = entries.length > 1;
@@ -540,6 +544,45 @@ export function openEditSheet({card, catalog, entries, finishes, offline = false
 	});
 	// Alike copies are stored in one place (alikeKey).
 	const storage = placePicker({id: 'copy-storage', value: first.storage});
+
+	// For sale on HOTARU (plans/hotaru-for-sale-plan.md; Eric, 2026-11-24:
+	// the mark is the listing). Ticked when the copies are offered now, by
+	// the spare rule or a mark. Changing it marks them (true) or keeps them
+	// (false); left alone, nothing is written and the spare rule goes on.
+	const saleStates = forSale ? entries.map((entry) => forSale.get(entry.id) || {listed: false, price: null}) : null;
+	const saleStart = Boolean(saleStates && saleStates.every((state) => state.listed));
+	const salePrice = saleStates ? (saleStates.find((state) => state.price !== null) || {price: null}).price : null;
+	const saleBox = saleStates ? h('input', {'aria-describedby': 'copy-for-sale-hint', checked: saleStart, class: 'copy-for-sale-box', id: 'copy-for-sale', type: 'checkbox'}) : null;
+	const saleHint = saleStates ? h('p', {class: 'muted copy-for-sale-hint', id: 'copy-for-sale-hint'}) : null;
+	const saleChange = () => (saleBox && saleBox.checked !== saleStart ? {for_sale: saleBox.checked} : {});
+
+	function drawSaleHint() {
+		if (!saleBox) {
+			return;
+		}
+
+		const place = entries.map((entry) => places.get(entry.id)).find(Boolean);
+		const lines = saleBox.checked
+			? [
+				salePrice === null ? 'Not on HOTARU until this finish has a price in the Shop.' : `On HOTARU at ${formatBrl(salePrice)}.`,
+				place ? `It leaves ${placeText(place)} when it sells.` : null,
+				first.is_favorite === true ? 'A favorite: For sale lists it anyway.' : null,
+			]
+			: [saleStart ? 'Kept: it comes off HOTARU when you close this.' : 'Not for sale.'];
+
+		saleHint.textContent = lines.filter(Boolean).join(' ');
+	}
+
+	if (saleBox) {
+		saleBox.addEventListener('change', drawSaleHint);
+		drawSaleHint();
+	}
+
+	const saleField = saleBox
+		? h('div', {class: 'copy-field copy-for-sale'},
+			h('label', {class: 'copy-for-sale-label', for: 'copy-for-sale'}, saleBox, ' For sale on HOTARU'),
+			saleHint)
+		: null;
 
 	// A row of alike copies changes one of them, or all of them. The choice
 	// sits first, named and explained, because a holo among normal copies
@@ -668,6 +711,7 @@ export function openEditSheet({card, catalog, entries, finishes, offline = false
 		field('Finish', 'copy-finish', finish),
 		field('Condition', 'copy-condition', condition),
 		field('Stored in', 'copy-storage', storage.element),
+		saleField,
 		field('Notes', 'copy-notes', notes),
 		error,
 		h('button', {class: 'primary', id: 'copy-save', type: 'submit'}, 'Save')
@@ -685,12 +729,12 @@ export function openEditSheet({card, catalog, entries, finishes, offline = false
 	// What the fields would change, read as they are now; null when
 	// nothing would.
 	function pending() {
-		const patches = targets().map((entry) => ({id: entry.id, patch: changes(entry, catalog, {
+		const patches = targets().map((entry) => ({id: entry.id, patch: {...changes(entry, catalog, {
 			condition: condition.value || null,
 			language: language.value,
 			storage: storage.value(),
 			...(finish.value === startFinish ? {} : finishFields(finish.value, catalog)),
-		})})).filter((item) => Object.keys(item.patch).length);
+		}), ...saleChange()}})).filter((item) => Object.keys(item.patch).length);
 		const typed = notes.value.trim().slice(0, notesMax);
 		const notesBefore = (cardInfoOf(noteSource) || {}).notes || '';
 		const noteChanged = notes.value !== cardNotes && typed !== notesBefore;
@@ -734,10 +778,31 @@ export function openEditSheet({card, catalog, entries, finishes, offline = false
 		}
 	}
 
-	function saved(change) {
-		const n = change.patches.length;
+	// Taken off sale: off HOTARU at once, as the star does, so no order can
+	// come for a copy that is kept (supabase/store-withdraw.sql). Put on
+	// sale: the Shop publishes it the next time it opens.
+	async function afterSale(change) {
+		const kept = change.patches.filter(({patch}) => patch.for_sale === false).map(({id}) => id);
 
-		toast(n ? (n === 1 ? 'Copy saved.' : `${n} copies saved.`) : 'Notes saved.', {
+		if (!kept.length) {
+			return change.patches.some(({patch}) => patch.for_sale === true) ? ' It goes on HOTARU the next time you open the Shop.' : '';
+		}
+
+		try {
+			const gone = await withdrawListings(kept);
+
+			return gone.length ? ` Taken off HOTARU (${plural(gone.length, 'copy', 'copies')}).` : '';
+		}
+		catch {
+			return ' It leaves HOTARU the next time you open the Shop online.';
+		}
+	}
+
+	async function saved(change) {
+		const n = change.patches.length;
+		const sale = await afterSale(change);
+
+		toast(n ? `${n === 1 ? 'Copy saved.' : `${n} copies saved.`}${sale}` : 'Notes saved.', {
 			action: () => unwrite(change).catch((err) => toast(`Could not undo. ${errorText(err)}`)),
 			actionLabel: 'Undo',
 			timeout: UNDO_MS,

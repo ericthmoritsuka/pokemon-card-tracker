@@ -7,6 +7,7 @@ import {
 	cardIndex,
 	compareNumbers,
 	logoImage,
+	printedCode,
 	savedCardRecords,
 	savedCatalog,
 	setDetail,
@@ -40,7 +41,7 @@ import {plainVariantId} from './scan/finish.js';
 import {lensMember, toast} from './shell.js';
 import {memberCards, memberDocumentKept, memberRecords, whenMemberName} from './family.js';
 import {addToWishlist, listWishlist, markedForSale, sparesFor} from './wishlist.js';
-import {salePrice} from './shop.js';
+import {listingByCopy, salePrice, shopGroups} from './shop.js';
 import {checkShopOwner, shopOwnerKnown} from './shop-owner.js';
 import {withdrawListings, withdrawNoticeText} from './store-publish.js';
 import {isCustomId} from './custom-card.js';
@@ -67,9 +68,9 @@ const copiesText = (n) => `${n} ${n === 1 ? 'copy' : 'copies'}`;
 // owner lists cards, and only a copy with a sale price can be listed (the
 // Shop saves the price on every copy of the card, js/shop.js), so nothing
 // is asked otherwise. A copy reserved or sold by an order stays as it is.
-// For sale beats the star (Eric, 2026-11-24): once the For sale mark
-// exists (v110), a copy that carries it stays listed, so markedForSale
-// leaves it out here as it lets it through js/wishlist.js spareEntries.
+// For sale beats the star (Eric, 2026-11-24): a copy marked For sale
+// (v111) stays listed, so markedForSale leaves it out here as it lets it
+// through js/wishlist.js spareEntries.
 async function takeOffHotaru(entries) {
 	const priced = entries.filter((entry) => salePrice(entry) !== null && !markedForSale(entry));
 
@@ -1895,6 +1896,23 @@ export function cardView(root, {lang, cardId}) {
 			// No binder places this time; the copies still show.
 		}
 
+		// For the shop owner, which copies are on HOTARU and at what price,
+		// worked out as the Shop does, for Edit copy's For sale switch
+		// (plans/hotaru-for-sale-plan.md). Nobody else sells, so nobody else
+		// sees the switch.
+		let forSale = null;
+
+		if (!member && shopOwnerKnown() === true) {
+			try {
+				const doc = await loadDocument();
+
+				forSale = listingByCopy(shopGroups(doc.cards || [], {codeOf: printedCode, held: heldCopies(doc)}));
+			}
+			catch {
+				// No switch this time; the copies still show.
+			}
+		}
+
 		if (!alive || run !== copiesRun) {
 			return;
 		}
@@ -2029,6 +2047,7 @@ export function cardView(root, {lang, cardId}) {
 						catalog: catalogFor(lang),
 						entries: group.entries,
 						finishes: finishChoices(variants),
+						forSale,
 						offline: Boolean(unreachable),
 						places: placed,
 					}),

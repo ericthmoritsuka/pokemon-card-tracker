@@ -16,6 +16,7 @@ import {
 	readPriceRecord,
 	savedCardRecords,
 	pictureOf,
+	printedCode,
 	saveToCardIndex,
 	setDetailOnce,
 	setDetails,
@@ -24,7 +25,9 @@ import {
 	viewingLanguage,
 } from './catalog.js';
 import {currentUser} from './auth.js';
-import {listBinders, liveBinders, placements} from './binders.js';
+import {heldCopies, listBinders, liveBinders, placements} from './binders.js';
+import {listedOf, shopGroups} from './shop.js';
+import {shopOwnerKnown} from './shop-owner.js';
 import {offerCardList} from './card-swipe.js';
 import {mainName, namesFor, tileNames, withTwinName} from './catalog-views.js';
 import {recordOf} from './card-info.js';
@@ -503,6 +506,9 @@ export function cardsScreen(root, {
 	let namesMoved = false;
 	// Copies placed in a binder, by entry ID.
 	let placed = new Map();
+	// The ids of the shop owner's copies on HOTARU now (priced and listed,
+	// js/shop.js), each tile with one showing For sale.
+	let onSale = new Set();
 	let rates = savedRates();
 
 	const viewing = viewingLanguage();
@@ -1154,6 +1160,7 @@ export function cardsScreen(root, {
 
 		return withMainPhoto(cardTile({
 			attrs: mini ? {'aria-label': cardLabel(group)} : {},
+			badge: !mini && group.entries.some((entry) => onSale.has(entry.id)) ? 'For sale' : null,
 			price: mini ? null : priceNode(group),
 			art: {
 				count: group.entries.length,
@@ -1687,6 +1694,19 @@ export function cardsScreen(root, {
 		drawnStamps = new Map(entries.map((entry) => [entry.id, stampOf(entry)]));
 	};
 
+	// For sale (plans/hotaru-for-sale-plan.md): only the shop owner sells,
+	// and only a priced copy is offered.
+	async function copiesOnSale() {
+		if (shopOwnerKnown() !== true) {
+			return new Set();
+		}
+
+		const doc = await loadDocument();
+		const groups = shopGroups((doc && doc.cards) || [], {codeOf: printedCode, held: heldCopies(doc)});
+
+		return new Set(groups.filter((group) => group.price !== null).flatMap(listedOf).map((entry) => entry.id));
+	}
+
 	async function load() {
 		const run = ++loadRun;
 		let next;
@@ -1723,6 +1743,11 @@ export function cardsScreen(root, {
 		saved = new Map();
 		savedAll = null;
 		placed = placements(liveBinders(next.binders || []));
+		onSale = readOnly ? new Set() : await copiesOnSale().catch(() => new Set());
+
+		if (!alive || run !== loadRun) {
+			return;
+		}
 		remember();
 
 		if (!readOnly) {

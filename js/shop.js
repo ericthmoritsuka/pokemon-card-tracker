@@ -148,6 +148,23 @@ export const listedOf = (group) => (group && (group.listed || group.spares)) || 
 // else any copy (a group whose spares were all taken off sale).
 export const groupCopy = (group) => listedOf(group)[0] || (group.spares || [])[0] || (group.marked || [])[0] || (group.copies || [])[0];
 
+// Each copy of the groups by id: {listed, price}, whether it is offered and
+// its finish's sale price (null when not priced yet), for the card page's
+// For sale switch (js/copy-sheet.js). A copy in no group is in no listing.
+export function listingByCopy(groups) {
+	const byId = new Map();
+
+	for (const group of groups || []) {
+		const listed = new Set(listedOf(group).map((entry) => entry.id));
+
+		for (const entry of [...(group.copies || []), ...(group.marked || [])]) {
+			byId.set(entry.id, {listed: listed.has(entry.id), price: group.price ?? null});
+		}
+	}
+
+	return byId;
+}
+
 // [{id, patch}] marking copies For sale (true), taking them off (false), or
 // back to today's rule (null). Copies that already say it are left alone.
 export function forSalePatches(entries, value) {

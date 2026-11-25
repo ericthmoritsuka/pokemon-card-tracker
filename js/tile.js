@@ -400,12 +400,15 @@ function metaLine(meta) {
 }
 
 // A whole tile: the art, the name lines, the meta line, and the price
-// (js/price-view.js tilePrice, or noPrice()) last when one is known. route makes it a
+// (js/price-view.js tilePrice, or noPrice()) last when one is known, then a
+// badge, such as For sale (js/cards-view.js), under the art and clear of
+// its corners. route makes it a
 // link into the app; tag 'button' makes a picker tile instead (onclick).
 // names: the nodes catalog-views.js tileNames() makes, or a plain string.
 export function cardTile({
 	art,
 	attrs = {},
+	badge = null,
 	className = '',
 	meta = null,
 	names = [],
@@ -421,6 +424,7 @@ export function cardTile({
 		...nameNodes,
 		meta === null || meta === '' ? null : metaLine(meta),
 		price ? h('span', {class: 'tile-price'}, price) : null,
+		badge ? h('span', {class: 'tile-badge tile-for-sale'}, badge) : null,
 	];
 
 	if (tag === 'button' || !route) {
