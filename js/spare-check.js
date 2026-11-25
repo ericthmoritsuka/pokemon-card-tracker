@@ -20,6 +20,7 @@
 import {copyClaims, heldCopies, liveBinders, pageOfPocket, placements, stagedOf} from './binders.js';
 import {tileKey} from './bulk-edit.js';
 import {isLive} from './collection.js';
+import {freeText} from './format.js';
 import {freeCopyIds, shopGroups} from './shop.js';
 import {favoriteCards, favoriteKey} from './wishlist.js';
 
@@ -165,15 +166,9 @@ export function spareCheck(doc, {codeOf = () => null, only = null} = {}) {
 		.sort((a, b) => (b.free - a.free) || (b.copies - a.copies) || a.key.localeCompare(b.key));
 }
 
-// The badge's and the group's words: "3 copies, 1 free", "3 copies, none
-// free". One copy says "1 copy, free" or "1 copy, not free".
-export function freeText(copies, free) {
-	if (copies === 1) {
-		return free ? '1 copy, free' : '1 copy, not free';
-	}
-
-	return `${copies} copies, ${free ? `${free} free` : 'none free'}`;
-}
+// The badge's and the group's words live in js/format.js, so the tile
+// reads them without this module's imports.
+export {freeText};
 
 // The fields of the trades log entry that says a copy is gone (js/moves.js
 // planMove): a gift, no money, today, with a note naming where it was

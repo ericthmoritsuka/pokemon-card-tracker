@@ -2,7 +2,8 @@
 // and a checklist's owned cards (plans/design-review.md section 4, Badge
 // System). Each corner means one thing everywhere:
 //
-//   top-right     the quantity, ×2 and up, never ×1
+//   top-right     the quantity, ×2 and up, never ×1; on your own cards,
+//                 how many are free beside it on green, ×3 | 1 (qtyBadge)
 //   bottom-left   the language flag, only when the copy's language is not
 //                 the viewing language (js/flags.js), then the finish
 //                 beside it, for anything but the plain print: REV, Poké
@@ -19,6 +20,7 @@
 
 import {BASE, h} from './dom.js';
 import {flagBadge} from './flags.js';
+import {freeText} from './format.js';
 import {isStandardSize} from './prices.js';
 
 // ------------------------------------------------------------ card art
@@ -382,6 +384,21 @@ function statusBadge(code, label) {
 	return h('span', {'aria-label': text, class: `badge badge-status ${status.className}`, role: 'img', title: text}, status.make());
 }
 
+// The quantity, top-right: ×3. With free, the copies free to trade or sell
+// (an integer, on your own cards only; js/shop.js freeCopyIds), their count
+// sits beside it on green, "×3 | 1" (Eric, 2026-11-25: three Scraggy, two in
+// binders, one really spare). None free shows ×3 alone, and the name says
+// both either way. label, when given, names the badge instead.
+export function qtyBadge(count, {free = null, label = null} = {}) {
+	const known = Number.isInteger(free) && free >= 0;
+	const name = label || (known ? freeText(count, Math.min(free, count)) : `${count} copies`);
+	const split = known && free > 0;
+
+	return h('span', {'aria-label': name, class: split ? 'badge badge-qty badge-qty-split' : 'badge badge-qty', role: 'img', title: known ? name : null},
+		split ? h('span', {'aria-hidden': 'true', class: 'qty-all'}, `×${count}`) : `×${count}`,
+		split ? h('span', {'aria-hidden': 'true', class: 'qty-free'}, String(Math.min(free, count))) : null);
+}
+
 // The art with its four corners. languages: the copies' languages; the ones
 // equal to viewing are left out, so a PT copy viewed in PT shows no flag.
 // viewing null shows every language (a picker choosing one physical copy).
@@ -393,6 +410,7 @@ export function tileArt({
 	favorite = false,
 	finish = null,
 	finishes = null,
+	free = null,
 	info,
 	languages = [],
 	src = null,
@@ -412,7 +430,7 @@ export function tileArt({
 	}
 
 	if (count > 1) {
-		frame.append(h('span', {'aria-label': countLabel || `${count} copies`, class: 'badge badge-qty', role: 'img'}, `×${count}`));
+		frame.append(qtyBadge(count, {free, label: countLabel}));
 	}
 
 	if (favorite) {

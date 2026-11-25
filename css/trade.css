@@ -35,3 +35,109 @@
 .favorite-toggle[aria-pressed="true"] {
 	font-weight: 600;
 }
+
+/* Check spares (js/spare-check-view.js): one card per block, its copies
+   under it, each with where it is, why it counts, and I don't have this
+   one. A free copy is marked with a tag in words, not color alone. */
+.check-intro {
+	margin: 0 0 var(--space-2);
+}
+
+.check-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+.check-group {
+	padding: var(--space-3);
+}
+
+.check-head {
+	align-items: center;
+	display: flex;
+	gap: var(--space-3);
+	min-width: 0;
+}
+
+.check-thumb {
+	flex: none;
+	width: 72px;
+}
+
+.check-head-text {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.check-name {
+	font-size: 1rem;
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+.check-meta,
+.check-copy-where,
+.check-copy-why {
+	color: var(--muted);
+	font-size: 14px;
+	line-height: 20px;
+}
+
+.check-count {
+	font-weight: 600;
+}
+
+.check-copies {
+	list-style: none;
+	margin: var(--space-2) 0 0;
+	padding: 0;
+}
+
+.check-copy {
+	align-items: center;
+	border-top: 1px solid var(--border);
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	justify-content: space-between;
+	padding: var(--space-2) 0;
+}
+
+.check-copy-text {
+	display: flex;
+	flex: 1 1 12rem;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.check-copy-what {
+	font-weight: 600;
+}
+
+.check-tag {
+	border: 1px solid var(--field-border);
+	border-radius: 4px;
+	color: var(--text);
+	font-size: 12px;
+	font-weight: 600;
+	padding: 0 4px;
+}
+
+.check-tag.is-free {
+	background: var(--badge-free);
+	border-color: var(--badge-free);
+	color: var(--badge-paper);
+}
+
+.check-gone {
+	flex: none;
+	min-height: var(--target);
+}
+
+.check-more {
+	align-self: center;
+	min-height: var(--target);
+}

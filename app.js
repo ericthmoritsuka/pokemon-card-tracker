@@ -20,6 +20,9 @@
 //                             monprice, Phone check and its two tests
 //   check/reports[/<base>]    Phone check's Sent reports, and one report
 //                             (js/scan-reports-view.js)
+//   trade/check[/<lang>/<cardId>]  Check spares: where every copy is and
+//                             why it is free or not, from Spares and a card
+//                             page (js/spare-check-view.js)
 //   trades, trades/new        Trades and sales: History, and Log a move
 //                             (js/moves-view.js)
 //   stats, family/<userId>/stats  Stats for the collection, from My Cards
@@ -58,6 +61,7 @@ import {scanView} from './js/scan/routes.js';
 import {startSettings} from './js/settings.js';
 import {shopAccountViews, shopRoutes} from './js/shop-view.js';
 import {statsAccountViews, statsRoutes} from './js/stats-view.js';
+import {spareCheckAccountViews, spareCheckRoutes} from './js/spare-check-view.js';
 import {tradeAccountViews, tradeRoutes} from './js/trade-view.js';
 import {closeSheets} from './js/sheet.js';
 import {shellRoute, startShell, toast} from './js/shell.js';
@@ -91,6 +95,7 @@ const ROUTES = [
 	...WISHLIST_ROUTES,
 	...COLLECTIONS_ROUTES,
 	...tradeRoutes,
+	...spareCheckRoutes,
 	...movesRoutes,
 	...statsRoutes,
 	...shopRoutes,
@@ -98,7 +103,7 @@ const ROUTES = [
 
 // Routes whose screen depends on who is signed in, redrawn on sign-in and
 // sign-out.
-const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, unplacedCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...COLLECTIONS_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews, ...movesAccountViews, ...goalAccountViews, ...scanReportAccountViews, ...statsAccountViews, ...shopAccountViews]);
+const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, unplacedCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...COLLECTIONS_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews, ...spareCheckAccountViews, ...movesAccountViews, ...goalAccountViews, ...scanReportAccountViews, ...statsAccountViews, ...shopAccountViews]);
 
 const DEFAULT_ROUTE = 'cards';
 

@@ -52,6 +52,7 @@ const docSpares = (doc) => spareEntries((doc && doc.cards) || [], {held: heldCop
 
 export function tradeView(root) {
 	return cardsScreen(root, {
+		checkRoute: 'trade/check',
 		emptyNode: emptyNode(true),
 		emptyText: () => 'No spares yet.',
 		label: 'your spares',

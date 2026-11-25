@@ -26,7 +26,7 @@ import {
 } from './catalog.js';
 import {currentUser} from './auth.js';
 import {heldCopies, listBinders, liveBinders, placements} from './binders.js';
-import {listedOf, shopGroups} from './shop.js';
+import {freeCopyIds, listedOf, shopGroups} from './shop.js';
 import {shopOwnerKnown} from './shop-owner.js';
 import {offerCardList} from './card-swipe.js';
 import {mainName, namesFor, tileNames, withTwinName} from './catalog-views.js';
@@ -40,7 +40,7 @@ import {BASE, errorText, fromHistory, h, rememberInHistory} from './dom.js';
 import {whenMemberName} from './family.js';
 import {activeFilters, applyFilters, FILTERS, filterBar, MY_CARDS_CHOICE, searchTextOf, sortItems, storageOf, storedEntries} from './filter-bar.js';
 import {flagBadge} from './flags.js';
-import {formatCount, plural} from './format.js';
+import {formatCount, freeText, plural} from './format.js';
 import {languageChip, languageLabel} from './languages.js';
 import {finishLabel} from './monprice.js';
 import {tilePrice} from './price-view.js';
@@ -462,6 +462,8 @@ export function cardsScreen(root, {
 	emptyText = null,
 	// Trade ideas with a member (js/wishlist-view.js tradeIdeasView), beside
 	// their Wishlist.
+	// Check spares (js/spare-check-view.js), on your own Spares.
+	checkRoute = null,
 	ideasRoute = null,
 	label = 'your collection',
 	load: loadEntries,
@@ -509,6 +511,9 @@ export function cardsScreen(root, {
 	// The ids of the shop owner's copies on HOTARU now (priced and listed,
 	// js/shop.js), each tile with one showing For sale.
 	let onSale = new Set();
+	// The ids of your copies free to trade or sell (js/shop.js freeCopyIds),
+	// for the tiles' "×3 | 1", or null on a family member's cards.
+	let freeIds = null;
 	let rates = savedRates();
 
 	const viewing = viewingLanguage();
@@ -1090,7 +1095,7 @@ export function cardsScreen(root, {
 			group.setName,
 			languageLabel(group.language),
 			finish,
-			plural(group.entries.length, 'copy', 'copies'),
+			group.entries.length > 1 && freeOf(group) !== null ? freeText(group.entries.length, freeOf(group)) : plural(group.entries.length, 'copy', 'copies'),
 			isFavorite(group) ? 'favorite' : null,
 			value,
 		].filter(Boolean).join(', ');
@@ -1107,11 +1112,12 @@ export function cardsScreen(root, {
 	// badge rule, never ×1.
 	function rowFacts(group, finish) {
 		const count = group.entries.length;
+		const free = freeOf(group);
 
 		return [
 			rowLanguage(group.language),
 			finish,
-			count > 1 ? h('span', {class: 'row-qty'}, `×${count}`) : null,
+			count > 1 ? h('span', {class: 'row-qty'}, free ? `×${count}, ${formatCount(free)} free` : `×${count}`) : null,
 			isFavorite(group) ? h('span', {class: 'row-fav'}, '★') : null,
 		];
 	}
@@ -1166,6 +1172,7 @@ export function cardsScreen(root, {
 				count: group.entries.length,
 				favorite: group.entries.some((entry) => entry.is_favorite === true),
 				finish: groupFinish(group.entries, variantsOf(group)),
+				free: freeOf(group),
 				info,
 				languages: [group.language],
 				src: tileSrc(group.entries, catalogSrc, {family: !readOnly, records: loadRecords(), twins: group.twins}),
@@ -1694,17 +1701,53 @@ export function cardsScreen(root, {
 		drawnStamps = new Map(entries.map((entry) => [entry.id, stampOf(entry)]));
 	};
 
-	// For sale (plans/hotaru-for-sale-plan.md): only the shop owner sells,
-	// and only a priced copy is offered.
-	async function copiesOnSale() {
-		if (shopOwnerKnown() !== true) {
-			return new Set();
+	// From one read of the whole document: the copies free to trade or sell
+	// (js/shop.js freeCopyIds), and For sale (plans/hotaru-for-sale-plan.md),
+	// where only the shop owner sells and only a priced copy is offered.
+	// The whole document, because Spares draws only the spares.
+	async function copyState() {
+		const doc = await loadDocument();
+		const shop = shopGroups((doc && doc.cards) || [], {codeOf: printedCode, held: heldCopies(doc)});
+
+		return {
+			free: freeCopyIds(null, {groups: shop}),
+			onSale: shopOwnerKnown() === true ? new Set(shop.filter((group) => group.price !== null).flatMap(listedOf).map((entry) => entry.id)) : new Set(),
+		};
+	}
+
+	// How many of a tile's copies are free, or null on a family member's
+	// cards (js/tile.js qtyBadge).
+	function freeOf(group) {
+		return freeIds ? group.entries.filter((entry) => freeIds.has(entry.id)).length : null;
+	}
+
+	// A copy, a binder, a hand pick, or a star changes which copies are free
+	// without always changing the copies on screen, so after every change
+	// both sets are worked out again and the tiles they change drawn again.
+	function refreshCopyState() {
+		if (readOnly) {
+			return;
 		}
 
-		const doc = await loadDocument();
-		const groups = shopGroups((doc && doc.cards) || [], {codeOf: printedCode, held: heldCopies(doc)});
+		const run = loadRun;
 
-		return new Set(groups.filter((group) => group.price !== null).flatMap(listedOf).map((entry) => entry.id));
+		copyState().then((next) => {
+			if (!alive || run !== loadRun || !ready) {
+				return;
+			}
+
+			const moved = (before, after) => (entry) => Boolean(before && before.has(entry.id)) !== after.has(entry.id);
+			const freeMoved = moved(freeIds, next.free);
+			const saleMoved = moved(onSale, next.onSale);
+			const keys = new Set(groups.filter((group) => group.entries.some((entry) => freeMoved(entry) || saleMoved(entry))).map((group) => group.key));
+
+			freeIds = next.free;
+			onSale = next.onSale;
+
+			if (keys.size && body.contains(grid)) {
+				redraw(keys);
+			}
+		}).catch(() => {});
 	}
 
 	async function load() {
@@ -1743,7 +1786,7 @@ export function cardsScreen(root, {
 		saved = new Map();
 		savedAll = null;
 		placed = placements(liveBinders(next.binders || []));
-		onSale = readOnly ? new Set() : await copiesOnSale().catch(() => new Set());
+		({free: freeIds, onSale} = readOnly ? {free: null, onSale: new Set()} : await copyState().catch(() => ({free: null, onSale: new Set()})));
 
 		if (!alive || run !== loadRun) {
 			return;
@@ -1974,6 +2017,8 @@ export function cardsScreen(root, {
 			setPlaces(storedPlaces(doc).map((place) => place.name));
 		}
 
+		refreshCopyState();
+
 		// Copies new to the screen, or moved to another card or language, and
 		// the tiles any change touches (a moved copy touches two).
 		const added = [];
@@ -2080,7 +2125,8 @@ export function cardsScreen(root, {
 	const wishLink = wishlistRoute ? h('a', {class: 'button small view-head-link', 'data-link': wishlistRoute, href: BASE + wishlistRoute, id: 'cards-wishlist'}, 'Wishlist') : null;
 	// Spares and Trades are in the bar's tools on your own My Cards.
 	const ideasLink = ideasRoute ? h('a', {class: 'button small view-head-link', 'data-link': ideasRoute, href: BASE + ideasRoute, id: 'cards-ideas'}, 'Trade ideas') : null;
-	const headLinks = (tools ? [wishLink] : [tradeLink, movesLink, wishLink, ideasLink]).filter(Boolean);
+	const checkLink = checkRoute && !readOnly ? h('a', {class: 'button small view-head-link', 'data-link': checkRoute, href: BASE + checkRoute, id: 'cards-check'}, 'Check spares') : null;
+	const headLinks = (tools ? [wishLink] : [checkLink, tradeLink, movesLink, wishLink, ideasLink]).filter(Boolean);
 	const links = headLinks.length > 1 ? h('div', {class: 'view-head-links'}, ...headLinks) : headLinks[0] || null;
 	const heading = h('div', {class: tools ? 'view-head cards-head' : 'view-head'}, h('h2', null, title), links);
 
