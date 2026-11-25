@@ -130,7 +130,7 @@ const sheetFits = (page) => page.evaluate(() => {
 });
 
 describe('a finish the catalog does not list', () => {
-	test('a copy shown as 1st Edition is set to Holo (not listed), saved on close, and loses its 1st corner', async () => {
+	test('a copy shown as 1st Edition is set to Holo (not listed), saved on close, and loses its 1st corner and gets HOLO', async () => {
 		const {done, page} = await phone();
 
 		// As an import of a monprice 1st Edition row stores it, matched to
@@ -175,10 +175,13 @@ describe('a finish the catalog does not list', () => {
 		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
 		assert.equal((await entries(page))[0].updated_at, entry.updated_at);
 
-		// My Cards: no 1st corner (a plain holo gets none).
+		// My Cards: no 1st corner. A holo gets its own, HOLO (Eric,
+		// 2026-11-24).
 		await page.goto(url('cards'));
 		await page.waitForSelector('.card-grid .tile');
-		assert.equal(await page.locator('.card-grid .tile .badge-finish').count(), 0);
+		assert.equal(await page.locator('.card-grid .tile .badge-finish').count(), 1);
+		assert.equal(await page.locator('.card-grid .tile .badge-finish').textContent(), 'HOLO');
+		assert.equal(await page.locator('.card-grid .tile .badge-finish').getAttribute('aria-label'), 'Holo');
 
 		// Back to the catalog's printing: the word goes.
 		await page.goto(url(`cards/en/${FIRST_ONLY.id}`));

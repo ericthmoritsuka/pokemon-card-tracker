@@ -10,6 +10,7 @@ import {
 	printedCode,
 	savedCardRecords,
 	savedCatalog,
+	setCards,
 	setDetail,
 	setList,
 	setViewingLanguage,
@@ -32,7 +33,7 @@ import {copyPriceText, priceSection} from './price-view.js';
 import {sizeName} from './prices.js';
 import {readChoice, saveChoice} from './settings.js';
 import {valueButton} from './value-sheet.js';
-import {cardArt, cardTile, forgetImage, groupFinish} from './tile.js';
+import {cardArt, cardTile, forgetImage, groupFinish, printFinish} from './tile.js';
 import {cardPhotos, imageCardKey, onImagesChange, tileSrc, withMainPhoto} from './photos/index.js';
 import {cardFileStem} from './photos/save.js';
 import {loadTwins, onTwinsChange, twinKey, twinName, twinSlides, twinState} from './twins.js';
@@ -684,7 +685,9 @@ export function setsView(root) {
 		// photos and pin, or the card's record at zero copies.
 		const target = mine ? mine.entries : {catalog: card.catalog, card_id: card.id, language: card.lang};
 		const official = cardImage(card.image, 'low');
-		let art = {info, languages: card.catalog === 'international' ? [] : [card.lang], src: tileSrc(target, official, imageOptions()), viewing: lang};
+		// A card nobody owns shows HOLO when holo is its only printing
+		// (js/tile.js printFinish), which a card on offer is checked against.
+		let art = {finish: printFinish(card), info, languages: card.catalog === 'international' ? [] : [card.lang], src: tileSrc(target, official, imageOptions()), viewing: lang};
 		let status = null;
 
 		if (mine) {
@@ -826,6 +829,12 @@ export function setView(root, {lang, setId}) {
 
 	let owned = new Map();
 	let shown = null;
+	// The set's cards with their printings ({cardId: record}, js/catalog.js
+	// setCards), for the HOLO corner of a card nobody owns. Null until they
+	// arrive, or when they cannot (offline and never loaded): those tiles
+	// then show no finish.
+	let prints = null;
+	let printsFor = null;
 	let show = readChoice(SET_FILTER_KEY, SET_FILTERS.map((option) => option.value), 'all');
 	// A card counts as owned when a copy is in the set's language, or with
 	// Owned: Any language on the Sets tab, in any (DESIGN.md section 3).
@@ -967,7 +976,7 @@ export function setView(root, {lang, setId}) {
 			// or of the card's record at zero copies.
 			const target = copies ? copies.entries : {catalog: catalogFor(cardLang), card_id: card.id, language: cardLang};
 			const official = cardImage(card.image, 'low');
-			let art = {info, src: tileSrc(target, official, imageOptions())};
+			let art = {finish: mine ? null : printFinish(prints && prints[card.id]), info, src: tileSrc(target, official, imageOptions())};
 			let status = null;
 
 			if (mine) {
@@ -1001,6 +1010,31 @@ export function setView(root, {lang, setId}) {
 
 		grid.replaceChildren(...tiles.map((tile) => tile.node));
 		offerCardList(tiles.map((tile) => tile.route), set.name);
+	}
+
+	// Asks once per catalog for the set's printings, after the tiles are
+	// drawn, and draws them again when they arrive. A failure leaves the
+	// tiles as they are.
+	function loadPrints(cardLang) {
+		const catalog = catalogFor(cardLang);
+
+		if (printsFor === catalog) {
+			return;
+		}
+
+		printsFor = catalog;
+
+		const take = (data) => {
+			if (alive && printsFor === catalog) {
+				prints = data;
+
+				if (shown) {
+					draw(...shown);
+				}
+			}
+		};
+
+		setCards(catalog, setId, take).then(({data}) => take(data), () => {});
 	}
 
 	async function load() {
@@ -1044,11 +1078,13 @@ export function setView(root, {lang, setId}) {
 				note.className = 'notice';
 				note.hidden = false;
 				draw(set, english.cards || [], 'en');
+				loadPrints('en');
 
 				return;
 			}
 
 			draw(set, cards, lang);
+			loadPrints(lang);
 		}
 		catch (err) {
 			if (alive) {

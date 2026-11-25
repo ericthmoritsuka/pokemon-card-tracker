@@ -6,7 +6,7 @@
 //   bottom-left   the language flag, only when the copy's language is not
 //                 the viewing language (js/flags.js), then the finish
 //                 beside it, for anything but the plain print: REV, Poké
-//                 Ball, Master Ball (M), 1st. Both sit over the card's
+//                 Ball, Master Ball (M), 1st, HOLO. Both sit over the card's
 //                 illustrator and copyright strip, clear of its printed
 //                 name (design review 2, 2026-11-20: the flag covered it).
 //   bottom-right  one status, first match wins: ? (not sure), waiting (not
@@ -19,6 +19,7 @@
 
 import {BASE, h} from './dom.js';
 import {flagBadge} from './flags.js';
+import {isStandardSize} from './prices.js';
 
 // ------------------------------------------------------------ card art
 
@@ -205,20 +206,27 @@ export function cardArt(info, src, {decorative = false, eager = false} = {}) {
 
 // ------------------------------------------------------------- finishes
 
-// The finishes that get a corner, by code. The plain print, and holo (the
-// plain print of a holo rare), get none.
+// The finishes that get a corner, by code. The plain print gets none. Holo
+// got none either, by a design review decision (holo is the plain print of
+// a holo rare), until Eric reversed it for holo only on 2026-11-24: a holo
+// copy shows HOLO as a reverse one shows REV, because when he buys a card
+// whose copy is holo and the one on offer is not, something is wrong.
 export const FINISHES = {
 	first: {label: '1st Edition', text: '1st'},
+	holo: {label: 'Holo', text: 'HOLO'},
 	masterball: {ball: 'masterball', label: 'Master Ball pattern', text: 'M'},
 	pokeball: {ball: 'pokeball', label: 'Poké Ball pattern', text: ''},
 	reverse: {label: 'Reverse holo', text: 'REV'},
 };
 
-// monprice's finish words (js/monprice.js FINISHES) to a code.
-const MONPRICE_FINISHES = {FIRST_EDITION: 'first', REVERSE_HOLOFOIL: 'reverse'};
+// monprice's finish words (js/monprice.js FINISHES) to a code. Both holo
+// words are the holo print (js/monprice.js resolveFinish reads them alike).
+const MONPRICE_FINISHES = {FIRST_EDITION: 'first', HOLOFOIL: 'holo', REVERSE_HOLOFOIL: 'reverse', UNLIMITED_HOLOFOIL: 'holo'};
 
 // A TCGdex variants_detailed entry to a finish code, or null for the plain
-// print. Ball patterns win over the reverse they are printed on.
+// print. One corner names one finish, so the order is the precedence: a
+// ball pattern wins over the reverse it is printed on, the 1st Edition
+// stamp over the reverse and the holo, and a reverse over a holo.
 export function variantFinish(variant) {
 	if (!variant) {
 		return null;
@@ -232,7 +240,27 @@ export function variantFinish(variant) {
 		return 'first';
 	}
 
-	return String(variant.type || '').toLowerCase() === 'reverse' ? 'reverse' : null;
+	const type = String(variant.type || '').toLowerCase();
+
+	if (type === 'reverse') {
+		return 'reverse';
+	}
+
+	return type === 'holo' ? 'holo' : null;
+}
+
+// The finish a tile shows for a card that is not owned, from its TCGdex
+// record: HOLO when every printing of the card itself is holo, so that
+// whoever is about to buy a copy can tell a holo print from a plain one.
+// Null when the card has any other printing (normal, reverse, or a ball
+// pattern), because the copy on offer could be that one, and null when the
+// record lists no printings. A stamped printing (1st Edition, a prerelease
+// or staff stamp) and a jumbo one are other products, so they do not count.
+export function printFinish(record) {
+	const list = record && Array.isArray(record.variants_detailed) ? record.variants_detailed : [];
+	const prints = list.filter((variant) => variant && isStandardSize(variant) && !(variant.stamp || []).length);
+
+	return prints.length && prints.every((variant) => variantFinish(variant) === 'holo') ? 'holo' : null;
 }
 
 // One copy's finish code. The variant ID alone is opaque (a TCGdex ID), so
@@ -307,7 +335,10 @@ export const STATUSES = {
 	wanted: {className: 'badge-wanted', label: 'On a wishlist', make: () => glyph(HEART)},
 };
 
-function finishBadge(code) {
+// The finish corner as a badge node, or null for the plain print. tileArt
+// puts it in a tile's corner; a copy picker whose art is not a tile (the
+// tray strip, the card in hand) lays it over the art itself.
+export function finishBadge(code) {
 	const finish = FINISHES[code];
 
 	if (!finish) {
