@@ -379,6 +379,7 @@ describe('Shop publishing', () => {
 		await page.locator('#shop-sell-sheet[open]').waitFor(TIMEOUT);
 		await page.fill('#shop-sell-search', 'Bulbasaur');
 		await page.waitForFunction(() => document.querySelectorAll('#shop-sell-list .shop-sell-choice').length === 1, null, TIMEOUT);
+		await page.waitForTimeout(400);
 		await page.screenshot({path: `${SHOTS}/shop-sell-own.png`});
 		await page.click('#shop-sell-list .shop-sell-choice');
 		await page.locator('#shop-sell-sheet').waitFor({state: 'detached', ...TIMEOUT});
@@ -408,6 +409,8 @@ describe('Shop publishing', () => {
 		await page.locator('#copy-add-for-sale').waitFor(TIMEOUT);
 		assert.equal(await page.isChecked('#copy-add-for-sale'), true);
 		await page.fill('#copy-add-sale-price', '7,50');
+		await page.locator('#copy-add-sale-price').scrollIntoViewIfNeeded();
+		await page.waitForTimeout(400);
 		await page.screenshot({path: `${SHOTS}/shop-add-and-sell.png`});
 		await page.click('#copy-add-save');
 		await page.waitForFunction(() => [...document.querySelectorAll('.toast-text')].some((node) => node.textContent.includes('For sale: it goes on HOTARU')), null, TIMEOUT);
