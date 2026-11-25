@@ -17,6 +17,26 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-24
 
+- **v110:** own photos on HOTARU, kept list placeholders, and every language on lists. `7d05de3`, `7a86159`, `b3d7363`, `53b8264`, `68d5ffc`, `79175bd`, `e65003c`, `a702b6e`, `312b057`
+  - Added: a card the catalog has no picture for is listed on HOTARU with the owner's own photo, copied to
+    `own/<photo id>` in the store bucket (`supabase/store-own-pictures.sql`, run by Eric); a photo that cannot be
+    read, or reads empty, is not sent. The Shop offers Add a listing picture for a card with none, reads again the
+    sets of cards saved before TCGdex pictured them, and reads the catalog records the phone lacks (the import was
+    shadowed by the Shop's own `fillRecords`, so it never ran; now `fillCardRecords`).
+  - Changed: a hand-made copy of a catalog card counts with it in the Shop (`catalogTwins`), and a copy saved with
+    no catalog counts as international. A hand-made and a scanned reverse of one card stay two rows until the
+    copy's finish is picked on its sheet (DESIGN.md, The Shop on HOTARU).
+  - Fixed: a price typed the moment the Shop opened was lost, because the list was drawn again under the field;
+    the field being typed in now keeps the focus and the caret.
+  - Added (Eric): in a binder made from a list, Not this copy here, Keep the placeholder, and Extra pages after the
+    list (`binder_picks.skipped`, `extra_pages`).
+  - Changed: lists count every language unless some are picked (an untouched Portuguese-only list opens up once),
+    and Japanese and Chinese prints with no Pokédex number, and hand-made cards, count on lists and fill list
+    binders (`dex_number`, `dexFromName`).
+  - Suite before release: 161 files, 2,348 pass, 2 fail: stats-browser (its Kanto list now picks Portuguese by
+    hand, `a702b6e`, 4/4) and test-hygiene (two async waits now poll with `untilInPage`, `312b057`; test-hygiene
+    6/6, binder-rules 44/44, custom-cards-browser 5/5).
+
 - **v109:** open orders on the Shop bag, set codes, and prices per finish. `9de38d9`, `bf7fce3`, `6875845`, `f644b0a`, `01dcb7d`, `1e4c27c`, `491fd3f`, `08e7b81`
   - Added: the header's Shop bag counts HOTARU's open orders (waiting for payment or for delivery), read when
     the app opens and comes back to the front, every 5 minutes while in front, and at once when the Shop pays,
