@@ -106,7 +106,7 @@ export function alikeFields(entry) {
 	};
 
 	// A hand-made card's own facts ride on every copy (js/custom-card.js).
-	for (const key of ['condition', 'storage', 'fallback', 'name_local', 'set_name_local', 'number_local', 'set_code']) {
+	for (const key of ['condition', 'storage', 'fallback', 'name_local', 'set_name_local', 'number_local', 'set_code', 'dex_number']) {
 		if (entry[key]) {
 			fields[key] = entry[key];
 		}

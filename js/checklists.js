@@ -34,6 +34,7 @@ import {
 	sortLanguages,
 } from './languages.js';
 import {nextStamp, restoreEntry, stampEntry} from './merge.js';
+import {dexFromName, dexFromNames} from './names.js';
 import {byCreated, orderForNew, sortByOrder, withOrders} from './reorder.js';
 import {fetchJson, graphql, pool} from './tcgdex.js';
 
@@ -273,8 +274,9 @@ export async function createChecklist({dex_list = null, kind, name, target = nul
 		hand_ticks: {},
 		id: newId(),
 		kind,
-		// A new list counts its languages, Portuguese to start (js/languages.js).
-		languages: [...NEW_LIST_LANGUAGES],
+		// A new list names no languages, so it counts every copy until its
+		// languages are picked (js/languages.js NEW_LIST_LANGUAGES).
+		...(NEW_LIST_LANGUAGES ? {languages: [...NEW_LIST_LANGUAGES]} : {}),
 		level: null,
 		name: String(name || '').trim() || defaultName(kind, target),
 		target: kind === 'region' ? target : null,
@@ -329,8 +331,8 @@ export const deleteChecklist = (id) => changeChecklist(id, (goal) => {
 // (js/binder-sources.js; Eric, 2026-11-05). Stored on the goal as languages, a list of language codes.
 // A list with none names no languages and counts a copy in any language:
 // the lists made before languages decided ticks keep counting as they did
-// (plans/roadmap.md, "Open Decisions for Eric"). A new checklist starts with
-// Portuguese. The rules are js/languages.js's.
+// (plans/roadmap.md, "Open Decisions for Eric"), and so does a new list
+// until its languages are picked. The rules are js/languages.js's.
 
 export const ALL_LIST_LANGUAGES = LIST_LANGUAGE_CODES;
 
@@ -615,15 +617,54 @@ export function tallyOwned(entries, dexOf) {
 // limit). force skips the wait after a failed download (Try again).
 // onProgress({stage: 'list'}) runs before the bulk download and
 // onProgress({stage: 'cards', done, total}) as single cards come in.
+// A card's Pokédex numbers from its TCGdex record: its dexId, or for a
+// Japanese, Korean, or Chinese print whose record has none (SV7a-019
+// ラティアスex, Eric's Latias, 2026-11-24), the numbers its printed name
+// gives (js/names.js dexFromName), read from the species names saved on the
+// phone. A twin cannot lend them: twins are matched on dexId (js/twins.js).
+async function recordDex(detail, catalog) {
+	const own = Array.isArray(detail.dexId) ? detail.dexId.filter(validDex) : [];
+
+	if (own.length || !catalog || catalog === 'international' || detail.category !== 'Pokemon') {
+		return own;
+	}
+
+	const tables = await speciesNames().catch(() => null);
+
+	return dexFromName({category: detail.category, lang: catalogLanguage(catalog), name: detail.name}, tables).filter(validDex);
+}
+
+// A hand-made card's Pokédex numbers (js/custom-card.js): the Pokémon picked
+// on its form, else what its name reads as in any language, "古空棘鱼" or
+// "Relicanth" (Eric's hand-made Gem Pack Relicanth, 2026-11-24); else none.
+async function customDex(entry) {
+	if (validDex(entry.dex_number)) {
+		return [entry.dex_number];
+	}
+
+	const tables = await speciesNames().catch(() => null);
+
+	return dexFromNames(entry.name_local, [entry.language].filter(Boolean), tables).filter(validDex);
+}
+
 export async function resolveOwned(entries, {force = false, isAlive = () => true, onProgress = () => {}} = {}) {
 	const live = entries.filter((entry) => isLive(entry) && entry.card_id);
 	const cards = new Map();
+	const known = new Map();
 
 	for (const entry of live) {
+		if (entry.catalog === 'custom') {
+			// Every copy carries the card's fields; the first one read stands.
+			if (!known.has(cardKey(entry))) {
+				known.set(cardKey(entry), await customDex(entry));
+			}
+
+			continue;
+		}
+
 		cards.set(cardKey(entry), {cardId: entry.card_id, catalog: entry.catalog, language: entry.language});
 	}
 
-	const known = new Map();
 	const international = [...cards.values()].filter((card) => card.catalog === 'international').map((card) => card.cardId);
 	const index = await cardIndex().catch(() => new Map());
 	const pending = new Set(international.filter((id) => dexPending(index.get(indexKey('international', id)))));
@@ -651,7 +692,7 @@ export async function resolveOwned(entries, {force = false, isAlive = () => true
 			const detail = saved.get(indexKey(card.catalog || 'international', card.cardId));
 
 			if (detail) {
-				known.set(key, Array.isArray(detail.dexId) ? detail.dexId.filter(validDex) : []);
+				known.set(key, await recordDex(detail, card.catalog));
 			}
 		}
 	}
@@ -681,7 +722,7 @@ export async function resolveOwned(entries, {force = false, isAlive = () => true
 				const detail = await cardDetailShared(lang, card.cardId);
 
 				if (detail) {
-					known.set(key, Array.isArray(detail.dexId) ? detail.dexId.filter(validDex) : []);
+					known.set(key, await recordDex(detail, card.catalog));
 					break;
 				}
 			}

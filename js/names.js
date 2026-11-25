@@ -102,16 +102,19 @@ const PREFIXES = {
 	],
 };
 
-// Rotom's appliance forms are names of their own, not prefixes, so they are
-// matched whole (PokeAPI form names, 2026-10-01).
-const ROTOM = 479;
-
+// Forms that are names of their own, not prefixes, so they are matched
+// whole: Rotom's appliance forms (PokeAPI form names, 2026-10-01), and Black
+// and White Kyurem (TCGdex, 2026-11-24: CP2-020 ブラックキュレム and CP2-021
+// ホワイトキュレム carry dexId 646, English cards read "Black Kyurem ex", and
+// the Traditional Chinese SV7a-011 reads 闇黑酋雷姆ex).
 const FORMS = [
-	{en: 'Heat Rotom', ja: 'ヒートロトム', ko: '히트로토무', 'zh-hans': '加热洛托姆', 'zh-hant': '加熱洛托姆'},
-	{en: 'Wash Rotom', ja: 'ウォッシュロトム', ko: '워시로토무', 'zh-hans': '清洗洛托姆', 'zh-hant': '清洗洛托姆'},
-	{en: 'Frost Rotom', ja: 'フロストロトム', ko: '프로스트로토무', 'zh-hans': '结冰洛托姆', 'zh-hant': '結冰洛托姆'},
-	{en: 'Fan Rotom', ja: 'スピンロトム', ko: '스핀로토무', 'zh-hans': '旋转洛托姆', 'zh-hant': '旋轉洛托姆'},
-	{en: 'Mow Rotom', ja: 'カットロトム', ko: '커트로토무', 'zh-hans': '切割洛托姆', 'zh-hant': '切割洛托姆'},
+	{en: 'Heat Rotom', ja: 'ヒートロトム', ko: '히트로토무', n: 479, 'zh-hans': '加热洛托姆', 'zh-hant': '加熱洛托姆'},
+	{en: 'Wash Rotom', ja: 'ウォッシュロトム', ko: '워시로토무', n: 479, 'zh-hans': '清洗洛托姆', 'zh-hant': '清洗洛托姆'},
+	{en: 'Frost Rotom', ja: 'フロストロトム', ko: '프로스트로토무', n: 479, 'zh-hans': '结冰洛托姆', 'zh-hant': '結冰洛托姆'},
+	{en: 'Fan Rotom', ja: 'スピンロトム', ko: '스핀로토무', n: 479, 'zh-hans': '旋转洛托姆', 'zh-hant': '旋轉洛托姆'},
+	{en: 'Mow Rotom', ja: 'カットロトム', ko: '커트로토무', n: 479, 'zh-hans': '切割洛托姆', 'zh-hant': '切割洛托姆'},
+	{en: 'Black Kyurem', ja: 'ブラックキュレム', n: 646, 'zh-hant': '闇黑酋雷姆'},
+	{en: 'White Kyurem', ja: 'ホワイトキュレム', n: 646},
 ];
 
 // ------------------------------------------------------- name lookup
@@ -121,31 +124,52 @@ const FORMS = [
 const norm = (text) => String(text).normalize('NFKC').replace(/[\s・·]/g, '').toLowerCase();
 
 const reverse = new WeakMap();
+const clashes = new WeakMap();
 
-// Map normalized name -> dex number, for one language of the tables.
+// Map normalized name -> dex number, for one language of the tables. The
+// first species keeps a name two share; clashing (below) lists those names,
+// so a Pokédex number is never guessed between them (dexFromName).
 function byName(tables, language) {
 	let maps = reverse.get(tables);
 
 	if (!maps) {
 		maps = {};
 		reverse.set(tables, maps);
+		clashes.set(tables, {});
 	}
 
 	if (!maps[language]) {
 		const map = new Map();
+		const shared = new Set();
 		const names = tables[language] || [];
 
 		for (let n = 1; n < names.length; n++) {
-			if (names[n] && !map.has(norm(names[n]))) {
-				map.set(norm(names[n]), n);
+			if (!names[n]) {
+				continue;
+			}
+
+			const key = norm(names[n]);
+
+			if (map.has(key)) {
+				shared.add(key);
+			}
+			else {
+				map.set(key, n);
 			}
 		}
 
 		maps[language] = map;
+		clashes.get(tables)[language] = shared;
 	}
 
 	return maps[language];
 }
+
+const clashing = (tables, language, key) => {
+	byName(tables, language);
+
+	return clashes.get(tables)[language].has(key);
+};
 
 // PokeAPI writes Farfetch’d with a curly apostrophe; English cards (and Liga)
 // use the straight one.
@@ -161,15 +185,15 @@ function resolveOne(text, language, tables, dexIds) {
 	}
 
 	for (const form of FORMS) {
-		if (form[language] && norm(form[language]) === key && (!dexIds.length || dexIds.includes(ROTOM))) {
-			return {english: form.en, n: ROTOM, reading: null};
+		if (form[language] && norm(form[language]) === key && (!dexIds.length || dexIds.includes(form.n))) {
+			return {clash: false, english: form.en, n: form.n, reading: null};
 		}
 	}
 
 	const n = byName(tables, language).get(key);
 
 	if (n && englishSpecies(tables, n) && (!dexIds.length || dexIds.includes(n))) {
-		return {english: englishSpecies(tables, n), n, reading: (language === 'ja' && tables['ja-roma'] && tables['ja-roma'][n]) || null};
+		return {clash: clashing(tables, language, key), english: englishSpecies(tables, n), n, reading: (language === 'ja' && tables['ja-roma'] && tables['ja-roma'][n]) || null};
 	}
 
 	return null;
@@ -183,7 +207,7 @@ function resolveBase(base, language, tables, dexIds, depth = 0) {
 	const whole = resolveOne(base, language, tables, dexIds);
 
 	if (whole) {
-		return {english: whole.english, prefixes: [], reading: whole.reading};
+		return {clash: Boolean(whole.clash), english: whole.english, n: whole.n, prefixes: [], reading: whole.reading};
 	}
 
 	if (depth >= 2) {
@@ -211,7 +235,9 @@ function resolveBase(base, language, tables, dexIds, depth = 0) {
 
 		if (inner) {
 			return {
+				clash: inner.clash,
 				english: [english, inner.english, form].filter(Boolean).join(' '),
+				n: inner.n,
 				prefixes: [local, ...inner.prefixes],
 				reading: inner.reading === null ? null : [inner.reading, form].filter(Boolean).join(' '),
 			};
@@ -229,8 +255,15 @@ function resolveBase(base, language, tables, dexIds, depth = 0) {
 //   category  TCGdex's Pokemon, Trainer, or Energy, when known
 // Returns {english, prefixes, reading, suffix} or null, where reading is the
 // ja-roma name with its prefixes and suffix still to be added.
-export function resolvePokemon({category = null, dexId = null, lang, name}, tables) {
-	const language = NAME_LANGUAGE[lang];
+export function resolvePokemon(card, tables) {
+	const found = resolveCard(card, tables);
+
+	return found && {english: found.english, prefixes: found.prefixes, reading: found.reading, suffix: found.suffix};
+}
+
+// resolvePokemon's answer plus dex, the species' numbers in name order, and
+// clash, true when a name is one two species share.
+function resolveCard({category = null, dexId = null, lang, name}, tables, language = NAME_LANGUAGE[lang]) {
 
 	if (!language || !tables || !tables[language] || !name) {
 		return null;
@@ -244,11 +277,11 @@ export function resolvePokemon({category = null, dexId = null, lang, name}, tabl
 	const {base, suffix} = stripSuffix(name);
 
 	// "XY-era Mega": "MリザードンEX" is "M Charizard EX" in English.
-	if (lang === 'ja' && suffix === 'EX' && /^M[^A-Za-z]/.test(base)) {
+	if (language === 'ja' && suffix === 'EX' && /^M[^A-Za-z]/.test(base)) {
 		const inner = resolveBase(base.slice(1), language, tables, dexIds);
 
 		if (inner) {
-			return {english: `M ${inner.english} EX`, prefixes: ['M', ...inner.prefixes], reading: inner.reading, suffix};
+			return {clash: inner.clash, dex: [inner.n], english: `M ${inner.english} EX`, prefixes: ['M', ...inner.prefixes], reading: inner.reading, suffix};
 		}
 	}
 
@@ -267,15 +300,133 @@ export function resolvePokemon({category = null, dexId = null, lang, name}, tabl
 	}
 
 	const english = [resolved.map((one) => one.english).join(' & '), suffix].filter(Boolean).join(' ');
+	const dex = resolved.map((one) => one.n);
+	const clash = resolved.some((one) => one.clash);
 
 	if (resolved.length === 1) {
-		return {english, prefixes: resolved[0].prefixes, reading: resolved[0].reading, suffix};
+		return {clash, dex, english, prefixes: resolved[0].prefixes, reading: resolved[0].reading, suffix};
 	}
 
 	// A prefix inside a TAG TEAM name has no clear place in the reading.
 	const plain = resolved.every((one) => one.reading !== null && !one.prefixes.length);
 
-	return {english, prefixes: [], reading: plain ? resolved.map((one) => one.reading).join(' & ') : null, suffix};
+	return {clash, dex, english, prefixes: [], reading: plain ? resolved.map((one) => one.reading).join(' & ') : null, suffix};
+}
+
+// The National Dex numbers of a Pokémon card whose TCGdex record has none,
+// from its printed name, so a checklist can count it (js/checklists.js
+// resolveOwned). On 2026-11-24, 434 of 10,601 Japanese Pokémon cards had
+// dexId null (nearly all Scarlet & Violet ex and Sword & Shield V, such as
+// SV7a-019 ラティアスex, Eric's Latias), and 2,666 of 5,960 Traditional
+// Chinese ones. lang: ja, ko, zh-cn, zh-tw, or en (a hand-made card's
+// English name). Empty when the name is not a Pokémon's, or is a name two
+// species share: never a guess. Each step below runs only when the ones
+// before it found nothing:
+//   1. the name as resolvePokemon reads it (suffix, known prefixes, forms),
+//      with a delta species mark taken off, "（デルタ種）" or "δ";
+//   2. a trainer's Pokémon, "ナンジャモのハラバリーex", "奇樹的電肚蛙ex",
+//      "<阿響的>鳳王ex": what follows の, 的, or the brackets;
+//   3. a suffix right after a Latin letter, "謎擬Ｑex" (Mimikyu ex), which
+//      stripSuffix keeps for names such as "Vileplume";
+//   4. a form written after a space, "ガチグマ アカツキex" (Bloodmoon
+//      Ursaluna ex), when exactly one word of the name is a species.
+// TCGdex's zh-cn records carry Traditional names (拉帝亞斯ex), so a Chinese
+// name is read in its own script, then the other.
+// A form written before the species with no space, "衝浪皮卡丘V" (Surfing
+// Pikachu V), finds nothing (20 Traditional Chinese cards on 2026-11-24):
+// matching the species a name ends with misread old Japanese names, which
+// end with a shorter species (チャリザード as リザード, Charmeleon), so it is
+// not done.
+const SUFFIX_END = /(?:V-UNION|VSTAR|VMAX|BREAK|GX|EX|ex|V)$/;
+const OWNED = [/^[<＜][^>＞]*[>＞]\s*(.+)$/, /^.+?的(.+)$/, /^.+?の(.+)$/];
+const OTHER_SCRIPT = {'zh-hans': 'zh-hant', 'zh-hant': 'zh-hans'};
+
+function dexIn(text, language, tables) {
+	const read = (one) => {
+		const found = one && resolveCard({lang: null, name: one}, tables, language);
+
+		return found && !found.clash && found.dex.every(Number.isInteger) ? found.dex : null;
+	};
+
+	const whole = read(text);
+
+	if (whole) {
+		return whole;
+	}
+
+	for (const pattern of OWNED) {
+		const owned = pattern.exec(text);
+		const found = owned && read(owned[1].trim());
+
+		if (found) {
+			return found;
+		}
+	}
+
+	const {base} = stripSuffix(text);
+	const bare = base === text && SUFFIX_END.test(text) ? text.replace(SUFFIX_END, '').trim() : base;
+	const stripped = bare !== base ? read(bare) : null;
+
+	if (stripped) {
+		return stripped;
+	}
+
+	const words = bare.split(/\s+/).filter(Boolean);
+
+	if (words.length > 1) {
+		const found = words.map(read).filter(Boolean);
+
+		if (found.length === 1) {
+			return found[0];
+		}
+	}
+
+	return null;
+}
+
+export function dexFromName({category = null, lang, name}, tables) {
+	const language = NAME_LANGUAGE[lang] || (lang === 'en' ? 'en' : null);
+
+	if ((category && category !== 'Pokemon') || !language || !tables || !tables[language]) {
+		return [];
+	}
+
+	const text = String(name || '').trim().replace(/\s*[（(]デルタ種[)）]$/, '').replace(/\s*δ$/, '').trim();
+
+	if (!text) {
+		return [];
+	}
+
+	const scripts = [language, OTHER_SCRIPT[language]].filter((code) => code && tables[code]);
+
+	for (const one of scripts) {
+		const found = dexIn(text, one, tables);
+
+		if (found) {
+			return found;
+		}
+	}
+
+	return [];
+}
+
+// A hand-made card's Pokédex numbers from its name (js/custom-card.js): read
+// as its copies' language, and as English, Japanese, Korean, and Chinese,
+// since a hand-made name may be typed in any of them ("古空棘鱼" or
+// "Relicanth"). Empty when no reading finds a species, or two readings
+// disagree.
+export function dexFromNames(name, languages, tables) {
+	const found = new Map();
+
+	for (const lang of [...new Set([...languages, 'en', 'ja', 'ko', 'zh-tw', 'zh-cn'])]) {
+		const dex = dexFromName({lang, name}, tables);
+
+		if (dex.length) {
+			found.set(dex.join(','), dex);
+		}
+	}
+
+	return found.size === 1 ? [...found.values()][0] : [];
 }
 
 // --------------------------------------------- Korean: Revised Romanization

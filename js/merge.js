@@ -183,6 +183,60 @@ export function mergeEntry(a, b) {
 
 export const MERGE_VERSION = 2;
 
+// ------------------------------------------- list languages, the old default
+//
+// From 2026-10-15 to 2026-11-24 a new checklist (a region, every Pokémon,
+// or a custom list) started with languages ['pt']. Eric, 2026-11-24: every
+// list counts all languages unless he sets one himself; his Hoenn list
+// binder had refused a Japanese copy. A checklist still carrying that
+// default untouched (exactly ['pt'], and its languages field never stamped
+// after the list was made) loses the field, stamped as an edit
+// (stampEntry), so a phone with field stamps takes it field by field and an
+// older one by updated_at. Languages he set himself carry a later stamp,
+// ['pt'] included, and stay; so do a Pokémon goal's, which he ticks on its
+// sheet (js/pokemon-cards-view.js). Once the field is gone nothing matches,
+// so running it on every sync changes a list once. Returns {count, doc}:
+// doc is the document passed in, unchanged, when count is 0.
+const DEFAULTED_KINDS = new Set(['custom_pokemon', 'every_pokemon', 'region']);
+
+function untouchedDefault(goal) {
+	if (!goal || goal.deleted_at || !DEFAULTED_KINDS.has(goal.kind)) {
+		return false;
+	}
+
+	if (!Array.isArray(goal.languages) || goal.languages.length !== 1 || goal.languages[0] !== 'pt') {
+		return false;
+	}
+
+	const own = isObject(goal.field_stamps) ? goal.field_stamps.languages : null;
+
+	return !own || compareTimes(own, goal.created_at) <= 0;
+}
+
+export function planDefaultListLanguages(doc) {
+	const goals = doc && Array.isArray(doc.goals) ? doc.goals : null;
+
+	if (!goals || !goals.some(untouchedDefault)) {
+		return {count: 0, doc};
+	}
+
+	let count = 0;
+	const next = goals.map((goal) => {
+		if (!untouchedDefault(goal)) {
+			return goal;
+		}
+
+		const after = {...goal, updated_at: nextStamp(goal.updated_at)};
+
+		delete after.languages;
+		count++;
+
+		return stampEntry(goal, after);
+	});
+
+	return {count, doc: {...doc, goals: next}};
+}
+
 // Never stamped per field: what the merge itself keeps track of, and the
 // collections that carry stamps of their own inside.
 const BOOKKEEPING = new Set(['id', 'created_at', 'updated_at', 'deleted_at', 'restored_at', 'merged_into', 'field_stamps']);

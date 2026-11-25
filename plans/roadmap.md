@@ -570,6 +570,20 @@ graded cards are deprioritized, and a Portuguese UI is not wanted.
 
 ## Open Decisions for Eric
 
+- **To review, made overnight on 2026-11-24 while Eric slept (branch `list-all-languages`), each
+  the safer choice:**
+  - **Pokémon goals keep a Portuguese setting.** Only the checklists (region, every Pokémon,
+    custom) lose an untouched `['pt']`, because only they started with it silently; a Pokémon
+    goal's languages are ticked on its sheet, and its Any language reads only the Western prints.
+    Say so if Pokémon goals should count every language too.
+  - **Hand-made cards count on checklists and binders made from them, not on Pokémon goals.** A
+    Pokémon goal lists catalog prints; a hand-made card is none, so showing it there needs a tile
+    of its own.
+  - **No number from a name's ending.** 19 Traditional Chinese cards whose form comes before the
+    species with no space (衝浪皮卡丘V) stay uncounted rather than risk a wrong species.
+  - **A phone that is never signed in** takes the old default off at its next start
+    (`js/sync.js` `repairLocal`), the same change a sync makes.
+
 - **Decided and built, 2026-11-05 (branch `eric-decisions`):**
   - **Do a list's languages decide its ticks?** Yes (Eric, 2026-11-05). A list that names
     languages counts only copies in them, in its ticks, counts, ring, Value, the

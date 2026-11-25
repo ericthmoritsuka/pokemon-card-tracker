@@ -377,19 +377,32 @@ describe('checklists', () => {
 		await page.selectOption('#add-region', 'kanto');
 		await page.click('#add-region-button');
 		await page.waitForURL(/\/lists\/[0-9a-f-]+$/);
-		// A new list counts its languages, Portuguese to start: the English
-		// Bulbasaur and the Japanese Squirtle do not tick it.
-		await waitForSummary(page, '3 owned, 148 missing.');
+		// A new list counts every language (Eric, 2026-11-24: a specific
+		// language is something he sets himself), so it stores none, and the
+		// Japanese Squirtle ticks it.
+		await waitForSummary(page, '4 owned, 147 missing.');
 		assert.equal(await page.locator('#checklist-title').textContent(), 'Kanto');
-		assert.match(await page.locator('#checklist-meta').textContent(), /3 \/ 151/);
+		assert.match(await page.locator('#checklist-meta').textContent(), /4 \/ 151/);
 		assert.equal(await page.locator('.dex-row').count(), 151);
+		assert.equal(await page.locator('#list-languages-all').textContent(), 'All');
+		assert.match(await page.locator('.dex-row[data-dex="7"]').getAttribute('class'), /\bowned\b/, 'a Japanese copy counts on a new list');
+		assert.equal('languages' in (await localDoc(page)).goals.find((item) => item.kind === 'region'), false);
+		assert.equal(counts.graphql, 1, 'one request for the international card list');
+		assert.equal(counts.single, 1, 'the Japanese card is read on its own');
+
+		// Portuguese, picked by hand, counts only the Portuguese copies: the
+		// English Bulbasaur and the Japanese Squirtle no longer tick it.
+		await page.click('#list-languages-edit');
+		await page.check('#list-languages-any');
+		await page.uncheck('#list-languages-any');
+		await page.check('input[name="list-language"][value="pt"]');
+		await page.click('#list-languages-save');
+		await waitForSummary(page, '3 owned, 148 missing.');
 		assert.deepEqual(await flagsIn(page, '#list-languages'), ['pt']);
 		assert.equal(await page.locator('#list-languages .pc-languages-names').textContent(), 'Portuguese');
 		assert.match(await page.locator('.dex-row[data-dex="7"]').getAttribute('class'), /\bmissing\b/, 'a Japanese copy does not count on a Portuguese list');
 		assert.equal(await page.locator('.dex-row[data-dex="1"] .dex-mark-text').textContent(), '1 card');
 		assert.deepEqual((await localDoc(page)).goals.find((item) => item.kind === 'region').languages, ['pt']);
-		assert.equal(counts.graphql, 1, 'one request for the international card list');
-		assert.equal(counts.single, 1, 'the Japanese card is read on its own');
 
 		// Any language takes it back to every copy, and drops the field.
 		await page.click('#list-languages-edit');
@@ -576,7 +589,7 @@ describe('checklists', () => {
 		goal = (await localDoc(page)).goals.find((item) => item.id === customId);
 		assert.equal(goal.kind, 'custom_pokemon');
 		assert.deepEqual(goal.dex_list, [4, 25, 133]);
-		assert.deepEqual(goal.languages, ['pt'], 'a new list counts Portuguese');
+		assert.equal('languages' in goal, false, 'a new list counts every language');
 
 		// Delete it, at once with no question: a tombstone stays in the
 		// document, and Undo on the toast brings it back as it was.
@@ -754,6 +767,13 @@ describe('checklists', () => {
 		await ownerDevice.page.click('#lists-new');
 		await ownerDevice.page.selectOption('#add-region', 'kanto');
 		await ownerDevice.page.click('#add-region-button');
+		// A new list counts every language; the owner picks Portuguese.
+		await waitForSummary(ownerDevice.page, '4 owned, 147 missing.');
+		await ownerDevice.page.click('#list-languages-edit');
+		await ownerDevice.page.check('#list-languages-any');
+		await ownerDevice.page.uncheck('#list-languages-any');
+		await ownerDevice.page.check('input[name="list-language"][value="pt"]');
+		await ownerDevice.page.click('#list-languages-save');
 		await waitForSummary(ownerDevice.page, '3 owned, 148 missing.');
 		await waitForStatus(ownerDevice.page, 'Synced');
 

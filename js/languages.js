@@ -181,14 +181,19 @@ export const hasMarketPrices = (code) => Boolean(languageRow(code) && languageRo
 // A list (a checklist or a goal) names the languages it counts in its
 // `languages` field. A list with no field counts a copy in any language:
 // those are the lists made before a list's languages decided its ticks
-// (plans/roadmap.md, "Open Decisions for Eric", settled 2026-10-15). A new
-// checklist starts with Portuguese.
+// (plans/roadmap.md, "Open Decisions for Eric", settled 2026-10-15), and
+// every new list: a list counts every language until he picks some (Eric,
+// 2026-11-24, after his Hoenn list binder refused a Japanese Latias). From
+// 2026-10-15 to then a new checklist started with Portuguese; js/merge.js
+// planDefaultListLanguages takes that default off the lists that still
+// carry it untouched.
 
 // The languages a list can be set to: the catalog languages, since a list
 // shows the prints of its languages' catalogs.
 export const LIST_LANGUAGE_CODES = CATALOG_LANGUAGES.map((row) => row.code);
 
-export const NEW_LIST_LANGUAGES = ['pt'];
+// A new list's languages: none, so it counts a copy in any language.
+export const NEW_LIST_LANGUAGES = null;
 
 // The list languages among codes, once each, in the table's order.
 export const cleanListLanguages = (codes) => sortLanguages(new Set((Array.isArray(codes) ? codes : []).filter((code) => LIST_LANGUAGE_CODES.includes(code))));
