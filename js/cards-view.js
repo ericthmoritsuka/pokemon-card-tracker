@@ -1050,7 +1050,7 @@ export function cardsScreen(root, {
 			const matched = finishOf(entry, finishes);
 			const found = matched && finishFits(entry, matched) ? matched : null;
 			const code = entryFinish(entry);
-			const label = found ? found.label : code ? FINISHES[code].label : entry.finish_raw ? finishLabel(entry.finish_raw) : null;
+			const label = found ? found.label : entry.finish_raw ? finishLabel(entry.finish_raw) : code ? FINISHES[code].label : null;
 
 			if (label) {
 				labels.add(label);

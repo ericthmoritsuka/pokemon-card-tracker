@@ -214,7 +214,8 @@ describe('the finish select', () => {
 		const imported = {import_key: 'monprice|BS_int_4|en|FIRST_EDITION|0', variant_id: null};
 
 		assert.equal(entryFinish({...imported, finish_raw: 'FIRST_EDITION'}), 'first');
-		assert.equal(entryFinish({...imported, finish_raw: 'HOLOFOIL'}), null, 'no 1st corner');
+		assert.equal(entryFinish({...imported, finish_raw: 'HOLOFOIL'}), 'holo', 'no 1st corner, the Holo one (Eric, 2026-11-24)');
+		assert.equal(entryFinish({...imported, finish_raw: 'NORMAL'}), null, 'no corner for the plain print');
 		assert.equal(entryFinish({...imported, finish_raw: 'REVERSE_HOLOFOIL'}), 'reverse');
 		assert.equal(entryFinish(imported), 'first', 'with no word of its own, the key\'s');
 	});

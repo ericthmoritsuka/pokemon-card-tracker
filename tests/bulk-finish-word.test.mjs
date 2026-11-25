@@ -38,6 +38,6 @@ test('a tile with the card\'s printings names the copy by its printing, not its 
 	const variants = [{type: 'holo', variantId: 'v-holo'}, {stamp: ['1st-edition'], type: 'holo', variantId: 'v-first'}];
 
 	assert.equal(groupFinish([copy]), 'first', 'without the printings, the import word decides, as before');
-	assert.equal(groupFinish([copy], variants), null, 'with them, the Holo printing shows no 1st corner');
+	assert.equal(groupFinish([copy], variants), 'holo', 'with them, the Holo printing shows no 1st corner, but its own HOLO one (Eric, 2026-11-24)');
 	assert.equal(groupFinish([{...copy, variant_id: 'v-first'}], variants), 'first');
 });

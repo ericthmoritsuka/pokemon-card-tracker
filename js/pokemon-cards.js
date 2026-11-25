@@ -288,9 +288,13 @@ export function copiesByPrintOnce(entries, languages) {
 
 // ----------------------------------------------------------- finishes
 
-// The plain print (normal, or holo on a holo rare) has no finish code in
-// js/tile.js; here it is counted as 'normal'.
+// The plain print (normal, or holo on a holo rare) is counted as 'normal'.
+// js/tile.js gives a holo print its own code, 'holo', for its corner (Eric,
+// 2026-11-24); counting it here as the plain print keeps "Count every
+// finish" as it was, since a holo rare's only print is its plain print.
 export const PLAIN = 'normal';
+
+const countedCode = (code) => (!code || code === 'holo' ? PLAIN : code);
 
 export const FINISH_ORDER = [PLAIN, 'reverse', 'pokeball', 'masterball', 'first'];
 
@@ -316,7 +320,7 @@ export function cardFinishes(detail, variantFinish) {
 	const detailed = detail && Array.isArray(detail.variants_detailed) ? detail.variants_detailed : [];
 
 	for (const variant of detailed.filter(isFinishVariant)) {
-		codes.add(variantFinish(variant) || PLAIN);
+		codes.add(countedCode(variantFinish(variant)));
 	}
 
 	if (!codes.size && detail && detail.variants) {
@@ -345,7 +349,7 @@ export function cardFinishes(detail, variantFinish) {
 // The finishes the copies are in. entryFinish is js/tile.js entryFinish;
 // a copy whose finish is not known counts as the plain print.
 export function ownedFinishes(copies, variants, entryFinish) {
-	return new Set((copies || []).map((entry) => entryFinish(entry, variants) || PLAIN));
+	return new Set((copies || []).map((entry) => countedCode(entryFinish(entry, variants))));
 }
 
 // One print's counts. finishes: the card's finish codes, or null when its
