@@ -1547,9 +1547,12 @@ export function setPocketSkip(binderId, key, ids, skip = true) {
 // [{key, entryId}], put cards it does not have after the list (extra_cards,
 // js/binder-rules.js) with those copies picked. The new pockets join the
 // stored layout at once, so they show before the next refresh, and the
-// pages grow into the extra pages first. Resolves {binder, previous}, the
-// picks replaced, for undoListAdds.
-export function saveListAdds(binderId, {adds = [], picks = []} = {}) {
+// pages grow into the extra pages first. An add with an index takes that
+// empty pocket (Add a card here), and edits, list_edits changes
+// (withListEdit), ride in the same write, so the inserted pocket it fills
+// goes and the card keeps that place through refreshes. Resolves {binder,
+// previous}, the picks replaced, for undoListAdds.
+export function saveListAdds(binderId, {adds = [], edits = [], picks = []} = {}) {
 	return serial(async () => {
 		const doc = await loadDocument();
 		const binder = findLive(doc.binders || [], binderId);
@@ -1563,20 +1566,44 @@ export function saveListAdds(binderId, {adds = [], picks = []} = {}) {
 		const snapshot = binder.snapshot && typeof binder.snapshot === 'object' ? binder.snapshot : {};
 		const keys = Array.isArray(snapshot.keys) ? [...snapshot.keys] : [];
 
-		if (adds.length) {
-			next.extra_cards = adds.reduce((entries, add) => withExtraCard(entries, {at, key: add.key, kind: 'add'}), extraCardEntries(binder));
+		const marks = snapshot.marks && typeof snapshot.marks === 'object' ? {...snapshot.marks} : null;
+
+		if (adds.length || edits.length) {
+			if (adds.length) {
+				next.extra_cards = adds.reduce((entries, add) => withExtraCard(entries, {at, key: add.key, kind: 'add'}), extraCardEntries(binder));
+			}
 
 			for (const add of adds) {
-				if (!keys.includes(add.key)) {
+				if (keys.includes(add.key)) {
+					if (Number.isInteger(add.index)) {
+						throw new Error('That card already has a pocket in this binder.');
+					}
+
+					continue;
+				}
+
+				if (Number.isInteger(add.index) && keys[add.index] === '') {
+					keys[add.index] = add.key;
+
+					if (marks) {
+						delete marks[add.index];
+					}
+				}
+				else {
 					keys.push(add.key);
 				}
+			}
+
+			if (edits.length) {
+				next.list_edits = edits.reduce(withListEdit, listEditEntries(binder))
+					.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 			}
 
 			if (pagesFor(keys.length, binder.rows, binder.cols) > MAX_PAGES) {
 				throw new Error(`${binder.name} is full: a binder has at most ${MAX_PAGES} pages.`);
 			}
 
-			next.snapshot = {...snapshot, keys};
+			next.snapshot = {...snapshot, keys, ...(marks ? {marks} : {})};
 			next.page_count = listPageCount(keys.length, binder.rows, binder.cols, extraPagesOf(next), addedCount(keys, next));
 		}
 
@@ -1591,10 +1618,12 @@ export function saveListAdds(binderId, {adds = [], picks = []} = {}) {
 			return pickEntry({at: nextStamp(before && before.updated_at), binderId, entryId, key, previous: before});
 		});
 
-		await mergeIntoLocal({binder_picks: entries, ...(adds.length ? {binders: stamped([next])} : {})});
+		const changed = adds.length || edits.length;
+
+		await mergeIntoLocal({binder_picks: entries, ...(changed ? {binders: stamped([next])} : {})});
 		schedulePush();
 
-		return {binder: adds.length ? next : binder, previous};
+		return {binder: changed ? next : binder, previous};
 	});
 }
 
