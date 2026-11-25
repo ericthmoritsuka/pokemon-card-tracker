@@ -59,7 +59,7 @@ import {addToBinder, undoAddToBinder} from './placeholder-fill.js';
 import {fillPanel} from './fill-view.js';
 import {artworkUrl, handPocketStatus, listPocketStatus, printablePockets} from './placeholder-print.js';
 import {openPlaceholderPrint} from './placeholder-print-view.js';
-import {applyListEdits, extraPagesOf, indexAt, layoutWaits, listEditEntries, listEditsOf, listPageCount, moveEdit, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy, skipsOf, withListEdit} from './binder-rules.js';
+import {applyListEdits, claimIndex, extraPagesOf, indexAt, layoutWaits, listEditEntries, listEditsOf, listPageCount, moveEdit, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy, skipsOf, takenFor, withListEdit} from './binder-rules.js';
 import {filterLabels, ruleSection} from './binder-rule-view.js';
 import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceChoices, sourceEntry, sourceText, trayFromChoices, trayFromIds} from './binder-sources.js';
 import {checklistDex, dexLabel, listLanguages, namesLanguages, pokemonNames, spriteUrl} from './checklists.js';
@@ -112,6 +112,7 @@ import {
 	saveRefresh,
 	setPocketPick,
 	setPocketSkip,
+	copyClaims,
 	slotsOf,
 	sortBinders,
 	takeFromTray,
@@ -737,9 +738,9 @@ const itemCopies = (items) => items.flatMap((item) => item.copies);
 // {plan, rankOf}. For a checklist with languages, the plan also says
 // whether it differs from the stored layout only by those languages
 // (languageOnly), ranked over every copy as a v56 phone ranks them.
-async function planLayout(binderLike, loaded, {liveIds = null, picks = new Map(), skips = new Map()} = {}) {
+async function planLayout(binderLike, loaded, {claims = [], liveIds = null, picks = new Map(), skips = new Map()} = {}) {
 	const rankOf = await rankerFor(itemCopies(loaded.anyItems || loaded.items));
-	const plan = planRefresh(binderLike, loaded.items, {anyItems: loaded.anyItems, at: nowIso(), keepOrder: Boolean(loaded.keepOrder), languages: loaded.languages, liveIds, partial: loaded.partial, picks, rankOf, skips});
+	const plan = planRefresh(binderLike, loaded.items, {anyItems: loaded.anyItems, at: nowIso(), claims, keepOrder: Boolean(loaded.keepOrder), languages: loaded.languages, liveIds, partial: loaded.partial, picks, rankOf, skips});
 
 	return {plan, rankOf};
 }
@@ -772,7 +773,8 @@ async function listForm({onCancel, start = {}}) {
 			checkWholeList(loaded);
 
 			const rule = section.rule();
-			const {plan} = await planLayout({cols: fields.cols, extra_pages: fields.extra_pages, rows: fields.rows, rule}, loaded);
+			// A copy in use in another binder fills another pocket here.
+			const {plan} = await planLayout({cols: fields.cols, extra_pages: fields.extra_pages, rows: fields.rows, rule}, loaded, {claims: copyClaims(await loadDocument())});
 			const binder = await createGeneratedBinder(fields, rule, plan.snapshot, {languages: plan.languages});
 
 			go(`binders/${encodeURIComponent(binder.id)}`);
@@ -1060,6 +1062,9 @@ function binderScreen(root, source, id, pageParam) {
 	let picks = new Map();
 	// The copies skipped in each pocket ("Not this copy here").
 	let skips = new Map();
+	// The copies in use, by copy (js/binders.js copyClaims): a pocket shows
+	// none that something above it holds.
+	let claims = new Map();
 	const gen = {busy: null, gone: false, held: null, items: null, loaded: null, names: null, partial: false, rankOf: undefined, started: false};
 	const refreshButton = source.readOnly ? null : h('button', {hidden: true, id: 'binder-refresh', onclick: () => refreshList({force: true, manual: true}), type: 'button'}, 'Refresh');
 	const listNote = h('p', {'aria-live': 'polite', class: 'binder-list-note', hidden: true, id: 'binder-list-note'});
@@ -1552,6 +1557,7 @@ function binderScreen(root, source, id, pageParam) {
 		listMode = isGenerated(binder);
 		picks = listMode ? picksOf(data.picks, binder.id) : new Map();
 		skips = listMode ? skipsOf(data.picks, binder.id) : new Map();
+		claims = listMode ? claimIndex(copyClaims(data.doc || {binders: data.binders, binder_picks: data.picks, cards: data.cards})) : new Map();
 		sweepOnce(source);
 
 		if (!body.contains(spreadHolder)) {
@@ -1852,13 +1858,18 @@ function binderScreen(root, source, id, pageParam) {
 		const pick = picks.get(key) || null;
 		const item = gen.items && gen.items.get(key);
 
+		const pocket = {age: binder.created_at, binderId: binder.id, index: i, key};
+
 		if (item) {
-			return {count: item.copies.length, item, key, shown: shownCopy(item, {pick, rankOf: gen.rankOf, skipped, stored})};
+			return {count: item.copies.length, item, key, shown: shownCopy(item, {pick, rankOf: gen.rankOf, skipped, stored, taken: takenFor(claims, item.copies, pocket)})};
 		}
 
 		// Not read yet, or a family member's binder: the pick or the stored
-		// default, while that copy is still owned and not skipped there.
-		const entry = liveEntry(pick) || (skipped && skipped.has(stored) ? null : liveEntry(stored));
+		// default, while that copy is still owned, not skipped there, and not
+		// in use where it outranks this pocket.
+		const storedEntry = liveEntry(stored);
+		const usable = storedEntry && !(skipped && skipped.has(stored)) && !takenFor(claims, [storedEntry], pocket).size;
+		const entry = liveEntry(pick) || (usable ? storedEntry : null);
 
 		return {count: 0, item: fallbackItem(key), key, shown: entry ? {entry, picked: Boolean(liveEntry(pick))} : null};
 	}
@@ -2118,7 +2129,7 @@ function binderScreen(root, source, id, pageParam) {
 			const liveIds = new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id));
 			// The picks and skips as the document has them now, so a skip just
 			// saved counts before the screen has read it back.
-			const {plan, rankOf} = await planLayout(stored, loaded, {liveIds, picks: picksOf(doc.binder_picks, binderId), skips: skipsOf(doc.binder_picks, binderId)});
+			const {plan, rankOf} = await planLayout(stored, loaded, {claims: copyClaims(doc), liveIds, picks: picksOf(doc.binder_picks, binderId), skips: skipsOf(doc.binder_picks, binderId)});
 
 			if (!alive || binder.id !== binderId) {
 				return;
@@ -2212,9 +2223,11 @@ function binderScreen(root, source, id, pageParam) {
 			}
 
 			const skippedHere = skips.get(key) || new Set();
+			// Copies a pocket above this one holds (copies in use elsewhere).
+			const takenHere = takenFor(claims, copies, {age: binder.created_at, binderId: binder.id, index: i, key});
 
 			if (copies.length) {
-				const fallback = shownCopy({copies}, {rankOf: gen.rankOf, skipped: skippedHere, stored: (binder.snapshot.shown || {})[key]});
+				const fallback = shownCopy({copies}, {rankOf: gen.rankOf, skipped: skippedHere, stored: (binder.snapshot.shown || {})[key], taken: takenHere});
 				const defaultId = fallback ? fallback.entry.id : null;
 
 				copies.sort((a, b) => (Number(b.id === defaultId) - Number(a.id === defaultId)) || String(b.created_at).localeCompare(String(a.created_at)));
@@ -2240,7 +2253,7 @@ function binderScreen(root, source, id, pageParam) {
 					h('span', {class: 'tile-meta'}, [languageLabel(entry.language), entry.condition, entry.storage].filter(Boolean).join(' · ')),
 					entry.id === defaultId ? h('span', {class: 'tile-meta list-default-tag'}, 'Default') : null,
 					skippedHere.has(entry.id) ? h('span', {class: 'tile-meta list-skipped-tag'}, 'Not shown here') : null,
-					where ? h('span', {class: 'tile-meta pick-where'}, `In ${where.binder_name}, p${where.page}`) : null);
+					where ? h('span', {class: 'tile-meta pick-where'}, `In ${where.binder_name}, p${where.page}`) : inUseTag(takenHere.get(entry.id)));
 				})));
 
 				const actions = [];
@@ -2350,7 +2363,7 @@ function binderScreen(root, source, id, pageParam) {
 		if (gen.loaded && gen.items) {
 			const entries = changes.reduce(withListEdit, listEditEntries(binder));
 
-			return planRefresh({...binder, list_edits: entries}, gen.loaded.items, {at: nowIso(), keepOrder: Boolean(gen.loaded.keepOrder), languages: gen.loaded.languages, liveIds, partial: gen.loaded.partial, picks, rankOf: gen.rankOf, skips});
+			return planRefresh({...binder, list_edits: entries}, gen.loaded.items, {at: nowIso(), claims: [...claims.values()].flat(), keepOrder: Boolean(gen.loaded.keepOrder), languages: gen.loaded.languages, liveIds, partial: gen.loaded.partial, picks, rankOf: gen.rankOf, skips});
 		}
 
 		if (!edit || edit.kind === 'none') {
@@ -2398,6 +2411,16 @@ function binderScreen(root, source, id, pageParam) {
 		catch (err) {
 			showError('Could not undo.', err);
 		}
+	}
+
+	// "In use in <binder>" on a copy a list binder's pocket above this one
+	// shows (a hand-made binder's says where it is, as before).
+	function inUseTag(claim) {
+		if (!claim || claim.key === null) {
+			return null;
+		}
+
+		return h('span', {class: 'tile-meta list-in-use-tag'}, claim.binderId === binder.id ? 'In use in another pocket' : `In use in ${claim.binderName}`);
 	}
 
 	// Skips copies in a pocket and lays the binder out again from the list
@@ -2555,7 +2578,7 @@ function binderScreen(root, source, id, pageParam) {
 					checkWholeList(loaded, draft);
 
 					const liveIds = new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id));
-					const {plan, rankOf} = await planLayout(draft, loaded, {liveIds, picks, skips});
+					const {plan, rankOf} = await planLayout(draft, loaded, {claims: copyClaims(doc), liveIds, picks, skips});
 
 					if (!await askRelayout(draft, loaded.items, plan, rankOf)) {
 						return false;

@@ -68,7 +68,7 @@
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 import {nextStamp, restoreEntry, stampEntry} from './merge.js';
 import {byCreated, orderForNew, sortByOrder, withOrders} from './reorder.js';
-import {checkBinderRule, checkFits, isGenerated, listEditEntries, listPageCount, pagesFor, pickEntry, pickId, picksOf, ruleKey, skipsOf, withListEdit} from './binder-rules.js';
+import {CLAIM_RANK, checkBinderRule, checkFits, defaultRank, isGenerated, listEditEntries, listPageCount, pagesFor, pickEntry, pickId, picksOf, ruleKey, skipsOf, withListEdit} from './binder-rules.js';
 
 export {isGenerated};
 
@@ -300,6 +300,53 @@ export function heldCopies(doc) {
 	}
 
 	return held;
+}
+
+// Every copy in use, as claims (js/binder-rules.js, "copies in use
+// elsewhere"; Eric, 2026-11-24): each copy a hand-made binder places, each
+// hand pick in a binder from a list, and the default each list pocket's
+// last layout shows (unless it is skipped there or the pocket is picked by
+// hand). Only owned copies. doc: {binders, binder_picks, cards}, the
+// person's document. A binder from a list's own defaults are claims for the
+// other binders; its refresh works them out again (planRefresh).
+export function copyClaims(doc) {
+	const binders = (doc && doc.binders) || [];
+	const live = new Set(((doc && doc.cards) || []).filter((entry) => entry && isLive(entry)).map((entry) => entry.id));
+	const owned = (id) => (typeof id === 'string' && live.has(id) ? id : null);
+	const claims = [];
+
+	for (const [entryId, {binder, slot}] of placements(binders)) {
+		if (owned(entryId)) {
+			claims.push({age: binder.created_at, binderId: binder.id, binderName: binder.name, entryId, index: (slot.page - 1) * pocketsPerPage(binder) + slot.position - 1, key: null, rank: CLAIM_RANK.hand});
+		}
+	}
+
+	for (const binder of liveBinders(binders).filter(isGenerated)) {
+		const snapshot = binder.snapshot && typeof binder.snapshot === 'object' ? binder.snapshot : {};
+		const shown = snapshot.shown && typeof snapshot.shown === 'object' ? snapshot.shown : {};
+		const picks = picksOf(doc && doc.binder_picks, binder.id);
+		const skips = skipsOf(doc && doc.binder_picks, binder.id);
+		const keys = Array.isArray(snapshot.keys) ? snapshot.keys : [];
+
+		keys.forEach((key, index) => {
+			if (!key) {
+				return;
+			}
+
+			const pocket = {age: binder.created_at, binderId: binder.id, binderName: binder.name, index, key};
+			const pick = owned(picks.get(key));
+			const stored = owned(shown[key]);
+
+			if (pick) {
+				claims.push({...pocket, entryId: pick, rank: CLAIM_RANK.pick});
+			}
+			else if (stored && !(skips.get(key) || new Set()).has(stored)) {
+				claims.push({...pocket, entryId: stored, rank: defaultRank(key)});
+			}
+		});
+	}
+
+	return claims;
 }
 
 // The slots a binder really holds: inside its grid, one per pocket, and no
