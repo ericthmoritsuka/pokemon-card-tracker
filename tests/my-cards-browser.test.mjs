@@ -1009,7 +1009,9 @@ describe('saves patch the screen', () => {
 		});
 		await page.waitForFunction(() => /^11 copies · 10 cards$/.test(document.getElementById('cards-summary').textContent), null, TIMEOUT);
 		await quiet(1, 'an added copy redraws once');
-		assert.equal(await page.locator('.tile:has-text("Charizard ex") .badge-qty').textContent(), '×2');
+		// ×2, and the one spare free beside it (js/tile.js qtyBadge).
+		assert.equal(await page.locator('.tile:has-text("Charizard ex") .badge-qty').getAttribute('aria-label'), '2 copies, 1 free');
+		assert.equal(await page.locator('.tile:has-text("Charizard ex") .badge-qty .qty-all').textContent(), '×2');
 
 		// An edit: the Liga price of the Pikachu changes its tile's price.
 		await run(async () => {

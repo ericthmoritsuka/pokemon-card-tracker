@@ -464,6 +464,9 @@ export function cardsScreen(root, {
 	// their Wishlist.
 	// Check spares (js/spare-check-view.js), on your own Spares.
 	checkRoute = null,
+	// Spares, whose tiles count spares: the free count shows only when it
+	// is fewer, as a spare taken off sale is not free.
+	freeWhenFewer = false,
 	ideasRoute = null,
 	label = 'your collection',
 	load: loadEntries,
@@ -1718,7 +1721,13 @@ export function cardsScreen(root, {
 	// How many of a tile's copies are free, or null on a family member's
 	// cards (js/tile.js qtyBadge).
 	function freeOf(group) {
-		return freeIds ? group.entries.filter((entry) => freeIds.has(entry.id)).length : null;
+		if (!freeIds) {
+			return null;
+		}
+
+		const free = group.entries.filter((entry) => freeIds.has(entry.id)).length;
+
+		return freeWhenFewer && free === group.entries.length ? null : free;
 	}
 
 	// A copy, a binder, a hand pick, or a star changes which copies are free
