@@ -49,6 +49,11 @@ and gives it `listed` beside `spares`. `listingRows`, `groupMark`, and the Shop'
 `listed`; "N spares" stays as text. A group with no spares and only marked copies is a non-spare
 sale. v108's `forSale` predicate is how `spareEntries` lets a marked favorite through.
 
+v110 counts every copy through `asCard` (a hand-made copy takes its catalog twin's card, a copy with
+no catalog is international) and keys groups with `shopKey`. A marked copy goes through `asCard` too,
+so a marked hand-made twin joins its catalog card's row rather than making a second one, and its own
+photo is the picture when the record has none, as v110 does for spares.
+
 **The star:** v108 withdraws a card from HOTARU at once when its star goes on (`withdrawListings`,
 `supabase/store-withdraw.sql`, called from the card page in `js/catalog-views.js`). A copy marked
 `true` stays listed, so that call leaves out the marked copies' ids.
@@ -64,6 +69,9 @@ only if the order is cancelled.
   pocket 5", or "A favorite card". When its finish has no price yet, a Price field sits beside it.
 - **My Cards tiles and binder pockets:** a small "For sale" tag when any copy of the tile or the
   pocket's copy is listed, in the header's gold, so a card about to be sold is never a surprise.
+  It sits on the tile's bottom edge, under the art, because v111's holo-tag puts the finish corner
+  (REV, HOLO) and the English flag on the art's corners; checked at 360 px with REV, a flag, and For
+  sale on one tile.
 - **Shop:** each row says "2 of 3 copies for sale"; the filter gains **For sale, not a spare**.
 
 ## 4. Sell a Card I Own
