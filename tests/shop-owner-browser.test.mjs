@@ -124,7 +124,7 @@ describe('who sees the Shop', () => {
 
 		// The owner's way to HOTARU's sealed products, in the same tab.
 		await page.locator('#shop-sealed-admin:not([hidden])').waitFor(TIMEOUT);
-		assert.equal(await page.getAttribute('#shop-sealed-admin-link', 'href'), 'https://ericthmoritsuka.github.io/hotaru/admin.html');
+		assert.equal(await page.getAttribute('#shop-sealed-admin-link', 'href'), 'https://lojahotaru.com.br/admin.html');
 		assert.equal(await page.getAttribute('#shop-sealed-admin-link', 'target'), null);
 		assert.equal(await page.getAttribute('#shop-sealed-admin-link', 'data-link'), null);
 		await page.screenshot({path: `${SHOTS}/shop-owner-open.png`});
