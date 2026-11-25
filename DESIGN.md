@@ -3527,9 +3527,17 @@ chosen, for a "Make a binder" button on those screens.
 - **The copy shown.** The default is the most valuable copy (a Liga price typed on it, else
   TCGplayer in reais at the saved rate), else the rarest (TCGdex's rarity words, ranked), else the
   newest added; a tie goes to the lowest id, so every phone picks the same one. A count shows when
-  more copies fit. Tapping the pocket opens every copy that fits, as pictures, with the default
-  marked; the one tapped is a **hand pick** (a dot on the pocket), which sticks until "Show the
-  default again". A pick follows its Pokémon or card, not its page, so it survives a change of
+  more cards fit. **A pocket counts different cards, not copies** (Eric, 2026-11-25: a pocket
+  said 4 fit and all four were the same card): copies of one card in one language are one card,
+  whatever their finish (`cardGroups`, `js/binder-rules.js`). The ×N is the cards, and the
+  pocket's name says both ("2 cards fit, 5 copies"; one card with spares, "4 copies"). Edit pocket
+  shows each card once, with ×N for its copies and, when they differ, a badge per finish (REG
+  HOLO REV; REG only beside another finish, since the plain print has no corner), and the viewer
+  swipes each card once, its line naming its copies and finishes. A card stands as the copy shown
+  when it is that card, else the copy the default would pick among its copies (`groupFace`), and
+  tapping it picks that copy, so a pick still stores one copy. Tapping the pocket opens every card
+  that fits, as pictures, with the default marked; the one tapped is a **hand pick** (a dot on the
+  pocket), which sticks until "Show the default again". A pick follows its Pokémon or card, not its page, so it survives a change of
   order or size.
 - **Not this copy here** (Eric, 2026-11-24: his Johto binder showed the Cyndaquil that belongs in
   his 30th-anniversary binder). The pocket sheet's **Not this copy here** skips the copy shown, and

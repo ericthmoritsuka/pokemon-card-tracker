@@ -301,9 +301,9 @@ describe('make a list binder from this', () => {
 		// Each pocket shows the copy from the hand-made binder, picked by
 		// hand: Test Sprout Alt, though the priced Test Sprout is the default.
 		await openPage(page, 1);
-		await waitForPocket(page, zoomPocket(1), {kind: 'card', label: 'Bulbasaur: Test Sprout Alt, .*3 copies fit, picked by hand', picked: 'true'});
+		await waitForPocket(page, zoomPocket(1), {kind: 'card', label: 'Bulbasaur: Test Sprout Alt, .*3 cards fit, picked by hand', picked: 'true'});
 		await waitForPocket(page, zoomPocket(2), {kind: 'card', label: 'Test Ember.*picked by hand', picked: 'true'});
-		await waitForPocket(page, zoomPocket(3), {kind: 'card', label: 'Squirtle: Test Splash, .*2 copies fit, picked by hand', picked: 'true'});
+		await waitForPocket(page, zoomPocket(3), {kind: 'card', label: 'Squirtle: Test Splash, .*2 cards fit, picked by hand', picked: 'true'});
 		await waitForPocket(page, zoomPocket(4), {item: 'pokemon', kind: 'want', label: '#025 Pikachu, not owned yet'});
 		await page.screenshot({path: `${SHOTS}/list-binder-360.png`});
 
@@ -342,7 +342,7 @@ describe('make a list binder from this', () => {
 		const made = (await localDoc(page)).binders.find((binder) => binder.id !== 'kanto');
 
 		await openPage(page, 1);
-		await waitForPocket(page, zoomPocket(1), {label: 'Test Sprout Alt, .*3 copies fit'});
+		await waitForPocket(page, zoomPocket(1), {label: 'Test Sprout Alt, .*3 cards fit'});
 
 		// Bulbasaur's pocket holds three copies: the one on top first, then
 		// the rest newest first (Eric, 2026-11-18).
@@ -400,7 +400,7 @@ describe('make a list binder from this', () => {
 		}
 
 		assert.equal((await pickOf())?.entry_id, 'c1-priced', 'the pick is saved');
-		await waitForPocket(page, zoomPocket(1), {label: 'Bulbasaur: Test Sprout, .*3 copies fit, picked by hand', picked: 'true'});
+		await waitForPocket(page, zoomPocket(1), {label: 'Bulbasaur: Test Sprout, .*3 cards fit, picked by hand', picked: 'true'});
 		await done();
 	});
 });

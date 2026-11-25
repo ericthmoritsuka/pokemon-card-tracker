@@ -2983,6 +2983,12 @@ progress {
 	position: static;
 }
 
+/* One card in several finishes (REG, HOLO, REV): a narrow tile wraps the
+   extra badges upward rather than past the corner. */
+.badge-corner-many {
+	flex-wrap: wrap-reverse;
+}
+
 .badge-lang {
 	background: var(--badge-paper);
 	bottom: var(--space-1);

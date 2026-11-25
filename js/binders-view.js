@@ -61,7 +61,7 @@ import {addToBinder, undoAddToBinder} from './placeholder-fill.js';
 import {fillPanel} from './fill-view.js';
 import {artworkUrl, handPocketStatus, listPocketStatus, printablePockets} from './placeholder-print.js';
 import {openPlaceholderPrint} from './placeholder-print-view.js';
-import {BLANK, applyListEdits, blankEdit, cardKey, claimIndex, extraKeysOf, extraPagesOf, indexAt, layoutWaits, listEditEntries, listEditsOf, listPageCount, moveEdit, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy, skipsOf, takenFor, withExtraItems, withListEdit} from './binder-rules.js';
+import {BLANK, applyListEdits, blankEdit, cardGroups, cardKey, claimIndex, distinctCards, extraKeysOf, extraPagesOf, groupFace, indexAt, layoutWaits, listEditEntries, listEditsOf, listPageCount, moveEdit, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy, skipsOf, takenFor, withExtraItems, withListEdit} from './binder-rules.js';
 import {filterLabels, ruleSection} from './binder-rule-view.js';
 import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceChoices, sourceEntry, sourceText, trayFromChoices, trayFromIds} from './binder-sources.js';
 import {checklistDex, dexLabel, listLanguages, namesLanguages, pokemonNames, spriteUrl} from './checklists.js';
@@ -1937,7 +1937,7 @@ function binderScreen(root, source, id, pageParam) {
 		const pocket = {age: binder.created_at, binderId: binder.id, index: i, key};
 
 		if (item) {
-			return {count: item.copies.length, item, key, shown: shownCopy(item, {pick, rankOf: gen.rankOf, skipped, stored, taken: takenFor(claims, item.copies, pocket)})};
+			return {copies: item.copies.length, count: distinctCards(item.copies), item, key, shown: shownCopy(item, {pick, rankOf: gen.rankOf, skipped, stored, taken: takenFor(claims, item.copies, pocket)})};
 		}
 
 		// Not read yet, or a family member's binder: the pick or the stored
@@ -1967,13 +1967,16 @@ function binderScreen(root, source, id, pageParam) {
 			return {kind: 'open', label: 'Empty', node: h('span', {'aria-hidden': 'true', class: 'pocket-plus'}, '')};
 		}
 
-		const {count, item, shown} = state;
+		const {count, copies = count, item, shown} = state;
 
 		if (shown) {
 			const {entry, picked} = shown;
 			const info = entryInfo(entry, index, viewing);
-			const frame = artOf(entry, info, (src) => tileArt({count, finish: entryFinish(entry), info, languages: [entry.language], src, viewing}), recordsShown());
-			const extra = [count > 1 ? `${count} copies fit` : null, picked ? 'picked by hand' : null].filter(Boolean).join(', ');
+			// count: the different cards that fit, not the copies ("3 cards
+			// fit, 6 copies"; one card with spares, "4 copies").
+			const fit = [count > 1 ? `${count} cards fit` : null, copies > count ? `${copies} copies` : null].filter(Boolean).join(', ');
+			const frame = artOf(entry, info, (src) => tileArt({count, countLabel: fit || null, finish: entryFinish(entry), info, languages: [entry.language], src, viewing}), recordsShown());
+			const extra = [fit || null, picked ? 'picked by hand' : null].filter(Boolean).join(', ');
 
 			return {info, item, kind: 'card', label: `${item.name}: ${info.name}, ${languageLabel(entry.language)}${extra ? `, ${extra}` : ''}${saleWords(entry.id)}`, node: withSaleBadge(frame, entry.id)};
 		}
@@ -2314,12 +2317,19 @@ function binderScreen(root, source, id, pageParam) {
 				const defaultId = fallback ? fallback.entry.id : null;
 
 				copies.sort((a, b) => (Number(b.id === defaultId) - Number(a.id === defaultId)) || String(b.created_at).localeCompare(String(a.created_at)));
+
+				// One tile per card, not per copy (Eric, 2026-11-25): its
+				// copies are its ×N and its finishes, and a tap shows the copy
+				// that stands for it.
+				const groups = cardGroups(copies);
+
 				parts.push(h('p', {class: 'muted', id: 'list-sheet-count'}, !shown
-					? 'No copy shows here: the pocket keeps its placeholder. A copy you get later fills it. Tap a copy to show it here anyway.'
-					: copies.length > 1
-						? `${plural(copies.length, 'copy fits', 'copies fit')} this pocket. Tap the one to show here.`
-						: 'Your copy for this pocket.'));
-				parts.push(h('div', {class: 'pick-grid', id: 'list-copies'}, copies.map((entry) => {
+					? 'No copy shows here: the pocket keeps its placeholder. A copy you get later fills it. Tap a card to show it here anyway.'
+					: groups.length > 1
+						? `${plural(groups.length, 'card fits', 'cards fit')} this pocket. Tap the one to show here.`
+						: copies.length > 1 ? 'Your card for this pocket.' : 'Your copy for this pocket.'));
+				parts.push(h('div', {class: 'pick-grid', id: 'list-copies'}, groups.map((group) => {
+					const entry = groupFace(group, {rankOf: gen.rankOf, shownId: shown ? shown.entry.id : null, skipped: skippedHere, taken: takenHere});
 					const info = entryInfo(entry, index, viewing);
 					const current = Boolean(shown) && shown.entry.id === entry.id;
 					const where = locate(data.binders, entry.id);
@@ -2327,15 +2337,16 @@ function binderScreen(root, source, id, pageParam) {
 					return h('button', {
 						'aria-pressed': String(current),
 						class: 'pick list-copy',
+						'data-copies': group.length > 1 ? String(group.length) : null,
 						'data-entry': entry.id,
 						onclick: () => (current && shown.picked ? closeSheet() : act(() => setPocketPick(binder.id, key, entry.id), 'Could not pick the copy.')),
 						type: 'button',
 					},
-					artOf(entry, info, (src) => tileArt({finish: copyFinish(entry), info, languages: [entry.language], src})),
+					artOf(entry, info, (src) => tileArt({count: group.length, finish: copyFinish(entry), finishes: group.length > 1 ? group.map(copyFinish) : null, info, languages: [entry.language], src})),
 					h('span', {class: 'tile-name'}, info.name),
 					h('span', {class: 'tile-meta'}, [languageLabel(entry.language), entry.condition, entry.storage].filter(Boolean).join(' · ')),
-					entry.id === defaultId ? h('span', {class: 'tile-meta list-default-tag'}, 'Default') : null,
-					skippedHere.has(entry.id) ? h('span', {class: 'tile-meta list-skipped-tag'}, 'Not shown here') : null,
+					group.some((copy) => copy.id === defaultId) ? h('span', {class: 'tile-meta list-default-tag'}, 'Default') : null,
+					group.every((copy) => skippedHere.has(copy.id)) ? h('span', {class: 'tile-meta list-skipped-tag'}, 'Not shown here') : null,
 					where ? h('span', {class: 'tile-meta pick-where'}, `In ${where.binder_name}, p${where.page}`) : inUseTag(takenHere.get(entry.id)));
 				})));
 
@@ -2841,7 +2852,7 @@ function binderScreen(root, source, id, pageParam) {
 		for (let position = 1; position <= per; position++) {
 			const key = plan.snapshot.keys[position - 1];
 			const item = key ? byKey.get(key) : null;
-			const state = item ? {count: item.copies.length, item, key, shown: shownCopy(item, {pick: picks.get(key), rankOf, skipped: skips.get(key), stored: plan.snapshot.shown[key]})} : null;
+			const state = item ? {copies: item.copies.length, count: distinctCards(item.copies), item, key, shown: shownCopy(item, {pick: picks.get(key), rankOf, skipped: skips.get(key), stored: plan.snapshot.shown[key]})} : null;
 			const content = listPocketContent(state);
 
 			cells.push(h('div', {'aria-label': content.label, class: `pocket pocket-${content.kind}`, 'data-item': state ? state.item.kind : null, 'data-kind': content.kind, role: 'img'}, content.kind === 'open' ? '' : content.node));
@@ -4175,26 +4186,33 @@ function binderScreen(root, source, id, pageParam) {
 
 	// The cards stacked in a list pocket, for the viewer to swipe through:
 	// the one on top first, then the rest newest first, as Edit pocket
-	// lists them (Eric, 2026-11-18). Null for a pocket of one card.
+	// lists them (Eric, 2026-11-18). Each card once, however many copies
+	// (Eric, 2026-11-25), its line naming its copies and finishes. Null for
+	// a pocket of one card.
 	function listStack(state, pg, position) {
 		const {key, shown} = state;
 		const held = gen.items && gen.items.get(key) ? gen.items.get(key).copies : [];
+		const groups = cardGroups([shown.entry, ...held.filter((entry) => entry.id !== shown.entry.id)
+			.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))]);
 
-		if (held.length < 2) {
+		if (groups.length < 2) {
 			return null;
 		}
 
-		const rest = held.filter((entry) => entry.id !== shown.entry.id)
-			.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-		const line = (entry) => [languageLabel(entry.language), entry.condition, `Page ${pg}, pocket ${position}`].filter(Boolean).join(' · ');
+		const pocket = {age: binder.created_at, binderId: binder.id, index: indexAt(pg, position, binder.rows, binder.cols), key};
+		const faces = groups.map((group) => groupFace(group, {rankOf: gen.rankOf, shownId: shown.entry.id, skipped: skips.get(key), taken: takenFor(claims, group, pocket)}));
+		const finishWords = (group) => {
+			const codes = [...new Set(group.map((entry) => entryFinish(entry)))];
+
+			return codes.length > 1 ? codes.map((code) => (FINISHES[code] ? FINISHES[code].text || FINISHES[code].label : 'REG')).join(' + ') : null;
+		};
+		const line = (entry, group) => [languageLabel(entry.language), entry.condition, group.length > 1 ? `${group.length} copies` : null, finishWords(group), `Page ${pg}, pocket ${position}`].filter(Boolean).join(' · ');
 		const binderId = binder.id;
 
 		return {
-			cards: [shown.entry, ...rest].map((entry) => viewerCard(entry, entryInfo(entry, index, viewing), line(entry))),
+			cards: faces.map((entry, i) => viewerCard(entry, entryInfo(entry, index, viewing), line(entry, groups[i]))),
 			onPick: source.readOnly ? null : (i) => {
-				const entry = [shown.entry, ...rest][i];
-
-				setPocketPick(binderId, key, entry.id).catch((err) => toast(err.message || `Could not pick the copy. ${errorText(err)}`));
+				setPocketPick(binderId, key, faces[i].id).catch((err) => toast(err.message || `Could not pick the copy. ${errorText(err)}`));
 			},
 		};
 	}
