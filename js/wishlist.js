@@ -315,10 +315,10 @@ export function favoriteCards(cards) {
 // The one way past the star (Eric, 2026-11-24): a copy explicitly marked
 // For sale is offered even on a favorite card, as the spare rule's forSale
 // option. To sell a favorite he takes the star off, or marks one copy (one
-// language, one finish) For sale. The mark is not built yet, so no copy
-// carries it; when it is, this reads the copy's mark, and the copies of a
-// favorite card that carry it are spares, whatever held says.
-export const markedForSale = () => false;
+// language, one finish) For sale. This reads the copy's mark, and the copies of a
+// favorite card that carry it are spares, whatever held says. The mark is
+// the copy's for_sale (js/shop.js, plans/hotaru-for-sale-plan.md).
+export const markedForSale = (entry) => Boolean(entry) && entry.for_sale === true;
 
 // How many spares of an item the cards hold. A spare is every copy beyond
 // the first of the same card in the same language, whatever its variant

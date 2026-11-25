@@ -403,6 +403,10 @@ const ENTRY_FIELDS = [
 	// The price the owner sells the card for on HOTARU, in reais, typed on
 	// the Shop screen (js/shop.js). null clears it.
 	'sale_price',
+	// For sale on HOTARU: true when the owner put this copy up for sale,
+	// false when he took it off, null (or absent) for the spare rule
+	// (js/shop.js, plans/hotaru-for-sale-plan.md).
+	'for_sale',
 ];
 
 function pick(fields) {

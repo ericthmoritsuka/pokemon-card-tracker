@@ -1,6 +1,7 @@
 // The Shop's numbers (js/shop.js): which cards it lists, one group and one
-// sale price per finish, the sale price kept on every copy of that finish, the suggestion and its rounding, the price
-// filters, and the totals. No browser.
+// sale price per finish, the sale price kept on every copy of that finish,
+// the For sale mark (plans/hotaru-for-sale-plan.md), the suggestion and its
+// rounding, the price filters, and the totals. No browser.
 //
 // Run: node --test tests/shop.test.mjs
 
@@ -9,6 +10,8 @@ import {describe, test} from 'node:test';
 
 import {
 	finishKey,
+	forSalePatches,
+	groupCopy,
 	groupMark,
 	groupPrice,
 	hasCards,
@@ -26,6 +29,7 @@ import {
 	storePicturePath,
 	suggestion,
 	timeLeft,
+	undoForSalePatches,
 	undoPricePatches,
 } from '../js/shop.js';
 
@@ -238,6 +242,91 @@ describe('one price per finish (Eric, 2026-11-24)', () => {
 	});
 });
 
+describe('For sale: the mark is the listing (Eric, 2026-11-24)', () => {
+	const ids = (entries) => entries.map((entry) => entry.id).sort();
+
+	test('with no mark, a priced card offers its spares, as before', () => {
+		const [group] = shopGroups([copy('a', {sale_price: 2}), copy('bb', {sale_price: 2}), copy('ccc', {sale_price: 2})]);
+
+		assert.deepEqual(ids(group.listed), ['bb', 'ccc']);
+		assert.deepEqual(group.marked, []);
+	});
+
+	test('a spare marked false is kept: never offered, still a spare', () => {
+		const [group] = shopGroups([copy('a'), copy('bb', {for_sale: false}), copy('ccc')]);
+
+		assert.deepEqual(ids(group.spares), ['bb', 'ccc']);
+		assert.deepEqual(ids(group.listed), ['ccc']);
+	});
+
+	test('the last copy marked true is offered, and makes a group of its own', () => {
+		const groups = shopGroups([copy('a', {for_sale: true, sale_price: 5})]);
+
+		assert.equal(groups.length, 1);
+		assert.deepEqual(groups[0].spares, []);
+		assert.deepEqual(ids(groups[0].marked), ['a']);
+		assert.deepEqual(ids(groups[0].listed), ['a']);
+		assert.equal(groups[0].price, 5);
+		assert.equal(groupCopy(groups[0]).id, 'a');
+	});
+
+	test('a copy in a binder marked true is offered beside the loose spare', () => {
+		const [group] = shopGroups([copy('a'), copy('bb', {for_sale: true}), copy('ccc')], {held: new Set(['a', 'bb'])});
+
+		assert.deepEqual(ids(group.spares), ['ccc']);
+		assert.deepEqual(ids(group.listed), ['bb', 'ccc']);
+	});
+
+	test('a marked copy beats the favorite star; the unmarked copies stay kept', () => {
+		const [group] = shopGroups([copy('a', {is_favorite: true}), copy('bb', {for_sale: true}), copy('ccc')]);
+
+		assert.deepEqual(ids(group.listed), ['bb'], 'the star keeps a and ccc');
+	});
+
+	test('a marked holo and a plain spare are two rows with their own prices', () => {
+		const groups = shopGroups([
+			copy('a'), copy('bb'),
+			copy('ccc', {finish_raw: 'Holofoil', for_sale: true, sale_price: 9}),
+		]);
+		const plain = groups.find((group) => group.finish_key === '');
+		const holo = groups.find((group) => group.finish_key !== '');
+
+		assert.equal(groups.length, 2);
+		assert.deepEqual(ids(holo.listed), ['ccc']);
+		assert.equal(holo.price, 9);
+		assert.equal(plain.price, null);
+	});
+
+	test('only the listed copies are published, and a priced card with every copy kept shows no mark', () => {
+		const [group] = shopGroups([copy('a', {sale_price: 2}), copy('bb', {for_sale: false, sale_price: 2})]);
+
+		assert.deepEqual(listingRows([group]), [], 'its one spare is kept');
+		assert.equal(groupMark(group, {}), null);
+		assert.deepEqual(shopTotals([group]), {groups: 1, listed: 0, priced: 1, value: 0});
+
+		const [offered] = shopGroups([copy('a', {sale_price: 2}), copy('bb', {sale_price: 2}), copy('ccc', {for_sale: true, sale_price: 2})], {held: new Set(['a'])});
+
+		assert.deepEqual(listingRows([offered]).map((row) => row.id).sort(), ['bb', 'ccc']);
+		assert.equal(groupMark(offered, {bb: {status: 'available'}, ccc: {status: 'reserved'}}), 'reserved');
+	});
+
+	test('forSalePatches writes only what changes, and Undo puts each copy back', () => {
+		const entries = [copy('a'), copy('bb', {for_sale: true}), copy('ccc', {for_sale: false})];
+		const patches = forSalePatches(entries, true);
+
+		assert.deepEqual(patches, [{id: 'a', patch: {for_sale: true}}, {id: 'ccc', patch: {for_sale: true}}]);
+		assert.deepEqual(undoForSalePatches(entries, patches), [{id: 'a', patch: {for_sale: null}}, {id: 'ccc', patch: {for_sale: false}}]);
+		assert.deepEqual(forSalePatches(entries, null), [{id: 'bb', patch: {for_sale: null}}, {id: 'ccc', patch: {for_sale: null}}]);
+	});
+
+	test('a group made without listed (before For sale) offers its spares', () => {
+		const group = {copies: [], price: 2, spares: [{id: 'x'}, {id: 'y'}]};
+
+		assert.deepEqual(listingRows([group]).map((row) => row.id), ['x', 'y']);
+		assert.equal(groupCopy(group).id, 'x');
+	});
+});
+
 describe('salePrice and roundUpToStep', () => {
 	test('reads a positive amount to the cent only', () => {
 		assert.equal(salePrice({sale_price: 2.345}), 2.35);
@@ -306,7 +395,7 @@ describe('priceFilter and shopTotals', () => {
 	});
 
 	test('counts cards, spares, and what the priced spares bring', () => {
-		assert.deepEqual(shopTotals(groups), {groups: 3, priced: 2, spares: 4, value: 5.5});
+		assert.deepEqual(shopTotals(groups), {groups: 3, listed: 4, priced: 2, value: 5.5});
 	});
 });
 
