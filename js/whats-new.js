@@ -21,6 +21,15 @@ import {toast} from './shell.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-25',
+		items: [
+			'Every copy you list on HOTARU now goes up with its picture, including a second copy of a card that is already there.',
+			'Binder pockets show a small tag when a copy in them is for sale on HOTARU.',
+			'Edit copy shows the Shop price of the copy\'s finish under For sale on HOTARU, and you can change it there.',
+		],
+		version: 'v112',
+	},
+	{
 		date: '2026-11-24',
 		items: [
 			'For sale on HOTARU: tick it on any copy in Edit copy, even your last one, one in a binder, or a favorite. Untick it to keep a copy, and it leaves HOTARU at once.',
