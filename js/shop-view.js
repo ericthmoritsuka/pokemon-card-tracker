@@ -38,6 +38,7 @@ import {addPhotoButton, mainSlide, slideSrc} from './photos/index.js';
 import {euroRates, exchangeRates, extractPrices, finishFits, finishOf, formatBrl, savedEuroRates, savedRates} from './prices.js';
 import {PRICE_FILTERS, forSalePatches, groupCopy, groupMark, hasCards, listingRows, orderCheck, ownPicturePath, priceFilter, pricePatches, saleFields, shopGroups, shopKey, shopTotals, storePicturePath, suggestion, timeLeft, undoForSalePatches, undoPricePatches} from './shop.js';
 import {setPicker} from './set-picker.js';
+import {kitsSection, openKitSheet, orderItemsNode} from './shop-kits.js';
 import {checkShopOwner, onShopOwner, setAddAndSell, shopOwnerKnown} from './shop-owner.js';
 import {openDialogSheet} from './sheet.js';
 import {announceOrders, cancelOrder, markDelivered, markPaid, openOrders, orderErrorText, receiptLink} from './store-orders.js';
@@ -141,6 +142,9 @@ export function shopView(root) {
 	const asking = new Map();
 	const working = new Set();
 	const ordersBox = h('section', {'aria-labelledby': 'shop-orders-title', class: 'shop-orders', hidden: true, id: 'shop-orders'});
+	// Kits (plans/hotaru-bundles-plan.md): several cards sold together,
+	// made from the ticked cards (js/shop-kits.js).
+	const kits = kitsSection({finishText: (group) => finishName(groupCopy(group), group), groups: () => groups, toast});
 
 	// HOTARU's sealed products are added on its own admin page, which signs
 	// in with this app's session (Eric, 2026-11-24). Shown once the server
@@ -166,6 +170,7 @@ export function shopView(root) {
 	const drawOwner = (owner) => {
 		sealedAdmin.hidden = owner !== true;
 		sellMore.hidden = owner !== true;
+		kits.setOwner(owner);
 	};
 	const stopOwner = onShopOwner(drawOwner);
 
@@ -211,12 +216,13 @@ export function shopView(root) {
 	}, type: 'button'}, 'Clear selection');
 	const bulkInput = h('input', {'aria-label': 'One price for the cards chosen', autocomplete: 'off', class: 'search shop-price-input', id: 'shop-bulk-price', inputmode: 'decimal', placeholder: '1,00', type: 'text'});
 	const bulkButton = h('button', {class: 'small', id: 'shop-bulk-set', type: 'submit'}, 'Fill all shown');
+	const kitButton = h('button', {class: 'small', hidden: true, id: 'shop-kit-make', onclick: () => makeKit(), type: 'button'}, 'Kit selected');
 	const bulkError = h('p', {class: 'form-error', hidden: true, id: 'shop-bulk-error', role: 'alert'});
 	const bulk = h('form', {class: 'shop-bulk', id: 'shop-bulk', onsubmit: (event) => {
 		event.preventDefault();
 		fillShown();
 	}}, h('label', {class: 'shop-bulk-label', for: 'shop-bulk-price'}, 'R$'), bulkInput, bulkButton,
-	h('div', {class: 'shop-select-tools'}, selectShown, clearSelection));
+	h('div', {class: 'shop-select-tools'}, kitButton, selectShown, clearSelection));
 	const list = h('ul', {'aria-label': 'Your spares', class: 'shop-list', id: 'shop-list'});
 	const empty = h('p', {class: 'muted', hidden: true, id: 'shop-empty'});
 	const saveStatus = h('p', {'aria-live': 'polite', class: 'status shop-save-status', id: 'shop-save-status'});
@@ -250,6 +256,7 @@ export function shopView(root) {
 		summary,
 		publishLine,
 		ordersBox,
+		kits.node,
 		h('div', {class: 'shop-controls'}, search, filter, h('div', {class: 'shop-selects'}, setSelect.node, raritySelect)),
 		bulk,
 		bulkError,
@@ -635,6 +642,24 @@ export function shopView(root) {
 		bulkButton.disabled = !selected.size && !visible.length;
 		clearSelection.hidden = !selected.size;
 		selectShown.hidden = !visible.length || visible.every((group) => selected.has(group.key));
+		// A kit is two or more ticked cards, for the owner.
+		kitButton.hidden = selected.size < 2 || sellMore.hidden;
+		kitButton.textContent = `Kit ${formatCount(selected.size)} selected`;
+	}
+
+	// The ticked cards as a new kit; the ticks clear once it is saved.
+	function makeKit() {
+		openKitSheet({
+			chosen: groups.filter((group) => selected.has(group.key)),
+			kits: kits.kits,
+			onSaved: async () => {
+				selected.clear();
+				drawList();
+				await kits.load();
+			},
+			states,
+			toast,
+		});
 	}
 
 	// A suggestion arrived for some groups: their rows' suggestion lines and
@@ -1087,6 +1112,9 @@ export function shopView(root) {
 			publishLine.textContent = live
 				? `On HOTARU: ${plural(live, 'card', 'cards')}, ${plural(copies, 'copy', 'copies')}.${noPicture ? ` ${plural(noPicture, 'card has', 'cards have')} no picture yet.` : ''}`
 				: 'Nothing on HOTARU yet: give a card a price to offer it.';
+
+			// A kit whose copy is gone takes another copy of the same card.
+			await kits.refill(states).catch(() => {});
 		}
 		catch (err) {
 			if (alive) {
@@ -1190,7 +1218,7 @@ export function shopView(root) {
 			order.receipt_path
 				? h('p', {class: 'shop-order-receipt'}, 'Receipt sent ', h('button', {class: 'link-button', onclick: () => openReceipt(order), type: 'button'}, 'Receipt'))
 				: (pending ? h('p', {class: 'muted shop-order-receipt'}, 'No receipt yet') : null),
-			h('ul', {class: 'shop-order-items'}, (order.items || []).map((item) => h('li', null, `${itemLine(item)} · ${formatBrl(item.price_brl)}`))),
+			orderItemsNode(order.items, itemLine),
 			h('p', {class: 'shop-order-total'}, `Total ${formatBrl(order.total)}`),
 			missing.length && pending
 				? h('p', {class: 'status shop-order-missing', role: 'alert'}, `${plural(missing.length, 'copy', 'copies')} of this order ${missing.length === 1 ? 'is' : 'are'} no longer in your cards. Cancel the order, or add ${missing.length === 1 ? 'it' : 'them'} back.`)
@@ -1512,6 +1540,7 @@ export function shopView(root) {
 	return () => {
 		alive = false;
 		stopOwner();
+		kits.stop();
 		window.removeEventListener('beforeunload', warnUnsaved);
 		document.removeEventListener('visibilitychange', ordersOnReturn);
 
