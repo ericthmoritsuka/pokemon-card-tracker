@@ -17,6 +17,19 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-25
 
+- **v115:** binder pockets count different cards, not copies, and HOTARU's new address. `9340609`, `9ae9417`, `e14652b`
+  - Fixed (Eric: a pocket showed 4 cards and all four were the same card): a list pocket's ×N counts different cards,
+    copies of one card in one language being one card whatever their finish (`cardGroups`, `js/binder-rules.js`), and
+    its name says both ("2 cards fit, 5 copies"; one card with spares, "4 copies"). Edit pocket shows each card once,
+    with ×N for its copies and a badge per finish when they differ (REG beside HOLO or REV; a lone plain print still
+    has no corner), and the viewer swipes each card once, its line naming the copies and finishes. A card stands as
+    the copy shown, else the copy the default would pick among its copies, passing over copies in use elsewhere
+    (`groupFace`), so a pick still stores one copy.
+  - Changed: the Shop's HOTARU admin button opens https://lojahotaru.com.br/admin.html, HOTARU's new domain.
+  - Suite before release: 165 files, 2,437 pass, 2 fail, both in binder-convert-browser and both its old copy-count
+    expectations (three copies of two cards); fixed in `9340609` and passing, with shop-owner-browser and whats-new,
+    on the release tree.
+
 - **v114:** kit notes on the card page, the Kit button beside Fill, and the Shop's selection at hand. `093552b`, `549dd93`, `6c6e509`, `9b60528`
   - Added: Edit copy's For sale hint names the kits a copy is in ("In kit Trio: it sells alone or in the kit", and
     "Kept: … and kit Trio with it" when unticked), and starring a card adds "Kit Trio left HOTARU too." to its toast.
