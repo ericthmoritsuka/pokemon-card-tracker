@@ -297,6 +297,11 @@ describe('Stats', () => {
 
 		const kanto = await evaluate(async () => (await import('/pokemon-card-tracker/js/checklists.js')).createChecklist({kind: 'region', name: 'Kanto', target: 'kanto'}));
 		const johto = await evaluate(async () => (await import('/pokemon-card-tracker/js/checklists.js')).createChecklist({kind: 'region', name: 'Johto', target: 'johto'}));
+
+		// A new list counts every language (Eric, 2026-11-24); Kanto counts
+		// Portuguese, picked by hand, so the English Exeggcute (#102) does not
+		// count and a Portuguese one added later does.
+		await evaluate(async (id) => (await import('/pokemon-card-tracker/js/checklists.js')).setListLanguages(id, ['pt']), kanto.id);
 		const goal = await evaluate(async () => (await import('/pokemon-card-tracker/js/goals.js')).createGoal({kind: 'set', level: 'master', name: 'Base Set', target: 'base1'}));
 
 		// A master set goal's count, as its ring on Lists would leave it.
@@ -307,8 +312,8 @@ describe('Stats', () => {
 		assert.deepEqual(await barRows(page, 'stats-lists'), [['Base Set', '3 of 10 finishes · 30%']]);
 		assert.equal(await page.locator('#stats-lists-changed').count(), 1, 'the copies were added after that count');
 
-		// Lists counts the checklists from your Portuguese copies (a new
-		// list's languages): Charizard, #6. Stats then shows them, first.
+		// Lists counts Kanto from your Portuguese copies (its languages):
+		// Charizard, #6. Stats then shows them, first.
 		await page.click('#stats-lists-open');
 		await page.waitForSelector(`.list-tile[href$="${kanto.id}"] .owned-count`);
 		await page.goto(url('stats'));
