@@ -17,6 +17,21 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-25
 
+- **v116:** free copies beside the count, and Check spares. `b7d2074`, `58c6783`, `80be267`, `7058ebc`, `abad586`, `864d829`
+  - Added (Eric: three Scraggy, one in the region binder, one in the 30 anos binder, "so only one is really a spare"):
+    on My Cards a tile's ×N gains a green half with the copies free to trade or sell, ×3 | 1, named "3 copies, 1
+    free"; none free shows ×3 alone. Free is what the Shop would list (`freeCopyIds`, `js/shop.js`): spares less those
+    taken off sale, plus copies marked For sale. List rows say "×3, 1 free". Spares shows the green half only when
+    fewer spares are free than shown. A list pocket's own label still names its badge (`qtyBadge`, `js/tile.js`).
+  - Added (Eric: he gives cards away without logging them, so the counts drift): Check spares, from Spares or Check
+    under Your copies, lists each card with more than one copy, each copy with its place (pocket, list pocket, tray,
+    or loose; a copy two binders claim shows both) and why it is free or not (`js/spare-check.js`). I don't have this
+    one logs the copy as a gift with no money in Trades, note "Not found in Check spares", with Undo on the toast, and
+    withdraws a listed copy from HOTARU at once for the shop owner online, else at the next Publish.
+  - Not yet: the set grid, card search, goals, and Pokémon cards keep plain ×N, as they count from `ownedIn`.
+  - Suite before release: 167 files, 2,458 pass, 2 fail: shell's corner test expected the old ×2 text (fixed in
+    `864d829`, 18/18), and scan-holder-browser, the known timing flake (5/5 alone).
+
 - **v115:** binder pockets count different cards, not copies, and HOTARU's new address. `9340609`, `9ae9417`, `e14652b`
   - Fixed (Eric: a pocket showed 4 cards and all four were the same card): a list pocket's ×N counts different cards,
     copies of one card in one language being one card whatever their finish (`cardGroups`, `js/binder-rules.js`), and
