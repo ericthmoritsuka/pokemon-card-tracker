@@ -216,6 +216,10 @@ $$;
 -- Returns {code, total, reserved_until} on success, or {unavailable: [ids]}
 -- when any card was taken (reserved, sold, or withdrawn) and nothing was
 -- reserved. The total is the listings' own prices, never the page's.
+-- supabase/store-bundles.sql replaces this with one that also takes kits;
+-- running this script again goes back to this one, so both never coexist.
+drop function if exists public.place_order(text[], text, text, text, uuid[]);
+
 create or replace function public.place_order(items text[], buyer_name text, buyer_phone text, buyer_note text default null)
 returns jsonb
 language plpgsql
