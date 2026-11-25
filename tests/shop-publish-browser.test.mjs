@@ -121,7 +121,7 @@ function indexWithPicture() {
 }
 
 // A phone signed in as the family's owner, whose copies are on the server.
-async function ownerPhone({copies = SPARE_COPIES, index = indexWithPicture(), owner = true} = {}) {
+async function ownerPhone({binders = [], copies = SPARE_COPIES, index = indexWithPicture(), owner = true} = {}) {
 	const fake = new FakeSupabase();
 	const user = fake.addUser('owner@example.test');
 	const context = await browser.newContext({serviceWorkers: 'block', viewport: {height: 844, width: 390}});
@@ -130,7 +130,7 @@ async function ownerPhone({copies = SPARE_COPIES, index = indexWithPicture(), ow
 	await fakePokeApi(context);
 	await fake.attach(context, 'owner');
 	fake.documents.set(user.id, {
-		doc: {...documentWith(copies), person: undefined, user_id: undefined},
+		doc: {...documentWith(copies, binders), person: undefined, user_id: undefined},
 		updated_at: fake.now(),
 		user_id: user.id,
 	});
@@ -408,6 +408,63 @@ describe('Shop publishing', () => {
 		await openShop(page);
 		await waitLine(page, /^Nothing on HOTARU yet/);
 		assert.equal(await page.locator(BULBASAUR).count(), 0, 'kept, and not a spare: no row');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a binder pocket holding a copy on HOTARU carries a For sale badge clear of its corner badges (plans/hotaru-for-sale-plan.md, section 3)', async () => {
+		const AT = '2026-11-25T00:00:00.000Z';
+		const copies = [...SPARE_COPIES, copy('c-17', 'tsa1-001', {finish: 'reverse', for_sale: true, language: 'pt', sale_price: 4})];
+		const binders = [{cols: 3, cover_color: '#1d2e60', created_at: AT, deleted_at: null, id: 'sale-binder', name: 'For sale', notes: '', page_count: 1, rows: 3, slots: [
+			{entry_id: 'c-17', page: 1, placed_at: AT, position: 1},
+			{entry_id: 'c-02', page: 1, placed_at: AT, position: 2},
+		], updated_at: AT}];
+		const {context, errors, page} = await ownerPhone({binders, copies});
+
+		await page.setViewportSize({height: 800, width: 360});
+		await page.locator('#shop-link:not([hidden])').waitFor(TIMEOUT);
+
+		for (const scheme of ['light', 'dark']) {
+			await page.emulateMedia({colorScheme: scheme});
+			await page.goto(`${server.origin}${BASE}binders/sale-binder`);
+
+			const pocket = page.locator('.pocket[data-position="1"]').first();
+			const badge = pocket.locator('.pocket-for-sale');
+
+			await badge.waitFor(TIMEOUT);
+			assert.equal(await badge.getAttribute('aria-label'), 'For sale on HOTARU');
+			assert.equal(await badge.getAttribute('title'), 'For sale on HOTARU');
+			assert.equal(await badge.getAttribute('role'), 'img');
+			assert.match(await pocket.getAttribute('aria-label'), /, for sale on HOTARU$/);
+			assert.equal(await page.locator('.pocket[data-position="2"] .pocket-for-sale').count(), 0, 'a kept copy is not for sale');
+
+			const boxes = await pocket.evaluate((node) => {
+				const box = (el) => {
+					const r = el.getBoundingClientRect();
+
+					return {bottom: r.bottom, left: r.left, name: el.className.baseVal ?? el.className, right: r.right, top: r.top};
+				};
+
+				return {
+					others: [...node.querySelectorAll('.badge, .badge-corner, .card-back-status')].filter((el) => el.getBoundingClientRect().width > 0).map(box),
+					pocket: box(node),
+					sale: box(node.querySelector('.pocket-for-sale')),
+				};
+			});
+
+			assert.ok(boxes.others.some((one) => /badge-finish/.test(one.name)), 'the REV badge shows');
+			assert.ok(boxes.others.some((one) => /badge-lang/.test(one.name)), 'the flag shows');
+
+			for (const other of boxes.others) {
+				const overlap = boxes.sale.left < other.right && other.left < boxes.sale.right && boxes.sale.top < other.bottom && other.top < boxes.sale.bottom;
+
+				assert.ok(!overlap, `For sale overlaps ${other.name}`);
+			}
+
+			assert.ok(boxes.sale.left >= boxes.pocket.left && boxes.sale.right <= boxes.pocket.right && boxes.sale.top >= boxes.pocket.top, 'inside the pocket');
+			await page.screenshot({path: `${SHOTS}/shop-for-sale-pocket-${scheme}.png`});
+		}
+
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

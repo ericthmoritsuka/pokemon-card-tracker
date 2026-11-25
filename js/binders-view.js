@@ -34,6 +34,7 @@ import {
 	isLanguage,
 	languageLabel,
 	pictureOf,
+	printedCode,
 	saveToCardIndex,
 	savedCardRecords,
 	setIdOfCard,
@@ -70,6 +71,8 @@ import {loadedSpeciesNames, namesFor} from './catalog-views.js';
 import {activeFilters, applyFilters, filterBar, searchTextOf, sortItems} from './filter-bar.js';
 import {searchKey} from './names.js';
 import {nowIso} from './collection.js';
+import {listedOf, shopGroups} from './shop.js';
+import {shopOwnerKnown} from './shop-owner.js';
 import {
 	COVER_SWATCHES,
 	DEFAULT_COVER,
@@ -96,6 +99,7 @@ import {
 	placeholdersFor,
 	locate,
 	getBinder,
+	heldCopies,
 	movePocket,
 	moveWithShift,
 	insertPocketAt,
@@ -1256,6 +1260,29 @@ function binderScreen(root, source, id, pageParam) {
 	const recordsShown = () => (source.readOnly ? (data && data.doc && data.doc.card_info) || [] : null);
 
 	// One pocket's content, as a tile.
+	// For sale on HOTARU (plans/hotaru-for-sale-plan.md, section 3): the
+	// owner's copies on HOTARU now (priced and listed, as a My Cards tile's
+	// chip), each pocket holding one tagged along its top edge, clear of
+	// the corners (stand-in flag, count, language flag and finish, status).
+	let onSale = new Set();
+
+	function saleWords(entryId) {
+		return entryId && onSale.has(entryId) ? ', for sale on HOTARU' : '';
+	}
+
+	function withSaleBadge(node, entryId) {
+		if (!entryId || !onSale.has(entryId)) {
+			return node;
+		}
+
+		const svg = new DOMParser().parseFromString('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false"><path fill="currentColor" d="M1 2.5A1.5 1.5 0 0 1 2.5 1h4.4c.4 0 .8.2 1.1.4l6.6 6.6a1.5 1.5 0 0 1 0 2.1l-4.4 4.4a1.5 1.5 0 0 1-2.1 0L1.4 8A1.5 1.5 0 0 1 1 6.9zM4.5 6a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/></svg>', 'image/svg+xml').documentElement;
+		const badge = h('span', {'aria-label': 'For sale on HOTARU', class: 'pocket-for-sale', role: 'img', title: 'For sale on HOTARU'});
+
+		badge.append(document.importNode(svg, true));
+
+		return h('div', {class: 'pocket-sale-wrap'}, node, badge);
+	}
+
 	function pocketContent(slot) {
 		if (!slot) {
 			return {kind: 'open', label: 'Empty', node: h('span', {'aria-hidden': 'true', class: 'pocket-plus'}, source.readOnly ? '' : '+')};
@@ -1270,7 +1297,7 @@ function binderScreen(root, source, id, pageParam) {
 				// count (js/tile.js).
 				const frame = artOf(entry, info, (src) => tileArt({finish: entryFinish(entry), info, languages: [entry.language], src, viewing}), recordsShown());
 
-				return {info, kind: 'card', label: `${info.name}, ${languageLabel(entry.language)}`, node: frame};
+				return {info, kind: 'card', label: `${info.name}, ${languageLabel(entry.language)}${saleWords(entry.id)}`, node: withSaleBadge(frame, entry.id)};
 			}
 
 			// A copy deleted or traded away since it was placed leaves a
@@ -1572,6 +1599,9 @@ function binderScreen(root, source, id, pageParam) {
 		try {
 			data = await source.load();
 			index = await cardIndex();
+			onSale = !source.readOnly && shopOwnerKnown() === true
+				? new Set(shopGroups(data.cards, {codeOf: printedCode, held: heldCopies(data.doc)}).filter((group) => group.price !== null).flatMap(listedOf).map((entry) => entry.id))
+				: new Set();
 		}
 		catch (err) {
 			body.replaceChildren(failure(err, source.readOnly));
@@ -1945,7 +1975,7 @@ function binderScreen(root, source, id, pageParam) {
 			const frame = artOf(entry, info, (src) => tileArt({count, finish: entryFinish(entry), info, languages: [entry.language], src, viewing}), recordsShown());
 			const extra = [count > 1 ? `${count} copies fit` : null, picked ? 'picked by hand' : null].filter(Boolean).join(', ');
 
-			return {info, item, kind: 'card', label: `${item.name}: ${info.name}, ${languageLabel(entry.language)}${extra ? `, ${extra}` : ''}`, node: frame};
+			return {info, item, kind: 'card', label: `${item.name}: ${info.name}, ${languageLabel(entry.language)}${extra ? `, ${extra}` : ''}${saleWords(entry.id)}`, node: withSaleBadge(frame, entry.id)};
 		}
 
 		const info = item.kind === 'pokemon'
