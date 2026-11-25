@@ -10,12 +10,16 @@
 // set name in name_local and set_name_local (the fields the import already
 // uses for names the catalog lacks), the printed number in number_local,
 // and the set code in set_code. Editing the card changes them on every
-// copy.
+// copy. The Pokémon it is, when picked by hand, is dex_number (Eric,
+// 2026-11-24: his hand-made Chinese Relicanth was left off his Hoenn list);
+// with none, lists read it from the name (js/checklists.js resolveOwned,
+// js/names.js dexFromNames).
 //
 // Nothing here touches the DOM, so Node tests it (tests/custom-cards.test.mjs);
 // js/custom-card-view.js draws the sheet and the card page.
 
 import {catalogFor, catalogLanguage, isLanguage} from './catalog.js';
+import {validDex} from './checklists.js';
 import {newId} from './collection.js';
 
 export const CUSTOM = 'custom';
@@ -39,11 +43,15 @@ export const NUMBER_MAX = 20;
 
 const text = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 
-// The card-level fields from a form ({name, setName, setCode, number}),
+// The card-level fields from a form ({name, setName, setCode, number, dex}),
 // cleaned, with the problems found. A name is required; set and number are
-// optional, since a card can have neither printed (a basic energy).
-export function cardFields({name, number, setCode, setName}) {
+// optional, since a card can have neither printed (a basic energy). dex,
+// the Pokémon picked by hand, is a National Dex number or null; left out
+// (undefined), the field is not touched, so a form without it never clears
+// it.
+export function cardFields({dex, name, number, setCode, setName}) {
 	const fields = {
+		...(dex === undefined ? {} : {dex_number: validDex(dex) ? dex : null}),
 		name_local: text(name, NAME_MAX) || null,
 		number_local: text(number, NUMBER_MAX) || null,
 		set_code: text(setCode, 20) || null,
@@ -61,8 +69,8 @@ export function cardFields({name, number, setCode, setName}) {
 // The entries for a new hand-made card: count copies of one card id, alike
 // in language, finish, and condition. Throws with the problems when the
 // form is not complete.
-export function customEntries({cardId = newCustomCardId(), condition = null, count = 1, finish = null, language, name, number, setCode, setName}) {
-	const {fields, problems} = cardFields({name, number, setCode, setName});
+export function customEntries({cardId = newCustomCardId(), condition = null, count = 1, dex, finish = null, language, name, number, setCode, setName}) {
+	const {fields, problems} = cardFields({dex, name, number, setCode, setName});
 
 	if (!language) {
 		problems.push('Pick the language the card is printed in.');
@@ -110,7 +118,7 @@ export function customRecord(entry) {
 		category: '',
 		collector_number: entry.number_local || null,
 		custom: true,
-		dex_ids: [],
+		dex_ids: validDex(entry.dex_number) ? [entry.dex_number] : [],
 		id: entry.card_id,
 		localizations: {
 			[entry.language]: {image: null, lang: entry.language, name: entry.name_local || 'Hand-made card', set_name: entry.set_name_local || null},
@@ -137,6 +145,7 @@ export function customCard(cards, cardId) {
 
 	return {
 		cardId,
+		dex: validDex(newest.dex_number) ? newest.dex_number : null,
 		entries,
 		name: newest.name_local || 'Hand-made card',
 		number: newest.number_local || null,

@@ -15,6 +15,10 @@ export const REAL = {
 	7: {en: 'Squirtle', ja: 'ゼニガメ', 'ja-roma': 'Zenigame', ko: '꼬부기', 'zh-hans': '杰尼龟', 'zh-hant': '傑尼龜'},
 	25: {en: 'Pikachu', ja: 'ピカチュウ', 'ja-roma': 'Pikachu', ko: '피카츄', 'zh-hans': '皮卡丘', 'zh-hant': '皮卡丘'},
 	142: {en: 'Aerodactyl', ja: 'プテラ', 'ja-roma': 'Ptera', ko: '프테라', 'zh-hans': '化石翼龙', 'zh-hant': '化石翼龍'},
+	// Checked 2026-11-24, for the cards TCGdex gives no Pokédex number
+	// (js/names.js dexFromName).
+	369: {en: 'Relicanth', ja: 'ジーランス', 'ja-roma': 'Glanth', ko: '시라칸', 'zh-hans': '古空棘鱼', 'zh-hant': '古空棘魚'},
+	380: {en: 'Latias', ja: 'ラティアス', 'ja-roma': 'Latias', ko: '라티아스', 'zh-hans': '拉帝亚斯', 'zh-hant': '拉帝亞斯'},
 };
 
 // English names some tests rely on, with made-up names elsewhere.

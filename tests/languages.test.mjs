@@ -175,8 +175,8 @@ describe('list languages', () => {
 		assert.deepEqual(listLanguagesToSave(['ja', 'de'], {exact: true}), ['ja']);
 	});
 
-	test('a new list starts with Portuguese', () => {
-		assert.deepEqual(NEW_LIST_LANGUAGES, ['pt']);
+	test('a new list names no languages, so it counts every copy', () => {
+		assert.equal(NEW_LIST_LANGUAGES, null);
 	});
 
 	test('a list with no languages counts every copy: de, es, it, and no language too', () => {

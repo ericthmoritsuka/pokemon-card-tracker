@@ -46,7 +46,7 @@
 import {currentUser, getClient, onSession, onUser, sessionExpired} from './auth.js';
 import {loadDocument, mergeIntoLocal, onChange, readMeta, useAccount, writeMeta} from './collection.js';
 import {cardInfoView} from './card-info.js';
-import {applyDeltaStamps, countChanged, deltaDocument, MERGE_VERSION, mergeDocuments, stamps, syncDelta, usableDelta} from './merge.js';
+import {applyDeltaStamps, countChanged, deltaDocument, MERGE_VERSION, mergeDocuments, planDefaultListLanguages, stamps, syncDelta, usableDelta} from './merge.js';
 import {planStrandedOuts} from './moves.js';
 import {memberIndex} from './photos/model.js';
 
@@ -438,9 +438,10 @@ async function syncOnce() {
 		// Always a merge, even with nothing new from the server: the merge
 		// also repairs the document (js/merge.js folds duplicate copies, and
 		// js/moves.js planStrandedOuts brings back a copy two phones each
-		// undid a move of), and a repaired document differs from what the
-		// server holds, so it is pushed.
-		const merged = planStrandedOuts(withoutDelta(mergeDocuments(local, remote || {}))).doc;
+		// undid a move of, and planDefaultListLanguages takes the old
+		// Portuguese default off a checklist), and a repaired document
+		// differs from what the server holds, so it is pushed.
+		const merged = planDefaultListLanguages(planStrandedOuts(withoutDelta(mergeDocuments(local, remote || {}))).doc).doc;
 		const changed = countChanged(merged, server) > 0;
 
 		if (!stamp) {
@@ -666,9 +667,24 @@ function watchSession() {
 	});
 }
 
+// The repairs the merge makes on sync, made once on the phone's own copy at
+// start too, so a phone that is never signed in gets them: today the old
+// Portuguese default on a checklist (js/merge.js planDefaultListLanguages).
+// Signed in, the change is pushed as any local edit is.
+async function repairLocal() {
+	const {count, doc} = planDefaultListLanguages(await loadDocument());
+
+	if (count) {
+		await mergeIntoLocal({goals: doc.goals});
+	}
+}
+
 export function startSync() {
 	onUser(handleUser);
 	watchSession();
+	repairLocal().catch(() => {
+		// Tried again at the next start, and on every sync.
+	});
 
 	onChange((doc, {source}) => {
 		if (source !== 'local' || !currentUser()) {

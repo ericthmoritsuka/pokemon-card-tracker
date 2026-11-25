@@ -539,6 +539,11 @@ const SET_CARDS = [
 	{id: 'tst1-025', localId: '025', name: 'Test Spark', rarity: 'Rare'},
 ];
 
+// Portuguese picked by hand, stamped as js/checklists.js setListLanguages
+// saves it, so it is no old default for js/merge.js planDefaultListLanguages
+// to take off.
+const PICKED_PT = {field_stamps: {at: '2026-09-02T00:00:00.000Z', languages: '2026-09-02T00:00:00.000Z', since: AT}, languages: ['pt'], updated_at: '2026-09-02T00:00:00.000Z'};
+
 const CHECKLIST = {created_at: AT, deleted_at: null, dex_list: [1, 4, 7, 25], hand_ticks: {}, id: 'list-1', kind: 'custom_pokemon', name: 'Test starters', target: null, updated_at: AT};
 const COLLECTION = {created_at: AT, deleted_at: null, entry_ids: {c4: AT, c5: AT}, id: 'col-1', kind: 'hand', name: 'Test favorites', rule: null, updated_at: AT};
 const SET_GOAL = {catalog: 'international', created_at: AT, deleted_at: null, id: 'goal-1', kind: 'set', level: 'secrets', name: 'Test set one', target: 'tst1', updated_at: AT};
@@ -968,7 +973,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		const older = {at: AT, keys: ['dex:1', 'dex:4', 'dex:7', 'dex:25'], rule_key: ruleKey(rule), shown: {'dex:1': 'c1', 'dex:25': 'c8', 'dex:4': 'c4', 'dex:7': 'c5'}};
 		const binder = {art: [], cols: 2, cover_color: '#1d2e60', created_at: AT, deleted_at: null, id: 'gen-1', name: 'Test starters', notes: '', page_count: 1, rows: 2, rule, slots: [], snapshot: older, updated_at: AT};
 
-		await seedLocal(page, documentWith({binders: [binder], cards: [...CARDS, card('c8', 'tst1-025', {language: 'en'})], goals: [{...CHECKLIST, languages: ['pt']}, SET_GOAL]}));
+		await seedLocal(page, documentWith({binders: [binder], cards: [...CARDS, card('c8', 'tst1-025', {language: 'en'})], goals: [{...CHECKLIST, ...PICKED_PT}, SET_GOAL]}));
 
 		// The first opening empties Pikachu, says so, and records the languages.
 		await page.goto(url('binders/gen-1'));
@@ -1011,6 +1016,57 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 
 		assert.notEqual(doc.binders[0].updated_at, stamp, 'saved by Refresh');
 		assert.equal(doc.binders[0].snapshot.shown['dex:25'], undefined);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// Eric, 2026-11-24: his Hoenn list binder refused his only Latias, the
+	// Japanese SV7a-019 ラティアスex, which TCGdex gives no Pokédex number,
+	// and his hand-made Chinese Relicanth (Gem Pack Vol.4, a set TCGdex lists
+	// with no cards); his list also still carried the old Portuguese default.
+	test('a Hoenn list binder takes a Japanese print with no Pokédex number and a hand-made card, the old Portuguese default gone at start', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const hoenn = {created_at: AT, deleted_at: null, dex_list: [369, 380], hand_ticks: {}, id: 'list-hoenn', kind: 'custom_pokemon', languages: ['pt'], name: 'Hoenn', target: null, updated_at: AT};
+		const latias = card('j1', 'SV7a-019', {catalog: 'ja', language: 'ja'});
+		const relicanth = card('h1', 'hand_0123456789abcdef0123456789abcdef', {catalog: 'custom', language: 'zh-cn', name_local: '古空棘鱼', number_local: '0703/07', set_code: 'CBB4C', set_name_local: 'Gem Pack Vol.4'});
+
+		await page.route('https://api.tcgdex.net/v2/ja/cards/SV7a-019', (route) => route.fulfill({
+			body: JSON.stringify({category: 'Pokemon', dexId: null, id: 'SV7a-019', image: null, localId: '019', name: 'ラティアスex', set: {id: 'SV7a', name: '楽園ドラゴーナ'}}),
+			contentType: 'application/json',
+			status: 200,
+		}));
+		await seedLocal(page, documentWith({cards: [latias, relicanth], collections: [], goals: [hoenn]}));
+		await page.waitForFunction(async () => {
+			const doc = await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument();
+
+			return !('languages' in doc.goals.find((goal) => goal.id === 'list-hoenn'));
+		}, null, {timeout: 15000});
+
+		await page.click('.tabs a[data-tab="binders"]');
+		await page.click('#new-binder');
+		await page.check('#new-binder-list');
+		await page.waitForSelector('#rule-section');
+		await page.check('#rule-kind input[value="checklist"]');
+		await page.selectOption('#rule-list', 'list-hoenn');
+		await page.click('.binder-preset[data-preset="4-pocket"]');
+		await page.waitForFunction(() => /2 pockets \(2 with a card you own\)/.test((document.getElementById('rule-count') || {}).textContent), null, {timeout: 15000});
+		await page.click('#binder-save');
+		await page.waitForSelector('#binder-spread .bs-page');
+
+		const doc = await localDoc(page);
+
+		assert.deepEqual(doc.binders[0].snapshot.shown, {'dex:369': 'h1', 'dex:380': 'j1'});
+		assert.equal(doc.binders[0].list_languages, undefined, 'the list counts every language');
+		await waitForPocket(page, spreadPocket(1, 2), {kind: 'card'});
+
+		// The Latias pocket's sheet offers the Japanese copy.
+		await openPage(page, 1);
+		await page.click(zoomPocket(2));
+		await page.waitForFunction(() => document.getElementById('pocket-viewer')?.dataset.state === 'open');
+		await page.click('#pv-details');
+		await page.waitForSelector('#list-copies .list-copy[data-entry="j1"]');
+		assert.equal(await page.locator('#list-copies .list-copy').count(), 1);
+		await page.screenshot({path: `${SHOTS}/hoenn-latias-360.png`});
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

@@ -396,9 +396,10 @@ const ENTRY_FIELDS = [
 	// The Liga Pokémon price the owner typed in, {low_nm, avg, currency:
 	// 'BRL', source, date} (js/prices.js). null clears it.
 	'price_manual',
-	// A hand-made card's printed number and set code (js/custom-card.js);
-	// its name and set name are name_local and set_name_local.
-	'number_local', 'set_code',
+	// A hand-made card's printed number and set code, and the Pokémon picked
+	// for it (js/custom-card.js); its name and set name are name_local and
+	// set_name_local.
+	'number_local', 'set_code', 'dex_number',
 	// The price the owner sells the card for on HOTARU, in reais, typed on
 	// the Shop screen (js/shop.js). null clears it.
 	'sale_price',

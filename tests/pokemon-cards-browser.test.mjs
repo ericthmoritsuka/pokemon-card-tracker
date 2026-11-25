@@ -72,7 +72,10 @@ const CARDS = [
 
 // A list that names Portuguese as its one language (a list that names none
 // counts every language: tests/checklists.test.mjs).
-const GOAL = {created_at: AT, deleted_at: null, dex_list: [35, 39], hand_ticks: {}, id: LIST, kind: 'custom_pokemon', languages: ['pt'], level: null, name: 'Pink ones', target: null, updated_at: AT};
+// Portuguese picked by hand (its stamp is later than the list), so it is no
+// old default for js/merge.js planDefaultListLanguages to take off.
+const PICKED = '2026-10-02T00:00:00.000Z';
+const GOAL = {created_at: AT, deleted_at: null, dex_list: [35, 39], field_stamps: {at: PICKED, languages: PICKED, since: AT}, hand_ticks: {}, id: LIST, kind: 'custom_pokemon', languages: ['pt'], level: null, name: 'Pink ones', target: null, updated_at: PICKED};
 
 function documentWith(cards, goals = [GOAL]) {
 	return {binders: [], cards, collections: [], goals, openings: [], person: 'local', updated_at: AT, user_id: null, version: 1, wishlist: []};

@@ -868,6 +868,27 @@ lists a card with the same set (by TCGdex id, printed code, or name) and number,
 offers to link: the same entries move to the catalog card, keeping photos, notes, prices, and
 binder pockets.
 
+**Pokédex numbers a card's record lacks** (Eric, 2026-11-24, after his Hoenn and Sinnoh list
+binders left out his Japanese Latias, SV7a-019 ラティアスex, his Cynthia's Garchomp, SV9a-044
+シロナのガブリアスex, and his hand-made Chinese Relicanth from Gem Pack Vol.4). A checklist counts
+a copy by its card's Pokédex numbers, and TCGdex leaves `dexId` null on many recent Asian prints:
+434 of 10,601 Japanese Pokémon cards (18 of 79 in SV9a, 67 of 168 in SV8a) and 2,666 of 5,960
+Traditional Chinese ones on 2026-11-24. For an Asian print with none, `js/checklists.js`
+`resolveOwned` reads the numbers from the printed name (`js/names.js` `dexFromName`): the species
+names PokeAPI gives in that language, with the mechanic suffix (ex, V, VMAX, VSTAR, GX, BREAK), a
+delta mark, a known prefix (Alolan, Radiant, Mega), a trainer's name (シロナの, 奇樹的, <阿響的>), or
+a form after a space taken off, and Black Kyurem and Rotom's appliances matched whole. A zh-cn
+record carries Traditional names, so Chinese is read in both scripts. It never guesses: a name two
+species share, or a name with a form written before the species with no space (衝浪皮卡丘V,
+Surfing Pikachu V: 19 Traditional Chinese cards), gives nothing, since reading the species a name
+ends with misread old Japanese names (チャリザード as リザード). Measured against every Japanese card
+that has `dexId`, it disagrees only where TCGdex itself is wrong (ウオチルドン is Arctovish, 883).
+A twin cannot lend the number: twins are matched on `dexId` (`js/twins.js`). A hand-made card
+carries `dex_number`, the Pokémon picked on its form ("Pokémon (for your lists)", a name or a
+number), on every copy; with none, lists read its name in its language, English, Japanese, Korean,
+and Chinese (`dexFromNames`, "古空棘鱼" or "Relicanth"), and count nothing when two readings
+disagree. The form says what lists will count it as.
+
 **Stored in** (Eric, 2026-10-09). Where each physical copy lives (a box, a deck box, a drawer, a
 toploader case) is the copy's `storage`: free text, one line, trimmed, at most 40 characters,
 edited in the copy sheet and the Add sheet beside condition and notes. The places are saved in a
@@ -2912,14 +2933,16 @@ all of its cards, for example "Jigglypuff, 9 of 48 cards": every print across se
 including cards it shares with others (TAG TEAM cards list several `dexId` values), with owned
 cards flagged (ribbon and language flags) and missing ones dimmed with one tap to the wishlist,
 the shared All, Owned, and Missing filter, and a "count every finish" switch for a master
-collection. Each list has its own **languages** setting (default Portuguese only; English, Japanese,
-Korean, Chinese, French, and the others can be added). It decides both which prints
+collection. Each list has its own **languages** setting (default none, so any language; Portuguese, English,
+Japanese, Korean, Chinese, French, and the others can be picked). It decides both which prints
 appear and what counts as owned, in the list's ticks and on this screen alike: a card counts only
 when owned in one of the list's languages, so a Portuguese-only list ticks a card only for a
 Portuguese copy. **Any language** removes the setting, and so does ticking every language: such a
 list counts a copy in any language, German, Spanish, Italian, and copies with no language
 recorded included. Lists made before the setting decided ticks have none, so they keep counting
-any language until someone picks languages for them; a new list starts with Portuguese.
+any language until someone picks languages for them, and so does a new list (Eric, 2026-11-24: a
+specific language is something he sets himself; from 2026-10-15 a new list had started with
+Portuguese, and `js/merge.js` `planDefaultListLanguages` takes that untouched default off on sync).
 *(Ticks follow the languages: Eric's open decision, settled 2026-10-15 as the roadmap proposed.)*
 **A list's languages decide everything it counts** (Eric, 2026-11-05; built 2026-11-05): its
 ticks, counts, progress ring, and Value, the every-card-of-a-Pokémon screen reached from it, and

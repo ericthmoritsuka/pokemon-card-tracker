@@ -404,7 +404,7 @@ function listsScreen(root, source) {
 				h('p', {class: 'big'}, 'No lists yet.'),
 				source.readOnly
 					? null
-					: h('p', {class: 'muted'}, 'Add a region to tick off its Pokémon as you collect them. A list ticks itself from your cards in its languages, Portuguese to start.')
+					: h('p', {class: 'muted'}, 'Add a region to tick off its Pokémon as you collect them. A list ticks itself from your cards in any language, or only in the languages you pick for it.')
 			));
 
 			return;

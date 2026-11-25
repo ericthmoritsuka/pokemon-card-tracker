@@ -36,7 +36,9 @@ import {
 	storedLine,
 	toastAdded,
 } from './copy-sheet.js';
+import {dexLabel, speciesNames, validDex} from './checklists.js';
 import {CUSTOM, customCard, customEntries, customRoute, editPatches, findCatalogCard, findSet, linkLookups, linkPatches, NAME_MAX, newCustomCardId, NUMBER_MAX, SET_MAX} from './custom-card.js';
+import {dexFromNames} from './names.js';
 import {BASE, backWords, errorText, go, h} from './dom.js';
 import {memberDocumentKept, whenMemberName} from './family.js';
 import {flagBadge} from './flags.js';
@@ -134,7 +136,7 @@ export function openCustomCardSheet({card = null, onSaved = null, openPage = tru
 	const editing = Boolean(card);
 	const sheet = sheetDialog('hand-sheet', editing ? 'Edit card' : 'Add a card by hand');
 	const close = () => sheet.close();
-	const values = editing ? {name: card.name, number: card.number, setCode: card.setCode, setName: card.setName} : prefill;
+	const values = editing ? {dex: card.dex, name: card.name, number: card.number, setCode: card.setCode, setName: card.setName} : prefill;
 	const error = h('p', {'aria-live': 'polite', class: 'form-error', id: 'hand-error'});
 
 	const name = h('input', {autocomplete: 'off', class: 'search', id: 'hand-name', maxlength: NAME_MAX, name: 'hand-name', required: true, value: values.name || ''});
@@ -142,6 +144,68 @@ export function openCustomCardSheet({card = null, onSaved = null, openPage = tru
 	const setCode = h('input', {autocapitalize: 'characters', autocomplete: 'off', class: 'search', id: 'hand-code', maxlength: 20, name: 'hand-code', value: values.setCode || ''});
 	const number = h('input', {autocomplete: 'off', class: 'search', id: 'hand-number', maxlength: NUMBER_MAX, name: 'hand-number', value: values.number || ''});
 	const suggestions = h('datalist', {id: 'hand-sets'});
+	// The Pokémon the card is, for lists (Eric, 2026-11-24): optional, since
+	// lists read it from the name when they can; typed as a name from the
+	// suggestions or a Pokédex number.
+	const pokemon = h('input', {'aria-describedby': 'hand-pokemon-note', autocomplete: 'off', class: 'search', id: 'hand-pokemon', list: 'hand-species', name: 'hand-pokemon', placeholder: 'Read from the name', value: validDex(values.dex) ? dexLabel(values.dex) : ''});
+	const species = h('datalist', {id: 'hand-species'});
+	const pokemonNote = h('p', {'aria-live': 'polite', class: 'muted custom-note', id: 'hand-pokemon-note'});
+	let tables = null;
+
+	// The Pokémon typed: {dex} (null when the field is empty), or {error}.
+	function typedPokemon() {
+		const typedText = pokemon.value.trim();
+
+		if (!typedText) {
+			return {dex: null};
+		}
+
+		const number = /^#?0*(\d{1,4})$/.exec(typedText);
+
+		if (number) {
+			const n = Number(number[1]);
+
+			return validDex(n) ? {dex: n} : {error: `There is no Pokémon ${typedText}.`};
+		}
+
+		const found = tables ? dexFromNames(typedText, ['en'], tables) : [];
+
+		return found.length === 1 ? {dex: found[0]} : {error: 'Pick a Pokémon from the list, type its number, or leave it empty.'};
+	}
+
+	const speciesName = (n) => (tables && tables.en && tables.en[n]) || `Pokémon ${dexLabel(n)}`;
+
+	function notePokemon() {
+		const typedOne = typedPokemon();
+		const lang = language ? language.value : ((card && card.entries[0]) || {}).language;
+		const fromName = !pokemon.value.trim() && tables ? dexFromNames(name.value, [lang].filter(Boolean), tables) : [];
+
+		pokemonNote.textContent = typedOne.dex
+			? `Lists count it as ${speciesName(typedOne.dex)} (${dexLabel(typedOne.dex)}).`
+			: typedOne.error
+				? ''
+				: fromName.length
+					? `Lists count it as ${fromName.map((n) => `${speciesName(n)} (${dexLabel(n)})`).join(' & ')}, from its name.`
+					: 'Lists cannot tell which Pokémon this is from its name. Pick it to count it on your lists.';
+	}
+
+	speciesNames().then((loaded) => {
+		tables = loaded;
+
+		if (!sheet.isConnected) {
+			return;
+		}
+
+		species.replaceChildren(...(loaded.en || []).map((one, n) => (one && n ? h('option', {value: one}, dexLabel(n)) : null)).filter(Boolean));
+
+		if (validDex(values.dex)) {
+			pokemon.value = speciesName(values.dex);
+		}
+
+		notePokemon();
+	}).catch(() => {});
+	pokemon.addEventListener('input', notePokemon);
+	name.addEventListener('input', notePokemon);
 	const initialLanguage = LANGUAGE_CODES.includes(values.language) ? values.language : defaultLanguage();
 	const language = editing ? null : sheetSelect('hand-language', copyLanguages(CUSTOM).map(({code, label}) => ({label, value: code})), initialLanguage);
 	const finish = editing ? null : sheetSelect('hand-finish', [{label: 'Not set', value: ''}, ...rawFinishes()], rawFinishes().some((option) => option.value === values.finish) ? values.finish : '');
@@ -179,7 +243,10 @@ export function openCustomCardSheet({card = null, onSaved = null, openPage = tru
 	});
 
 	if (language) {
-		language.addEventListener('change', () => suggest().catch(() => {}));
+		language.addEventListener('change', () => {
+			suggest().catch(() => {});
+			notePokemon();
+		});
 	}
 
 	const howMany = () => {
@@ -200,6 +267,9 @@ export function openCustomCardSheet({card = null, onSaved = null, openPage = tru
 		finish ? sheetField('Finish', 'hand-finish', finish) : null,
 		condition ? sheetField('Condition', 'hand-condition', condition) : null,
 		count ? sheetField(`How many (1 to ${MAX_ADD})`, 'hand-count', count) : null,
+		sheetField('Pokémon (for your lists)', 'hand-pokemon', pokemon),
+		species,
+		pokemonNote,
 		error,
 		submit
 	);
@@ -213,7 +283,16 @@ export function openCustomCardSheet({card = null, onSaved = null, openPage = tru
 		event.preventDefault();
 		error.textContent = '';
 
-		const typed = {name: name.value, number: number.value, setCode: setCode.value, setName: setName.value};
+		const picked = typedPokemon();
+
+		if (picked.error) {
+			error.textContent = picked.error;
+			pokemon.focus();
+
+			return;
+		}
+
+		const typed = {dex: picked.dex, name: name.value, number: number.value, setCode: setCode.value, setName: setName.value};
 
 		submit.disabled = true;
 
