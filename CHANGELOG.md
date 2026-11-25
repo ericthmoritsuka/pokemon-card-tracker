@@ -17,6 +17,24 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-25
 
+- **v113:** kits on HOTARU, and the Shop filtered by finish. `a6e099e`, `2bdff27`, `60b8fab`, `868883b`, `a0e1eff`, `2fb6c36`, `002218a`
+  - Added (Eric): kits, several listed cards sold together on HOTARU at a price he types or a percent off their sum
+    (`plans/hotaru-bundles-plan.md`). A percent kit rounds down to the centavo (R$ 15,00 at 5% is R$ 14,25). A kit
+    names exact copies; its cards stay for sale one by one, whoever orders first wins, and the kit leaves HOTARU while
+    one of them is reserved or sold. `supabase/store-bundles.sql` (run by Eric) adds the kit tables, `save_bundle`,
+    `delete_bundle`, `store_bundles_admin`, the public `store_bundles`, `in_kit` on `store_catalog`, and `bundles` on
+    `place_order`, which splits a kit's price over its cards so the sale still logs at the order's total.
+    `tests/store-bundles-sql-check.sh` checks it in a throwaway Postgres, including a kit racing a single.
+  - Added: the Shop's Kit button for two or more ticked cards (the sheet previews the sum and the kit's price), the
+    Kits section with Edit, Turn off, and Delete, and kits' cards grouped under their name in Orders
+    (`js/kits.js`, `js/shop-kits.js`). After each Publish, a kit whose copy is no longer for sale takes another
+    listed copy of the same card, the same condition first. HOTARU's side is its pull request #14.
+  - Added: an Every finish filter in the Shop, beside Rarity, to price every reverse holo at once
+    (`card-tracker-finish-filter`).
+  - Fixed: running `supabase/store.sql` or `store-orders.sql` again after the kits script no longer fails on
+    `store_catalog`'s columns or leaves two `place_order` functions: each drops the function before making it.
+  - Suite before release: 165 files, 2,434 pass, 0 fail, each file alone with a 900 s timeout.
+
 - **v112:** a new listing gets its card's HOTARU picture, a For sale tag on binder pockets, and the Shop price on Edit copy. `cea9db0`, `5540ed3`, `044e9d4`, `e874419`
   - Fixed: a copy newly listed for a card whose other listing already had a picture went to HOTARU without one,
     because Publish only looked for pictures when no copy of the card had one. Now any listed copy without a
