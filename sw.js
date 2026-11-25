@@ -141,6 +141,7 @@ const SHELL = [
 	// A waiting version takes over after the app was away a while (2026-11-20).
 	'js/auto-update.js',
 	'js/binders-view.js',
+	'js/binder-add.js',
 	'js/binder-convert.js',
 	'js/binder-cover.js',
 	'js/binder-hand.js',
