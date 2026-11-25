@@ -4,8 +4,15 @@ Eric, 2026-11-25: he sells the three MEP Black Star Promo starters one by one, a
 offer the trio together at a price that is not the sum. Two ways to price a kit: a price he types,
 or a discount in percent off the sum (for example, 5% off for buying all three).
 
-Status: plan only. Nothing is built until Eric answers the decisions in section 9, relayed by the
-orchestrator session. Release slot: v113, gated on a new SQL file Eric runs by hand.
+Status, 2026-11-25: Eric chose every default in section 9. Built: `supabase/store-bundles.sql`
+(live: Eric ran it, checked by `tests/store-bundles-sql-check.sh`), the Shop's kits (`js/kits.js`,
+`js/shop-kits.js`, hooks in `js/shop-view.js`), and HOTARU's Kits (pull request #14). Release slot:
+v113; its release commit adds `js/kits.js` and `js/shop-kits.js` to `sw.js`'s precache.
+
+Not built yet, because both touch `js/copy-sheet.js` and the card page, which v112 changes: the
+"In kit" note under the For sale switch (section 7) and the star toast's "left HOTARU too" line
+(section 6). The kit itself already leaves HOTARU at once when a starred or unmarked copy is
+withdrawn, so these only explain what happened.
 
 Builds on: `store_listings` (one row per copy, keyed by the copy's ID, `supabase/store.sql`);
 `place_order`, which reserves a list of listing IDs all or none (`supabase/store-orders.sql`);
