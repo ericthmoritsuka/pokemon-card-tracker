@@ -300,6 +300,40 @@ describe('Shop', () => {
 		await context.close();
 	});
 
+	// Eric, 2026-11-25: the finish filter, to price the reverse holos
+	// together. Charizard EN gains two copies of monprice's reverse word,
+	// which its row prints "Reverse holo", beside Charmander's "Reverse
+	// Holofoil": one choice holds both, and Fill all shown prices only them.
+	test('the finish filter shows one finish, however its rows spell it, and Fill all shown prices only those', async () => {
+		const charizard = SPARE_COPIES.find((one) => one.id === 'c-07');
+		const reverses = ['c-30', 'c-31'].map((id) => ({...charizard, finish_raw: 'REVERSE_HOLOFOIL', id}));
+		const {context, errors, page} = await phone({copies: [...SPARE_COPIES, ...reverses]});
+
+		await openShop(page);
+		await pickShow(page, 'all');
+		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 7);
+
+		const options = (await page.locator('#shop-finish option').allTextContents()).map(plain);
+
+		assert.equal(options[0], 'Every finish');
+		assert.equal(options.filter((text) => /^reverse holo/i.test(text)).length, 1, `one reverse choice: ${options.join(', ')}`);
+		assert.ok(options.includes('Reverse holo'), 'named the catalog\'s way');
+		assert.equal(new Set(options).size, options.length, 'no choice twice');
+		await page.selectOption('#shop-finish', {label: 'Reverse holo'});
+		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 2);
+		assert.deepEqual((await page.locator('.shop-row .shop-finish').allTextContents()).map(plain).sort(), ['Reverse Holofoil', 'Reverse holo'].sort());
+		assert.equal(plain(await page.locator('#shop-bulk-set').textContent()), 'Fill all 2 shown');
+		await page.fill('#shop-bulk-price', '2');
+		await page.click('#shop-bulk-set');
+		assert.deepEqual(await page.locator('.shop-row .shop-price-input').evaluateAll((inputs) => inputs.map((input) => input.value)), ['2,00', '2,00']);
+		assert.equal(plain(await page.locator('#shop-save-all').textContent()), 'Save 2 prices', 'the rows the filter hides are left alone');
+		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-finish-filter.png`});
+		await page.selectOption('#shop-finish', '');
+		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 7);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	// The set filter is a listbox (js/set-picker.js), so its options can
 	// show a symbol. Its options' text, and picking one by a tap.
 	const setOptions = async (page) => {

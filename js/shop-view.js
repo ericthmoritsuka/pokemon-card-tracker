@@ -51,6 +51,13 @@ const HOTARU_ADMIN = 'https://ericthmoritsuka.github.io/hotaru/admin.html';
 // The prices typed and not saved yet, {<group key>: <text as typed>}.
 const DRAFTS_KEY = 'cardTracker.shopDrafts';
 const SHOW_LABELS = {all: 'All', priced: 'Priced', unpriced: 'Not priced'};
+// The finish filter's name for the rows whose finish is not set, as the row
+// itself says.
+const NO_FINISH = 'Finish not set';
+
+// One filter choice per finish however its row spells it: a monprice word
+// kept as typed ("Reverse Holofoil") and the catalog's "Reverse holo".
+const finishChoice = (label) => label.toLowerCase().replace(/holofoil/g, 'holo');
 // Reading the prices of cards never read before stops after this many
 // failures in a row (offline, or TCGdex failing), as My Cards' pass does.
 const MAX_FAILURES = 3;
@@ -120,6 +127,9 @@ export function shopView(root) {
 	let query = '';
 	let setFilter = '';
 	let rarityFilter = '';
+	// A finish choice (finishChoice), so the reverse holos can be priced
+	// together (Eric, 2026-11-25), or '' for every finish.
+	let finishFilter = '';
 	// Rows as drawn, by group key, so a suggestion can be put in place.
 	const rows = new Map();
 	// store_sync's last answer, {<copy id>: {status, image_path}}, and the
@@ -192,6 +202,7 @@ export function shopView(root) {
 	let facts = new Map();
 	let factsAsked = false;
 	const raritySelect = h('select', {'aria-label': 'Rarity', class: 'shop-select', id: 'shop-rarity'});
+	const finishSelect = h('select', {'aria-label': 'Finish', class: 'shop-select', id: 'shop-finish'});
 	const filter = h('div', {'aria-label': 'Show', class: 'segmented', id: 'shop-filter', role: 'radiogroup'},
 		PRICE_FILTERS.map((value) => h('label', null,
 			h('input', {checked: value === show, name: 'shop-filter', onchange: () => {
@@ -247,6 +258,10 @@ export function shopView(root) {
 		rarityFilter = raritySelect.value;
 		drawList();
 	});
+	finishSelect.addEventListener('change', () => {
+		finishFilter = finishSelect.value;
+		drawList();
+	});
 
 	root.append(
 		h('div', {class: 'view-head'}, h('h2', null, 'Shop')),
@@ -257,7 +272,7 @@ export function shopView(root) {
 		publishLine,
 		ordersBox,
 		kits.node,
-		h('div', {class: 'shop-controls'}, search, filter, h('div', {class: 'shop-selects'}, setSelect.node, raritySelect)),
+		h('div', {class: 'shop-controls'}, search, filter, h('div', {class: 'shop-selects'}, setSelect.node, raritySelect, finishSelect)),
 		bulk,
 		bulkError,
 		list,
@@ -294,6 +309,7 @@ export function shopView(root) {
 			}
 		}
 		group.rarity = (record && record.rarity) || null;
+		noteFinish(group);
 		group.search = searchText(group);
 	}
 
@@ -306,6 +322,32 @@ export function shopView(root) {
 		return fold([info.search, info.name, info.setName, info.number, group.card_id, languageLabel(group.language), finishName(groupCopy(group), group)].filter(Boolean).join(' '));
 	}
 
+	// The finish the row prints, so the filter matches what is shown. A
+	// record read later can name it (a copy known by its variant alone), so
+	// it is read again then; true when it changed.
+	function noteFinish(group) {
+		const before = group.finishLabel;
+
+		group.finishLabel = finishName(groupCopy(group), group) || NO_FINISH;
+		group.finish = finishChoice(group.finishLabel);
+
+		return before !== undefined && before !== group.finishLabel;
+	}
+
+	// The finishes again once records arrive: the filter's choices, and the
+	// list when it is filtered by a finish that changed.
+	function refreshFinishes(read) {
+		const changed = read.filter(noteFinish).length > 0;
+
+		if (changed) {
+			drawSelects();
+
+			if (finishFilter) {
+				drawList();
+			}
+		}
+	}
+
 	const recordOf = (group) => saved.get(`${group.catalog}|${group.card_id}`) || null;
 
 	function shown() {
@@ -313,6 +355,7 @@ export function shopView(root) {
 
 		return priceFilter(groups, show).filter((group) => (!setFilter || group.set_id === setFilter)
 			&& (!rarityFilter || group.rarity === rarityFilter)
+			&& (!finishFilter || group.finish === finishFilter)
 			&& words.every((word) => group.search.includes(word)));
 	}
 
@@ -350,8 +393,28 @@ export function shopView(root) {
 			rarityFilter = '';
 		}
 
+		// By name, with the rows whose finish is not set last. A choice
+		// shows the catalog's spelling when any row has it.
+		const finishes = new Map();
+
+		for (const group of groups) {
+			const label = finishes.get(group.finish);
+
+			if (!label || (/holofoil/i.test(label) && !/holofoil/i.test(group.finishLabel))) {
+				finishes.set(group.finish, group.finishLabel);
+			}
+		}
+
+		const noFinish = finishChoice(NO_FINISH);
+		const finishOptions = [...finishes].sort(([a, aText], [b, bText]) => (a === noFinish) - (b === noFinish) || aText.localeCompare(bText));
+
+		if (finishFilter && !finishes.has(finishFilter)) {
+			finishFilter = '';
+		}
+
 		setSelect.setOptions([{code: null, symbol: null, text: 'Every set', value: ''}, ...[...sets.values()].sort((a, b) => a.text.localeCompare(b.text))], setFilter);
 		fillSelect(raritySelect, 'Every rarity', rarities.map((rarity) => [rarity, rarity]), rarityFilter);
+		fillSelect(finishSelect, 'Every finish', finishOptions, finishFilter);
 	}
 
 	// The English set list, saved or fetched, for the symbols: the only
@@ -620,7 +683,7 @@ export function shopView(root) {
 		empty.hidden = visible.length > 0;
 		empty.textContent = !groups.length
 			? 'No spares yet. A spare is a copy beyond the first of the same card in the same language, never a favorite.'
-			: show === 'unpriced' && !query && !setFilter && !rarityFilter
+			: show === 'unpriced' && !query && !setFilter && !rarityFilter && !finishFilter
 				? 'Every spare is priced.'
 				: 'No spares match.';
 		drawBulk(visible);
@@ -1489,7 +1552,11 @@ export function shopView(root) {
 
 				if (record && alive) {
 					saved.set(`international|${item.cardId}`, record);
-					patchSuggestions(groups.filter((group) => group.catalog === 'international' && group.card_id === item.cardId).map((group) => group.key));
+
+					const read = groups.filter((group) => group.catalog === 'international' && group.card_id === item.cardId);
+
+					patchSuggestions(read.map((group) => group.key));
+					refreshFinishes(read);
 				}
 			}
 			catch {
@@ -1522,6 +1589,8 @@ export function shopView(root) {
 			return;
 		}
 
+		groups.forEach(noteFinish);
+		drawSelects();
 		drawList();
 
 		const [usd, eur] = await Promise.all([exchangeRates().catch(() => null), euroRates().catch(() => null)]);
