@@ -23,6 +23,16 @@ export const RELEASES = [
 	{
 		date: '2026-11-25',
 		items: [
+			'Edit copy names the kit a copy is in, under For sale on HOTARU, and says the kit leaves HOTARU too when you keep the copy.',
+			'Starring a card that is in a kit says the kit left HOTARU with it.',
+			'Tick cards anywhere in the Shop and a bar at the bottom offers Fill and Kit for them, so there is no scrolling back up.',
+			'The Shop\'s Kit button sits beside Fill, at the same size, instead of squeezed among the links.',
+		],
+		version: 'v114',
+	},
+	{
+		date: '2026-11-25',
+		items: [
 			'Kits on HOTARU: tick two or more priced cards in the Shop, tap the Kit button, and sell them together at a price you type or a percent off their sum.',
 			'Each card in a kit is still sold on its own too. When one sells, the next Publish puts another copy of the same card in the kit, if you have one.',
 			'The Shop lists your kits with their price and whether they are on HOTARU, and an order shows a kit\'s cards under its name.',
