@@ -17,6 +17,23 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-24
 
+- **v109:** open orders on the Shop bag, set codes, and prices per finish. `9de38d9`, `bf7fce3`, `6875845`, `f644b0a`, `01dcb7d`, `1e4c27c`, `491fd3f`, `08e7b81`
+  - Added: the header's Shop bag counts HOTARU's open orders (waiting for payment or for delivery), read when
+    the app opens and comes back to the front, every 5 minutes while in front, and at once when the Shop pays,
+    delivers, or cancels one (`js/shell.js`, `ORDERS_EVENT` in `js/store-orders.js`). Owner only.
+  - Added: Add sealed products on HOTARU, on the owner's Shop, opens `hotaru/admin.html` in the same tab, signed
+    in with the tracker's session.
+  - Changed: the Shop's set filter is a list (`js/set-picker.js`) showing each set's printed code before its name,
+    like (CRI) Caos Ascendente, Scarlet & Violet and Mega Evolution sets and older ones (`printedSetCode`,
+    `shopSetCode`), and older Western sets' symbols.
+  - Changed: each finish of a card in a language is a Shop row of its own with its own price and a finish tag; a
+    price saved before holds on every finish, so nothing was withdrawn. "N of M cards priced" and "On HOTARU"
+    count finishes, and a card's finishes share one picture upload.
+  - Fixed: a Reverse holo copy was offered on HOTARU as Normal.
+  - Also: the PDF export of binders and lists is on the backlog (`plans/roadmap.md`).
+  - Suite before release: 159 files, 2,309 pass, 1 fail: v108's star test, which priced one finish of a card
+    whose spares the per-finish rows now split; fixed in the test (`08e7b81`), file 4/4 twice.
+
 - **v108:** a favorite card is never a spare. `dc05fa1`, `f68670a`, `0148c04`, `5b46628`, `36c3b4b`
   - Changed (Eric): a favorite is a card he does not trade or sell for anything. One star on any copy keeps every
     copy of the card, in every language and finish, however many and wherever they sit, out of Spares, Trade
