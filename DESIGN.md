@@ -3508,6 +3508,23 @@ chosen, for a "Make a binder" button on those screens.
   marked; the one tapped is a **hand pick** (a dot on the pocket), which sticks until "Show the
   default again". A pick follows its Pokémon or card, not its page, so it survives a change of
   order or size.
+- **Not this copy here** (Eric, 2026-11-24: his Johto binder showed the Cyndaquil that belongs in
+  his 30th-anniversary binder). The pocket sheet's **Not this copy here** skips the copy shown, and
+  Remove from this binder offers **Keep the placeholder** beside Leave the pocket empty and Shift
+  the rest back, which skips every copy that fits now. The Pokémon or card stays on the list: the
+  pocket shows the best copy not skipped, else its placeholder (tagged Placeholder, printable like
+  any placeholder), and a copy he gets later fills it, as he asked. A skipped copy is tagged "Not
+  shown here"; tapping it picks it, which shows it again, and **Show the skipped copies here
+  again** clears the skips. Skips are stored on the pocket's `binder_picks` entry as `skipped`
+  (entry ids, sorted), merged with the pick per pocket; an older app ignores the field and shows the
+  default. The default a refresh stores passes over skipped copies, so the copies in use
+  (`heldCopies`, spares) follow at once. The automatic rule that a copy in use in another binder
+  stops filling this one (planned next, Eric, 2026-11-24) is worked out from the binders, with no
+  new stored field.
+- **Extra pages** (Eric, 2026-11-24): blank pages after the list's pockets, "Extra pages after the
+  list" in the form (`extra_pages`, 0 by default; the list's pages plus these stay within 200).
+  They draw as empty pockets; a refresh keeps them, and an older app, which counts only the
+  list's pages, keeps the field because it edits a clone of the binder.
 - **Not owned yet:** the faded placeholder look of hand-made binders, with Want. A card offers
   Add to wishlist; a Pokémon links to its cards on the checklist, to choose the card to wish for.
 - **Refresh.** Opening the binder reads its list again and saves only what changed: pockets for

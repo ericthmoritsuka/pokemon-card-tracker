@@ -533,6 +533,11 @@ describe('copies in use in a binder (Eric, 2026-11-24)', () => {
 	const cards = [card('s1'), card('s2'), card('s3'), card('b1'), card('b2'), card('h1'), card('gone', {deleted_at: at(5)})];
 	const pick = (key, entryId, fields = {}) => ({binder_id: 'hoenn', created_at: at(1), deleted_at: null, entry_id: entryId, id: `hoenn|${key}`, key, updated_at: at(1), ...fields});
 
+	test('a stored default skipped there ("Not this copy here") is not held, and a hand pick of it is', () => {
+		assert.deepEqual([...heldCopies({binder_picks: [pick('dex:373', null, {skipped: ['s1']})], binders: [listBinder()], cards})].sort(), ['b1'], 'until the next refresh stores another default');
+		assert.deepEqual([...heldCopies({binder_picks: [pick('dex:373', 's1', {skipped: ['s2']})], binders: [listBinder()], cards})].sort(), ['b1', 's1']);
+	});
+
 	test('a list binder holds the copy on top of each pocket, not the copies under it', () => {
 		assert.deepEqual([...heldCopies({binder_picks: [], binders: [listBinder()], cards})].sort(), ['b1', 's1']);
 	});
