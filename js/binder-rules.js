@@ -578,9 +578,21 @@ export function pickEntry({at, binderId, entryId, key, previous = null, skipped 
 
 // none    the key's exception taken away (Undo, Put back), so taking it away
 //         wins the merge over the exception it replaces
+// blank   an empty pocket inserted (Eric, 2026-11-24: a third pocket after
+//         Meowstic, for the female and the male): its key is its own,
+//         "blank:<id>", and it goes just before the key `before`, or at the
+//         end when before is '' or not in the list. It lays out as an
+//         empty key, '', which every app draws as Empty; an older app, which
+//         does not know the kind, leaves it out of its layout, and its merge
+//         keeps the entry (js/merge.js keeps any edit with a key).
 // js/merge.js merges the field key by key, the latest `at` standing.
 
-export const LIST_EDIT_KINDS = ['out', 'gap', 'end', 'before', 'none'];
+export const LIST_EDIT_KINDS = ['out', 'gap', 'end', 'before', 'none', 'blank'];
+
+export const BLANK = 'blank:';
+
+// A new inserted pocket's edit: before the key `before` ('' for the end).
+export const blankEdit = ({at, before = '', id}) => ({at, before: before || '', key: `${BLANK}${id}`, kind: 'blank'});
 
 // One edit cleaned, or null. Its keys in sorted order, so two phones that
 // compare edits as text agree (js/merge.js stableJson).
@@ -591,6 +603,10 @@ function cleanListEdit(edit) {
 
 	if (edit.kind === 'before') {
 		return typeof edit.before === 'string' && edit.before && edit.before !== edit.key ? {at: edit.at, before: edit.before, key: edit.key, kind: 'before'} : null;
+	}
+
+	if (edit.kind === 'blank') {
+		return edit.key.startsWith(BLANK) && edit.key.length > BLANK.length ? {at: edit.at, before: typeof edit.before === 'string' ? edit.before : '', key: edit.key, kind: 'blank'} : null;
 	}
 
 	return {at: edit.at, key: edit.key, kind: edit.kind};
@@ -628,10 +644,45 @@ export function withListEdit(entries, edit) {
 }
 
 // The pockets' keys in order after the edits: keys is the list's order.
-export function applyListEdits(keys, edits) {
+// The empty pockets of a layout, by place: {index: 'blank:<id>' |
+// 'gap:<key>'}, for snapshot.marks. keys: the list's order, as
+// applyListEdits takes it.
+export function listMarks(keys, edits) {
+	const marked = applyListEdits(keys, edits, {mark: true});
+	const out = {};
+
+	marked.forEach((key, i) => {
+		if (key.startsWith(BLANK) || key.startsWith('gap:')) {
+			out[i] = key;
+		}
+	});
+
+	return out;
+}
+
+const blankMarks = (marks) => Object.fromEntries(Object.entries(isObject(marks) ? marks : {}).filter(([, key]) => String(key).startsWith(BLANK)));
+
+// mark: an inserted pocket lays out as its own key ("blank:<id>") and a
+// pocket left empty on purpose as "gap:<key>", rather than '', so the screen
+// can tell which empty pocket is which (listMarks).
+export function applyListEdits(keys, edits, {mark = false} = {}) {
 	const out = [...keys];
 
 	for (const edit of edits) {
+		if (edit.kind === 'blank') {
+			const at = edit.before ? out.indexOf(edit.before) : -1;
+			const blank = mark ? edit.key : '';
+
+			if (at < 0) {
+				out.push(blank);
+			}
+			else {
+				out.splice(at, 0, blank);
+			}
+
+			continue;
+		}
+
 		const i = out.indexOf(edit.key);
 
 		if (i < 0) {
@@ -642,7 +693,7 @@ export function applyListEdits(keys, edits) {
 			out.splice(i, 1);
 		}
 		else if (edit.kind === 'gap') {
-			out[i] = '';
+			out[i] = mark ? `gap:${edit.key}` : '';
 		}
 		else if (edit.kind === 'end') {
 			out.splice(i, 1);
@@ -770,7 +821,10 @@ export function planRefresh(binder, items, {anyItems = null, at, claims = [], ed
 	const oldSet = new Set(oldKeys);
 	const listOrder = items.map((item) => item.key);
 	const kept = keepOrder && oldKeys.length > 0 && before.rule_key === ruleKey(binder.rule);
-	const keys = applyListEdits(kept ? keptOrder(listOrder, oldKeys, listEditEntries(binder)) : listOrder, edits);
+	const base = kept ? keptOrder(listOrder, oldKeys, listEditEntries(binder)) : listOrder;
+	const keys = applyListEdits(base, edits);
+	// Which empty pocket is which: an inserted one or one left empty.
+	const marks = listMarks(base, edits);
 	const newSet = new Set(keys);
 	const shown = {};
 	const filled = [];
@@ -838,10 +892,14 @@ export function planRefresh(binder, items, {anyItems = null, at, claims = [], ed
 	const added = keys.filter((key) => key && !oldSet.has(key));
 	const removed = oldKeys.filter((key) => key && !newSet.has(key));
 	const pageCount = listPageCount(keys.length, binder.rows, binder.cols, extraPagesOf(binder), addedCount(keys, binder));
-	const snapshot = {at, keys, rule_key: ruleKey(binder.rule), shown};
+	const snapshot = {at, keys, rule_key: ruleKey(binder.rule), shown, ...(Object.keys(marks).length ? {marks} : {})};
 	const same = before.rule_key === snapshot.rule_key
 		&& oldKeys.length === keys.length && oldKeys.every((key, i) => key === keys[i])
-		&& sameShown(oldShown, shown);
+		&& sameShown(oldShown, shown)
+		// Only the inserted pockets: marks of pockets left empty ride along
+		// with the next change, so a binder saved before marks existed is
+		// not saved again just to gain them.
+		&& JSON.stringify(blankMarks(before.marks)) === JSON.stringify(blankMarks(marks));
 
 	const changed = !same || binder.page_count !== pageCount;
 	let languageOnly = false;
