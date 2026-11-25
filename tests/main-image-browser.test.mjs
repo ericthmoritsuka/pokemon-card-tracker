@@ -497,7 +497,7 @@ describe('the main image on every screen', () => {
 // --------------------------------------------- the English stand-in
 
 // A Portuguese image that does not load shows the same card's English image
-// marked "English image" in a line under the tile's meta (js/tile.js). A
+// marked "English image" by a small English flag on the art (js/tile.js). A
 // photo of your own or a family member's always wins over it, and the line
 // never describes a photo.
 describe('the English stand-in under a photo', () => {
@@ -540,8 +540,9 @@ describe('the English stand-in under a photo', () => {
 
 			document.body.append(tile);
 
-			const standIn = await until(() => tile.querySelector('.art-by'));
+			const standIn = await until(() => tile.querySelector('.badge-standin'));
 			const before = lines();
+			const flagBefore = [...tile.querySelectorAll('.badge-standin')].map((flag) => [flag.getAttribute('aria-label'), flag.title, flag.closest('.art-wrap') === flag.parentElement]);
 			const ready = Boolean(cachedPhotoUrl(photoId));
 
 			withMainPhoto(tile, {card_id: 'jpt1-010', catalog: 'ja', language: 'ja'}, src, (photo) => cardArt(info, photo, {decorative: true}));
@@ -555,18 +556,20 @@ describe('the English stand-in under a photo', () => {
 			// Time for a late load event of the art it replaced.
 			await new Promise((resolve) => setTimeout(resolve, 300));
 
-			return {after: lines(), before, photo, ready, standIn};
+			return {after: lines(), before, flagAfter: tile.querySelectorAll('.badge-standin').length, flagBefore, photo, ready, standIn};
 		}, {info: INFO, photoId: ids.photo1, src: PT_IMAGE});
 
 		assert.equal(result.ready, false, 'the photo was not ready when the tile was drawn');
 		assert.equal(result.standIn, true);
-		assert.deepEqual(result.before, ['#010 · Test Japanese Set', 'English image']);
+		assert.deepEqual(result.before, ['#010 · Test Japanese Set'], 'no caption line');
+		assert.deepEqual(result.flagBefore, [['English image', 'English image', true]], 'one flag on the art, named for a screen reader');
 		assert.equal(result.photo, true, 'the photo shows');
-		assert.deepEqual(result.after, ['#010 · Test Japanese Set'], 'no "English image" under a photo');
+		assert.deepEqual(result.after, ['#010 · Test Japanese Set']);
+		assert.equal(result.flagAfter, 0, 'no "English image" flag on a photo');
 		await done();
 	});
 
-	test('a tile with a family member\'s "Photo by" line never says "English image"', async () => {
+	test('a tile with a family member\'s "Photo by" line never shows the "English image" flag', async () => {
 		const {done, page} = await phone();
 
 		await englishLoads(page);
@@ -586,11 +589,12 @@ describe('the English stand-in under a photo', () => {
 				await new Promise((resolve) => setTimeout(resolve, 100));
 			}
 
-			return {english: Boolean(tile.querySelector('.art[data-fallback="en"]:not(.loading)')), lines: [...tile.querySelectorAll('.tile-meta')].map((line) => line.textContent)};
+			return {english: Boolean(tile.querySelector('.art[data-fallback="en"]:not(.loading)')), flags: tile.querySelectorAll('.badge-standin').length, lines: [...tile.querySelectorAll('.tile-meta')].map((line) => line.textContent)};
 		}, {info: INFO, src: PT_IMAGE});
 
 		assert.equal(result.english, true, 'the English image loaded');
 		assert.deepEqual(result.lines, ['#010 · Test Japanese Set', 'Photo by Ana']);
+		assert.equal(result.flags, 0, 'no English flag on a tile that waits for a photo');
 		await done();
 	});
 });

@@ -86,34 +86,30 @@ export function artFallbacks(src) {
 	return list;
 }
 
-// Says that the art is a stand-in: a line under a tile's meta line, like a
-// family member's "Photo by" line, or a caption on the art anywhere else
-// (the card detail, the scan sheets). Never on a tile that shows or waits
-// for a family member's photo (its "Photo by" line): a photo wins over the
-// English stand-in, and js/photos/index.js fillPhoto takes the line away
-// when a photo replaces the art.
+// Says that the art is a stand-in: a small English flag in the art's
+// top-left corner, as a Korean print shows its flag (Eric, 2026-11-24: the
+// caption line under the card was too big). It sits on the art's frame, a
+// tile's or a pocket's, or on the art itself where there is none (the card
+// detail, the scan sheets). Top-left is the one corner nothing else uses, so
+// it never meets the language flag and the finish (bottom-left), the count
+// (top-right), or the status (bottom-right). The flag is a picture, so its
+// name, `note`, is on the badge for a screen reader and a long press. Never
+// on a tile that shows or waits for a family member's photo (its "Photo by"
+// line): a photo wins over the English stand-in, and js/photos/index.js
+// fillPhoto takes the flag away when a photo replaces the art.
 function noteStandIn(frame, note) {
+	const host = frame.closest('.art-wrap') || frame;
 	const tile = frame.closest('.tile');
 
-	if (!tile) {
-		frame.append(h('span', {class: 'art-note'}, note));
-
+	if ((tile && tile.querySelector('.ph-by')) || host.querySelector(':scope > .badge-standin')) {
 		return;
 	}
 
-	if (tile.querySelector('.art-by') || tile.querySelector('.ph-by')) {
-		return;
-	}
+	const badge = flagBadge(['en'], {className: 'badge badge-lang badge-standin', prefix: ''});
 
-	const line = h('span', {class: 'tile-meta art-by'}, note);
-	const meta = tile.querySelector(':scope > .tile-meta');
-
-	if (meta) {
-		meta.after(line);
-	}
-	else {
-		tile.append(line);
-	}
+	badge.setAttribute('aria-label', note);
+	badge.title = note;
+	host.append(badge);
 }
 
 function imageStatus(missing) {

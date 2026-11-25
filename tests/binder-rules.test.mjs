@@ -826,6 +826,71 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		await context.close();
 	});
 
+	// Eric, 2026-11-24: the "English image" caption was too big, so a Portuguese
+	// image that fails shows the English one with a small English flag in the
+	// art's top-left corner (js/tile.js noteStandIn), the one corner free of
+	// the language flag and the finish (bottom-left) and the count
+	// (top-right).
+	test('a pocket whose Portuguese image stands in as English shows a small flag that meets no other badge', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+
+		// Portuguese images are missing; the English ones load.
+		await context.route('https://assets.tcgdex.net/**', (route) => (route.request().url().includes('/en/') ? route.fulfill({body: png, contentType: 'image/png', status: 200}) : route.fulfill({status: 404})));
+
+		const records = RECORDS.map((item) => (item.id === 'tst1-001' ? {...item, localizations: {en: {...item.localizations.en, image: 'https://assets.tcgdex.net/pt/tst/tst1/001'}}} : item));
+		// A Portuguese reverse holo in pocket 1, viewed in English: the
+		// language flag and the finish share the bottom-left corner, and the
+		// stand-in flag takes the top-left.
+		const cards = [card('c1', 'tst1-001', {finish_raw: 'REVERSE_HOLOFOIL'})];
+		const slots = [{entry_id: 'c1', page: 1, placed_at: AT, position: 1}];
+
+		await seedLocal(page, documentWith({binders: [hand('b-hand', slots, {cols: 2, page_count: 1, rows: 2})], cards}), records);
+
+		await page.goto(url('binders/b-hand'));
+		await page.waitForSelector('#binder-spread .bs-page');
+		await openPage(page, 1);
+
+		const flag = `${zoomPocket(1)} .badge-standin`;
+
+		await page.waitForSelector(flag, {timeout: 15000});
+		assert.equal(await page.locator(flag).getAttribute('aria-label'), 'English image');
+		assert.equal(await page.locator(flag).getAttribute('title'), 'English image');
+		assert.equal(await page.locator(`${zoomPocket(1)} .art-note, ${zoomPocket(1)} .art-by`).count(), 0, 'no caption');
+
+		// Every badge in the pocket sits inside the art and meets no other.
+		const boxes = await page.locator(zoomPocket(1)).evaluate((pocket) => {
+			const art = pocket.querySelector('.art-wrap').getBoundingClientRect();
+			const named = (node) => node.classList.contains('badge-standin') ? 'flag' : node.classList.contains('badge-finish') ? 'finish' : node.classList.contains('badge-lang') ? 'language' : node.classList.contains('badge-qty') ? 'count' : 'other';
+			const found = [...pocket.querySelectorAll('.badge')].map((node) => ({box: node.getBoundingClientRect(), name: named(node)}));
+			const meets = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+			const clashes = [];
+
+			for (let i = 0; i < found.length; i++) {
+				for (let j = i + 1; j < found.length; j++) {
+					if (meets(found[i].box, found[j].box)) {
+						clashes.push(`${found[i].name} meets ${found[j].name}`);
+					}
+				}
+
+				if (found[i].box.left < art.left || found[i].box.right > art.right || found[i].box.top < art.top || found[i].box.bottom > art.bottom) {
+					clashes.push(`${found[i].name} is outside the art`);
+				}
+			}
+
+			const flagBox = found.find((item) => item.name === 'flag').box;
+
+			return {clashes, names: found.map((item) => item.name).sort(), topLeft: flagBox.left - art.left < 6 && flagBox.top - art.top < 6};
+		});
+
+		assert.deepEqual(boxes.clashes, []);
+		assert.ok(boxes.topLeft, 'the flag sits in the top-left corner');
+		assert.deepEqual(boxes.names, ['finish', 'flag', 'language'], 'the finish and the language flag are there too');
+		await page.screenshot({path: `${SHOTS}/standin-pocket-360.png`});
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('from a checklist: the default copy, a count, a placeholder, a pick that sticks, refresh, edit with a preview, nothing placed, and delete with Undo', async () => {
 		const {context, errors, page} = await device(null, 'phone');
 

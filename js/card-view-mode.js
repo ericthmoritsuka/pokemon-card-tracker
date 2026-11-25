@@ -84,8 +84,9 @@ export function viewSwitch({id = 'cards', key = CARDS_VIEW_KEY, onChange = () =>
 // second name line, the meta line ("Set · 025 / 120"), and the facts line
 // (language, finish, copies). The row is one link with one accessible
 // name, label, since its parts are read as a whole. Its classes keep a
-// tile's, so js/photos/index.js and js/tile.js put a photo's "Photo by"
-// line or the "English image" line after the meta line, as on a tile.
+// tile's, so js/photos/index.js puts a photo's "Photo by" line after the
+// meta line, as on a tile, and js/tile.js marks the English stand-in with a
+// flag on the thumbnail.
 //
 //   art     tileArt's options for the thumbnail (no corner badges: the
 //           facts say them in words)
