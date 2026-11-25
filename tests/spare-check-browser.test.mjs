@@ -149,6 +149,30 @@ describe('the free count on My Cards', () => {
 		});
 	}
 
+	test('qtyBadge: a pocket\'s own label wins, and no free count draws the badge as before', async () => {
+		const {context, errors, page} = await phone();
+		const rows = await page.evaluate(async (base) => {
+			const {qtyBadge} = await import(`${base}js/tile.js`);
+			const read = (node) => [node.getAttribute('aria-label'), node.className, node.textContent];
+
+			return [
+				read(qtyBadge(5, {free: 2, label: '2 cards fit, 5 copies'})),
+				read(qtyBadge(3)),
+				read(qtyBadge(3, {free: 0})),
+				read(qtyBadge(3, {free: 7})),
+			];
+		}, BASE);
+
+		assert.deepEqual(rows, [
+			['2 cards fit, 5 copies', 'badge badge-qty badge-qty-split', '×52'],
+			['3 copies', 'badge badge-qty', '×3'],
+			['3 copies, none free', 'badge badge-qty', '×3'],
+			['3 copies, 3 free', 'badge badge-qty badge-qty-split', '×33'],
+		]);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('the List view says how many are free', async () => {
 		const {context, errors, page} = await phone();
 

@@ -98,7 +98,7 @@ describe('spareCheck', () => {
 	test('languages are separate groups; a card with one copy in a language is left out unless only names it', () => {
 		const doc = {binders: [], cards: [card('c1'), card('c2'), card('e1', {language: 'en'}), card('x1', {card_id: 'other-1'}), card('x2', {card_id: 'other-1', deleted_at: at(9)})]};
 
-		assert.deepEqual(spareCheck(doc).map((group) => group.key), ['international|sv8pt5-130|pt']);
+		assert.deepEqual(spareCheck(doc).map((group) => [group.catalog, group.card_id, group.language]), [['international', 'sv8pt5-130', 'pt']]);
 		assert.deepEqual(spareCheck(doc, {only: {card_id: 'sv8pt5-130', catalog: 'international'}}).map((group) => [group.language, group.copies, group.free]), [['pt', 2, 1], ['en', 1, 0]]);
 		assert.deepEqual(spareCheck(doc, {only: {card_id: 'other-1'}}).map((group) => group.copies), [1], 'a deleted copy is gone');
 	});

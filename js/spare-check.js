@@ -18,7 +18,7 @@
 // (tests/spare-check.test.mjs).
 
 import {copyClaims, heldCopies, liveBinders, pageOfPocket, placements, stagedOf} from './binders.js';
-import {tileKey} from './bulk-edit.js';
+import {cardGroups, cardLanguageKey} from './binder-rules.js';
 import {isLive} from './collection.js';
 import {freeText} from './format.js';
 import {freeCopyIds, shopGroups} from './shop.js';
@@ -134,23 +134,13 @@ export function spareCheck(doc, {codeOf = () => null, only = null} = {}) {
 		spare: new Set(groups.flatMap((group) => group.spares || []).map((entry) => entry.id)),
 	};
 	const context = {favorites: favoriteCards(cards), ids, places: placesOf(doc)};
-	const byKey = new Map();
+	const wanted = only ? cards.filter((entry) => only.card_id === entry.card_id && (only.catalog || 'international') === (entry.catalog || 'international')) : cards;
 
-	for (const entry of cards) {
-		const catalog = entry.catalog || 'international';
-
-		if (only && (only.card_id !== entry.card_id || (only.catalog || 'international') !== catalog)) {
-			continue;
-		}
-
-		const key = tileKey({...entry, catalog});
-
-		byKey.set(key, [...(byKey.get(key) || []), entry]);
-	}
-
-	return [...byKey.entries()]
-		.filter(([, entries]) => only || entries.length > 1)
-		.map(([key, entries]) => {
+	// One card in one language, as a binder pocket counts cards
+	// (js/binder-rules.js cardGroups), so the two always agree.
+	return cardGroups(wanted)
+		.filter((entries) => only || entries.length > 1)
+		.map((entries) => {
 			const rows = copyRows(entries, context);
 
 			return {
@@ -158,7 +148,7 @@ export function spareCheck(doc, {codeOf = () => null, only = null} = {}) {
 				catalog: entries[0].catalog || 'international',
 				copies: rows.length,
 				free: rows.filter((row) => row.free).length,
-				key,
+				key: cardLanguageKey(entries[0]),
 				language: entries[0].language || null,
 				rows,
 			};
