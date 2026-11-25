@@ -65,7 +65,7 @@ export async function wireTrade(context) {
 
 const at = (day) => `2026-09-${String(day).padStart(2, '0')}T12:00:00.000Z`;
 
-const copy = (id, cardId, fields = {}) => ({
+export const copy = (id, cardId, fields = {}) => ({
 	card_id: cardId,
 	catalog: fields.catalog || 'international',
 	created_at: at(Number(id.slice(2))),

@@ -22,7 +22,7 @@ import {fakePokeApi} from './fake-pokeapi.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {BASE, documentWith, fakeServices, indexRecords, seed} from './my-cards-fixtures.mjs';
 import {startPagesServer} from './pages-server.mjs';
-import {SPARE_COPIES} from './trade-harness.mjs';
+import {copy, SPARE_COPIES} from './trade-harness.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -121,7 +121,7 @@ function indexWithPicture() {
 }
 
 // A phone signed in as the family's owner, whose copies are on the server.
-async function ownerPhone({index = indexWithPicture(), owner = true} = {}) {
+async function ownerPhone({copies = SPARE_COPIES, index = indexWithPicture(), owner = true} = {}) {
 	const fake = new FakeSupabase();
 	const user = fake.addUser('owner@example.test');
 	const context = await browser.newContext({serviceWorkers: 'block', viewport: {height: 844, width: 390}});
@@ -130,7 +130,7 @@ async function ownerPhone({index = indexWithPicture(), owner = true} = {}) {
 	await fakePokeApi(context);
 	await fake.attach(context, 'owner');
 	fake.documents.set(user.id, {
-		doc: {...documentWith(SPARE_COPIES), person: undefined, user_id: undefined},
+		doc: {...documentWith(copies), person: undefined, user_id: undefined},
 		updated_at: fake.now(),
 		user_id: user.id,
 	});
@@ -183,6 +183,50 @@ describe('Shop publishing', () => {
 		await page.click('#shop-save-all');
 		await waitLine(page, /^On HOTARU: 1 card, 1 copy\.$/);
 		assert.deepEqual([...store.listings.values()].map((row) => [row.id, row.image_path]), [['c-04', 'tcgdex/en/tsa/tsa1/004.webp']]);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a copy listed after its card already has a picture on HOTARU gets the same picture, with no upload (v111 live bug)', async () => {
+		// c-04 went out pictured before; c-16, a second Normal spare of the
+		// same card, is new and must not go out bare.
+		const copies = [...SPARE_COPIES, copy('c-16', 'tsa1-004', {condition: 'Near Mint'})];
+		const {context, errors, page, store} = await ownerPhone({copies});
+
+		store.listings.set('c-04', {id: 'c-04', image_path: 'tcgdex/en/tsa/tsa1/004.webp', price_brl: 2.3, status: 'available'});
+		await openShop(page);
+		await page.fill(`${CHARMANDER_EN} .shop-price-input`, '2,30');
+		await page.click('#shop-save-all');
+		await waitLine(page, /^On HOTARU: 1 card, 2 copies\.$/);
+		assert.equal(store.listings.get('c-16').image_path, 'tcgdex/en/tsa/tsa1/004.webp');
+		assert.equal(store.listings.get('c-04').image_path, 'tcgdex/en/tsa/tsa1/004.webp');
+		assert.deepEqual(store.uploads, [], 'the picture is already in the bucket');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a price saved before the picture refresh lands still publishes the picture once it does', async () => {
+		const {context, errors, page, store} = await ownerPhone({index: indexRecords()});
+		let release;
+		const held = new Promise((resolve) => {
+			release = resolve;
+		});
+
+		await page.route('**/v2/en/sets/tsa1', async (route) => {
+			await held;
+			await route.fulfill({
+				body: JSON.stringify({cards: [{id: 'tsa1-004', image: PICTURE, localId: '004', name: 'Charmander'}], id: 'tsa1', name: 'Test Set A'}),
+				contentType: 'application/json',
+				status: 200,
+			});
+		});
+		await openShop(page);
+		await page.fill(`${CHARMANDER_EN} .shop-price-input`, '2,30');
+		await page.click('#shop-save-all');
+		await page.waitForFunction(() => /no picture yet|On HOTARU/.test(document.querySelector('#shop-publish').textContent), null, TIMEOUT);
+		release();
+		await page.waitForFunction(() => /^On HOTARU: 1 card, 1 copy\.$/.test(document.querySelector('#shop-publish').textContent.replace(/\s+/g, ' ').trim()), null, TIMEOUT);
+		assert.equal(store.listings.get('c-04').image_path, 'tcgdex/en/tsa/tsa1/004.webp');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

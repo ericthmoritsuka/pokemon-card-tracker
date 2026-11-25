@@ -1045,13 +1045,25 @@ export function shopView(root) {
 			// share its picture: one already in the bucket is only named, and
 			// each picture is copied at most once. A card the catalog has no
 			// picture for takes the owner's photo.
-			const missing = priced().filter((group) => (group.pictureBase || group.ownPhoto)
-				&& group.listed.length && group.listed.every((entry) => !(states[entry.id] && states[entry.id].image_path)));
+			// A card is missing its picture while any listed copy lacks one:
+			// a copy listed after the first keeps none of its own (v111,
+			// Eric 2026-11-25). A sibling copy's picture is reused as is.
+			const pictureOf = (entry) => (states[entry.id] && states[entry.id].image_path) || null;
+			const missing = priced().filter((group) => group.listed.length && group.listed.some((entry) => !pictureOf(entry))
+				&& (group.pictureBase || group.ownPhoto || group.listed.some(pictureOf)));
 			const stored = new Set(Object.values(states || {}).map((one) => one && one.image_path).filter(Boolean));
 			const copied = new Map();
 			const uploaded = [];
 
 			for (const group of missing) {
+				const sibling = group.listed.map(pictureOf).find(Boolean);
+
+				if (sibling) {
+					uploaded.push({...group, picturePath: sibling});
+
+					continue;
+				}
+
 				const path = group.pictureBase ? storePicturePath(group.pictureBase) : ownPicturePath(group.ownPhoto);
 				const send = () => (group.pictureBase ? uploadPicture(group.pictureBase, path) : uploadOwnPicture(group.ownPhoto, path));
 
@@ -1082,7 +1094,7 @@ export function shopView(root) {
 
 			const live = priced().filter((group) => groupMark(group, states) === 'published').length;
 			const copies = priced().filter((group) => groupMark(group, states) === 'published').reduce((n, group) => n + group.listed.length, 0);
-			const noPicture = priced().filter((group) => group.listed.length && !group.listed.some((entry) => states[entry.id] && states[entry.id].image_path)).length;
+			const noPicture = priced().filter((group) => group.listed.length && group.listed.some((entry) => !(states[entry.id] && states[entry.id].image_path))).length;
 
 			publishLine.textContent = live
 				? `On HOTARU: ${plural(live, 'card', 'cards')}, ${plural(copies, 'copy', 'copies')}.${noPicture ? ` ${plural(noPicture, 'card has', 'cards have')} no picture yet.` : ''}`
