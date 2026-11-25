@@ -144,6 +144,20 @@ export function shopGroups(cards, {codeOf = () => null, held} = {}) {
 // caller, a test), offers its spares, as before For sale.
 export const listedOf = (group) => (group && (group.listed || group.spares)) || [];
 
+// The copies that are free (Eric, 2026-11-25: "three Scraggy, one in the
+// region binder, one in the 30 anos binder, so only one is really a spare"):
+// the ones the Shop would offer, priced or not. That is every spare
+// (js/wishlist.js spareEntries: not in a pocket, not a favorite, not the copy
+// kept) less the ones taken off sale (for_sale false), plus any copy marked
+// For sale. The tile's "×3 | 1" badge (js/tile.js tileArt free) and Check
+// spares (js/spare-check.js) count them. Takes shopGroups' result, or the
+// cards and its options. Returns a Set of entry ids.
+export function freeCopyIds(cardsOrGroups, options = {}) {
+	const groups = options.groups || shopGroups(cardsOrGroups, options);
+
+	return new Set(groups.flatMap(listedOf).map((entry) => entry.id));
+}
+
 // The copy a group is shown and described by: one offered, else a spare,
 // else any copy (a group whose spares were all taken off sale).
 export const groupCopy = (group) => listedOf(group)[0] || (group.spares || [])[0] || (group.marked || [])[0] || (group.copies || [])[0];
