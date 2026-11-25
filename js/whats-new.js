@@ -23,6 +23,19 @@ export const RELEASES = [
 	{
 		date: '2026-11-24',
 		items: [
+			'For sale on HOTARU: tick it on any copy in Edit copy, even your last one, one in a binder, or a favorite. Untick it to keep a copy, and it leaves HOTARU at once.',
+			'The Shop has Sell a card I own and Add and sell, and My Cards tags the cards on HOTARU with For sale.',
+			'A copy fills one binder pocket at a time: list binders that share it show a placeholder where an older or more specific binder uses it, and a hand pick always shows.',
+			'Add to binder lists every binder, and says before the tap whether the copy fills its pocket or goes after the list.',
+			'Insert a pocket anywhere in a binder, such as a third pocket for the female and male Meowstic, and remove an empty one.',
+			'Holo cards show a HOLO corner, the binder copy pickers show each copy\'s finish, and the English stand-in image is marked by a small flag.',
+			'The Shop\'s own buttons show even when the Shop is opened straight from its address.',
+		],
+		version: 'v111',
+	},
+	{
+		date: '2026-11-24',
+		items: [
 			'A card with no catalog picture is listed on HOTARU with your own photo, and a copy added by hand counts with the same catalog card in the Shop.',
 			'A price typed the moment the Shop opens is no longer lost.',
 			'In a binder made from a list, Not this copy here skips a copy, Keep the placeholder keeps the pocket for a copy you get later, and Extra pages adds blank pages after the list.',
@@ -493,7 +506,7 @@ export const RELEASES = [
 		date: '2026-11-05',
 		items: [
 			'Portuguese and French card images stay on the phone more reliably.',
-			'Offline, a missing one shows the English image, marked "English image".',
+			'Offline, a missing one shows the English image, marked by a small English flag.',
 		],
 		version: 'v57',
 	},
