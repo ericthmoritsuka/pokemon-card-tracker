@@ -146,6 +146,9 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		const made = filterBar({
 			// The sheet's Show N cards counts what the list will show, Where
 			// and Show included.
+			// Check spares reads the details My Cards has downloaded and
+			// downloads none itself, so a card added since may lack them.
+			detailsPending: (items) => items.some((item) => !item.category && item.group.catalog !== 'custom'),
 			countShown: (state) => narrowChecks(applyFilters(groups.map(itemOf), {filters: state.filters, query: state.query}), {show: own.show, where: own.where}).length,
 			below: [h('div', {class: 'fb-row check-narrow'},
 				h('span', {class: 'select-wrap'}, whereSelect),

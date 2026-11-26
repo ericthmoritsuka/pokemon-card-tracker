@@ -274,6 +274,23 @@ describe('Check spares: search, sort, Where, and Show', () => {
 		copy('c-14', 'tsb2-090'),
 	];
 	const names = (page) => page.locator('.check-group .check-name').allTextContents();
+
+	// Check spares downloads no card details itself: it reads the ones My
+	// Cards' background pass saved, so a test of Region waits for them.
+	const detailsIn = async (page, cardIds) => {
+		const start = Date.now();
+
+		while (!(await page.evaluate(async ({base, keys}) => {
+			const {cardIndex} = await import(`${base}js/catalog.js`);
+			const index = await cardIndex();
+
+			return keys.every((key) => index.has(key) && Array.isArray(index.get(key).dex_ids));
+		}, {base: BASE, keys: cardIds.map((id) => `international|${id}`)}))) {
+			assert.ok(Date.now() - start < TIMEOUT.timeout, 'the details reach the index');
+			await page.waitForTimeout(100);
+		}
+	};
+	const KNOWN = ['tsa1-001', 'tsa1-004', 'tsa1-006', 'tsb2-025', 'tsb2-090'];
 	const summaryIs = (page, text) => page.waitForFunction((want) => document.getElementById('check-summary').textContent === want, text, TIMEOUT);
 
 	test('a favorite pair is listed; Show, Where, the sort, the search, and Clear all narrow and order it', async () => {
@@ -415,6 +432,7 @@ describe('Check spares: search, sort, Where, and Show', () => {
 	test('several sets at once in the oldest set\'s order, the Kanto region, and the choice kept on the phone', async () => {
 		const {context, errors, page} = await phone({copies: MORE});
 
+		await detailsIn(page, KNOWN);
 		await page.goto(`${server.origin}${BASE}trade/check`);
 		await summaryIs(page, '5 cards with more than one copy: 11 copies, 3 free.');
 		await page.selectOption('#check-sort', 'setOld');
@@ -444,10 +462,26 @@ describe('Check spares: search, sort, Where, and Show', () => {
 		await summaryIs(page, '5 cards with more than one copy: 11 copies, 3 free.');
 		await page.click('#check-filters');
 		await page.locator('#check-f-region option[value="kanto"]').waitFor({state: 'attached', timeout: 20000});
+		assert.equal(await page.locator('#check-sheet .fb-note').count(), 0, 'no note: every card has its details');
 		await page.selectOption('#check-f-region', 'kanto');
 		await page.click('#check-sheet-close');
 		await summaryIs(page, '4 of 5 cards with more than one copy: 9 copies, 2 free.');
 		assert.deepEqual(await names(page), ['Pikachu', 'Bulbasaur', 'Charmander', 'Charizard ex']);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('the Filters sheet says details are still to come while a card lacks them', async () => {
+		// tsa1-099 is not in the catalog, so its details never come.
+		const {context, errors, page} = await phone({copies: [...MORE, copy('c-15', 'tsa1-099'), copy('c-16', 'tsa1-099')]});
+
+		await detailsIn(page, KNOWN);
+		await page.goto(`${server.origin}${BASE}trade/check`);
+		await summaryIs(page, '6 cards with more than one copy: 13 copies, 4 free.');
+		await page.click('#check-filters');
+		await page.locator('#check-sheet .fb-note').waitFor(TIMEOUT);
+		assert.match(await page.locator('#check-sheet .fb-note').textContent(), /fill in as card details download/);
+		await page.locator('#check-f-region option[value="kanto"]').waitFor({state: 'attached', timeout: 20000});
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
