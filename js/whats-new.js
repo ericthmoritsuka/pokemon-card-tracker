@@ -23,6 +23,18 @@ export const RELEASES = [
 	{
 		date: '2026-11-26',
 		items: [
+			'Consign has its own tab in the Shop, beside Prices, Kits, and Orders, and each consigned card shows what you keep beside its price.',
+			'Consign a card takes you to your cards: open one and its Consign sheet opens by itself, and saving brings you back to the Consign tab.',
+			'A consignor with no cards for sale and nothing owed can be removed, and restored later. Their history stays.',
+			'Hold a card in an order, or hover on a computer, to see its picture.',
+			'Each card in an order shows its finish, and a consigned card\'s line stands out in yellow.',
+			'The favorite star on a card page stays right beside Your copies, with one copy or several.',
+		],
+		version: 'v121',
+	},
+	{
+		date: '2026-11-26',
+		items: [
 			'Filters take more than one choice: two sets, two languages, or Fire and Water at once. A card shows when it fits any of them.',
 			'Each choice gets its own chip above the list, so you can drop one set and keep the rest.',
 			'Check spares has a search, Filters, and a sort: Most free, Where, Set (oldest or newest), Name, or Pokédex.',
