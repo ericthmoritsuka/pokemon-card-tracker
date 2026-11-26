@@ -55,6 +55,78 @@ export async function receiptLink(path) {
 	return data.signedUrl;
 }
 
+// The cards ticked off while putting an order together (Eric, 2026-11-26:
+// a checklist beside the order's cards, to confirm the right ones go out).
+// Kept on this device only, as {order code: [listing IDs ticked]}; an order
+// no longer open (delivered or cancelled) is forgotten at the next read of
+// the orders. Without storage (a private window), the ticks last while the
+// app stays open.
+const CHECKS_KEY = 'cardTracker.orderChecks';
+let checksHeld = {};
+
+function readChecks() {
+	try {
+		const value = JSON.parse(localStorage.getItem(CHECKS_KEY));
+
+		checksHeld = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+	}
+	catch {
+		// Not readable: what this visit ticked is still held.
+	}
+
+	return checksHeld;
+}
+
+function writeChecks(all) {
+	checksHeld = all;
+
+	try {
+		localStorage.setItem(CHECKS_KEY, JSON.stringify(all));
+	}
+	catch {
+		// Not kept past this visit.
+	}
+}
+
+// The listing IDs ticked in one order.
+export function orderChecks(code) {
+	const list = readChecks()[code];
+
+	return new Set(Array.isArray(list) ? list : []);
+}
+
+export function setOrderCheck(code, listingId, on) {
+	const all = {...readChecks()};
+	const ticked = orderChecks(code);
+
+	if (on) {
+		ticked.add(listingId);
+	}
+	else {
+		ticked.delete(listingId);
+	}
+
+	if (ticked.size) {
+		all[code] = [...ticked];
+	}
+	else {
+		delete all[code];
+	}
+
+	writeChecks(all);
+}
+
+// Forgets the ticks of every order not among the open ones.
+export function keepOrderChecks(openCodes) {
+	const all = readChecks();
+	const open = new Set(openCodes);
+	const kept = Object.fromEntries(Object.entries(all).filter(([code]) => open.has(code)));
+
+	if (Object.keys(kept).length !== Object.keys(all).length) {
+		writeChecks(kept);
+	}
+}
+
 // Why an order call failed, for the Shop screen.
 export function orderErrorText(error) {
 	const code = error && error.code;

@@ -43,7 +43,7 @@ import {kitsSection, openKitSheet, orderItemsNode} from './shop-kits.js';
 import {alertsOn, NEW_ORDERS_EVENT, notifyPermission, turnOff, turnOn} from './order-alerts.js';
 import {checkShopOwner, onShopOwner, setAddAndSell, setShopTab, SHOP_TABS, shopOwnerKnown, shopTab} from './shop-owner.js';
 import {openDialogSheet} from './sheet.js';
-import {announceOrders, cancelOrder, markDelivered, markPaid, openOrders, orderErrorText, receiptLink} from './store-orders.js';
+import {announceOrders, cancelOrder, keepOrderChecks, markDelivered, markPaid, openOrders, orderChecks, orderErrorText, receiptLink, setOrderCheck} from './store-orders.js';
 import {publishErrorText, syncListings, uploadOwnPicture, uploadPicture} from './store-publish.js';
 import {onSyncStatus, syncStatus} from './sync.js';
 
@@ -1432,6 +1432,7 @@ export function shopView(root) {
 
 			orders = found;
 			orderDoc = doc;
+			keepOrderChecks(found.map((order) => order.code));
 			drawOrders();
 		}
 		catch (err) {
@@ -1458,8 +1459,52 @@ export function shopView(root) {
 		: [item.name, item.number ? `#${item.number}` : null, item.set_name, item.language ? languageLabel(item.language) : null, item.condition,
 			item.kind === 'consigned' ? ['Consigned', consignment.ownerOf(item.listing_id)].filter(Boolean).join(' · ') : null].filter(Boolean).join(' · '));
 
+	// The order's checklist (Eric, 2026-11-26): a box beside each card to
+	// tick it off while putting the order together, so the right cards go
+	// out, and a line counting the ticks. Ticking redraws only the line, so
+	// the box keeps its focus.
+	function orderChecklist(order) {
+		const ticked = orderChecks(order.code);
+		const items = order.items || [];
+		const progress = h('p', {'aria-live': 'polite', class: 'shop-order-progress', hidden: !items.length});
+		const drawProgress = () => {
+			const count = items.filter((item) => ticked.has(item.listing_id)).length;
+			const done = Boolean(items.length) && count === items.length;
+
+			progress.textContent = done
+				? (items.length === 1 ? 'Checked' : `All ${formatCount(items.length)} checked`)
+				: `Checked ${formatCount(count)} of ${formatCount(items.length)}`;
+			progress.classList.toggle('shop-order-progress-done', done);
+		};
+		const check = (item, text) => {
+			const on = ticked.has(item.listing_id);
+			const box = h('input', {checked: on, onchange: (event) => {
+				const value = event.target.checked;
+
+				if (value) {
+					ticked.add(item.listing_id);
+				}
+				else {
+					ticked.delete(item.listing_id);
+				}
+
+				setOrderCheck(order.code, item.listing_id, value);
+				label.classList.toggle('shop-order-checked', value);
+				drawProgress();
+			}, type: 'checkbox'});
+			const label = h('label', {class: `shop-order-check${on ? ' shop-order-checked' : ''}`}, box, h('span', null, text));
+
+			return label;
+		};
+
+		drawProgress();
+
+		return {check, progress};
+	}
+
 	function orderCard(order) {
 		const {logged, missing} = orderCheck(order, orderDoc);
+		const checklist = orderChecklist(order);
 		const pending = order.status === 'pending';
 		const busy = working.has(order.code);
 		const question = asking.get(order.code);
@@ -1511,7 +1556,8 @@ export function shopView(root) {
 			order.receipt_path
 				? h('p', {class: 'shop-order-receipt'}, 'Receipt sent ', h('button', {class: 'link-button', onclick: () => openReceipt(order), type: 'button'}, 'Receipt'))
 				: (pending ? h('p', {class: 'muted shop-order-receipt'}, 'No receipt yet') : null),
-			orderItemsNode(order.items, itemLine),
+			orderItemsNode(order.items, itemLine, checklist.check),
+			checklist.progress,
 			h('p', {class: 'shop-order-total'}, `Total ${formatBrl(order.total)}`),
 			missing.length && pending
 				? h('p', {class: 'status shop-order-missing', role: 'alert'}, `${plural(missing.length, 'copy', 'copies')} of this order ${missing.length === 1 ? 'is' : 'are'} no longer in your cards. Cancel the order, or add ${missing.length === 1 ? 'it' : 'them'} back.`)

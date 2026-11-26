@@ -471,10 +471,15 @@ export function openKitSheet({chosen = null, existing = null, kits = [], onSaved
 
 // An order's cards: singles with their price, and each kit's cards under
 // its name and price. itemLine is the Shop's.
-export function orderItemsNode(items, itemLine) {
-	return h('ul', {class: 'shop-order-items'}, orderGroups(items).map((one) => (one.kind === 'single'
-		? h('li', null, `${itemLine(one.item)} · ${formatBrl(one.item.price_brl)}`)
+// check(item, text), when given, draws each card's line with a box to tick
+// it off (js/shop-view.js orderCard); a kit's name is not ticked, its cards
+// are.
+export function orderItemsNode(items, itemLine, check) {
+	const line = (item, text) => (check ? check(item, text) : text);
+
+	return h('ul', {class: `shop-order-items${check ? ' shop-order-checklist' : ''}`}, orderGroups(items).map((one) => (one.kind === 'single'
+		? h('li', null, line(one.item, `${itemLine(one.item)} · ${formatBrl(one.item.price_brl)}`))
 		: h('li', {class: 'shop-order-kit'},
 			h('span', {class: 'shop-order-kit-name'}, `Kit ${one.name} · ${formatBrl(one.price)}`),
-			h('ul', null, one.items.map((item) => h('li', null, itemLine(item))))))));
+			h('ul', null, one.items.map((item) => h('li', null, line(item, itemLine(item)))))))));
 }

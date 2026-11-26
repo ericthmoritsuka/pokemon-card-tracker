@@ -278,6 +278,47 @@ describe('Shop orders', () => {
 		await context.close();
 	});
 
+	test('the checklist ticks each card off, counts the ticks, keeps them, and forgets a delivered order', async () => {
+		const {context, errors, page} = await ownerPhone();
+		const boxes = (code) => order(page, code).locator('.shop-order-items input[type="checkbox"]');
+		const progress = (code) => text(order(page, code).locator('.shop-order-progress'));
+		const kept = () => page.evaluate(() => JSON.parse(localStorage.getItem('cardTracker.orderChecks') || '{}'));
+
+		await openShop(page);
+		await order(page, 'HTR-0007').waitFor(TIMEOUT);
+		assert.equal(await boxes('HTR-0007').count(), 2);
+		assert.equal(await progress('HTR-0007'), 'Checked 0 of 2');
+
+		// The whole line is the target: a tap on the card's words ticks it.
+		await order(page, 'HTR-0007').locator('.shop-order-check span').first().click();
+		assert.equal(await progress('HTR-0007'), 'Checked 1 of 2');
+		assert.equal(await order(page, 'HTR-0007').locator('.shop-order-checked').count(), 1);
+		await boxes('HTR-0007').nth(1).check();
+		assert.equal(await progress('HTR-0007'), 'All 2 checked');
+		assert.equal(await order(page, 'HTR-0007').locator('.shop-order-progress-done').count(), 1);
+		await boxes('HTR-0006').first().check();
+		assert.equal(await progress('HTR-0006'), 'Checked');
+		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-orders-checklist.png`});
+
+		// Unticking counts down; the ticks survive a reload, which opens
+		// on the Orders tab again.
+		await boxes('HTR-0007').first().uncheck();
+		assert.equal(await progress('HTR-0007'), 'Checked 1 of 2');
+		await page.reload();
+		await order(page, 'HTR-0007').waitFor(TIMEOUT);
+		assert.deepEqual(await boxes('HTR-0007').evaluateAll((all) => all.map((box) => box.checked)), [false, true]);
+		assert.equal(await progress('HTR-0007'), 'Checked 1 of 2');
+		assert.deepEqual(await kept(), {'HTR-0006': ['c-10'], 'HTR-0007': ['c-04']});
+
+		// A delivered order's ticks are forgotten with it.
+		await order(page, 'HTR-0006').locator('button:has-text("Delivered")').click();
+		await order(page, 'HTR-0006').waitFor({state: 'detached', ...TIMEOUT});
+		await page.waitForFunction(() => !('HTR-0006' in JSON.parse(localStorage.getItem('cardTracker.orderChecks') || '{}')), null, TIMEOUT);
+		assert.deepEqual(await kept(), {'HTR-0007': ['c-04']});
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('Cancel asks first, then gives the cards back; Log the sale logs a missing sale once', async () => {
 		const {context, errors, page, store} = await ownerPhone();
 

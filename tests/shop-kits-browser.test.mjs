@@ -379,6 +379,12 @@ describe('Shop kits', () => {
 		assert.equal(plain(lines[0]), 'Pikachu · #025 · Test Alpha · English · R$ 5,00');
 		assert.equal(await text(page.locator('#order-HTR-0009 .shop-order-kit-name')), 'Kit Duo · R$ 9,50');
 		assert.equal(await page.locator('#order-HTR-0009 .shop-order-kit li').count(), 2);
+
+		// The checklist ticks the single and each of the kit's cards, not
+		// the kit's name.
+		assert.equal(await page.locator('#order-HTR-0009 .shop-order-kit li input[type="checkbox"]').count(), 2);
+		assert.equal(await page.locator('#order-HTR-0009 .shop-order-items input[type="checkbox"]').count(), 3);
+		assert.equal(await text(page.locator('#order-HTR-0009 .shop-order-progress')), 'Checked 0 of 3');
 		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-kits-order.png`});
 		await showTab(page, 'kits');
 		assert.equal(await text(page.locator('#shop-kits-problem')), 'Kits are not set up yet: run supabase/store-bundles.sql in the Supabase SQL Editor.');
