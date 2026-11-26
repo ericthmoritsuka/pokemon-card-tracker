@@ -88,6 +88,31 @@ describe('the filters', () => {
 		assert.deepEqual(only({region: 'kanto', type: 'Grass'}), ['Tag Team'], 'filters combine');
 	});
 
+	// Eric, 2026-11-26: "more than one set at the same time".
+	test('several values of one filter: a card fits any of them, and every filter still applies', () => {
+		assert.deepEqual(only({set: ['international|tsb2', 'ja|TSJ1']}), ['Pikachu', 'Tag Team'], 'two sets');
+		assert.deepEqual(only({set: ['international|tsb2', 'ja|TSJ1'], language: ['ja']}), ['Tag Team'], 'and a language');
+		assert.deepEqual(only({type: ['Fire', 'Lightning']}), ['Pikachu', 'Charizard'], 'two types');
+		assert.deepEqual(only({category: ['Trainer', 'Pokemon'], rarity: ['Rare']}), ['Charizard']);
+		assert.deepEqual(only({set: []}), names(ITEMS()), 'an empty list is no filter');
+		assert.deepEqual(fb.activeFilters({...fb.emptyFilters(), set: [], language: ['ja']}), ['language']);
+		assert.equal(fb.filterOn([]), false);
+		assert.equal(fb.filterOn(['ja']), true);
+		assert.deepEqual(fb.MULTI_FILTERS, ['set', 'language', 'rarity', 'type', 'category', 'region', 'artist', 'storage']);
+	});
+
+	test('a choice saved with one value per filter loads as a list of one', () => {
+		const filters = fb.cleanFilters({dex: '1-151', favorite: true, language: 'ja', price: 'priced', set: 'international|tsb2', type: ['Fire', 'Fire', 7, '']});
+
+		assert.deepEqual(filters.set, ['international|tsb2']);
+		assert.deepEqual(filters.language, ['ja']);
+		assert.deepEqual(filters.type, ['Fire'], 'repeats and values of the wrong kind dropped');
+		assert.deepEqual(filters.region, []);
+		assert.equal(filters.dex, '1-151', 'a single-value filter stays a string');
+		assert.equal(filters.price, 'priced');
+		assert.equal(filters.favorite, true);
+	});
+
 	test('the Pokédex range from two typed numbers', () => {
 		assert.equal(fb.dexRangeValue('1', '151'), '1-151');
 		assert.equal(fb.dexRangeValue('25', ''), '25-25');
@@ -144,6 +169,9 @@ describe('Stored in', () => {
 		assert.deepEqual(only(fb.NOT_STORED), ['Pikachu', 'Test Ball'], 'a tile with any copy stored nowhere');
 		assert.deepEqual(only(fb.placeValue('Shoebox')), []);
 		assert.deepEqual(only(''), ['Pikachu', 'Charizard', 'Test Ball']);
+		assert.deepEqual(only([fb.placeValue('Drawer'), fb.NOT_STORED]), ['Pikachu', 'Charizard', 'Test Ball'], 'a place or Not set');
+		assert.deepEqual(only([fb.placeValue('Drawer'), fb.placeValue('Shoebox')]), ['Charizard']);
+		assert.deepEqual(only([]), ['Pikachu', 'Charizard', 'Test Ball']);
 	});
 
 	test('options count copies, offer saved places with none stored there, and end with Not set', () => {
@@ -163,6 +191,8 @@ describe('Stored in', () => {
 		assert.deepEqual(fb.storedEntries(list, fb.placeValue('box a')).map((entry) => entry.id), ['c0', 'c1']);
 		assert.deepEqual(fb.storedEntries(list, fb.NOT_STORED).map((entry) => entry.id), ['c2']);
 		assert.equal(fb.storedEntries(list, ''), list);
+		assert.equal(fb.storedEntries(list, []), list);
+		assert.deepEqual(fb.storedEntries(list, [fb.placeValue('drawer'), fb.NOT_STORED]).map((entry) => entry.id), ['c2', 'c3'], 'the copies in any of its places');
 	});
 });
 
