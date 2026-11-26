@@ -12,24 +12,63 @@
 //                                   from the Spares screen
 //   trade/check/<lang>/<cardId>     one card in every language, from the
 //                                   card page's Check next to the copies
+//
+// The whole list takes the search and Filters of My Cards (js/filter-bar.js)
+// and its own sort, Where, and Show (js/spare-check.js narrowChecks), so
+// Eric can check one pile at a time in the order it lies (2026-11-26). The
+// choice is kept on this phone; one card's check has none.
 
-import {artOf, entryInfo, fillRecords} from './binders-view.js';
+import {artOf, cardFilterItem, entryInfo, fillRecords} from './binders-view.js';
 import {catalogFor, cardIndex, printedCode, viewingLanguage} from './catalog.js';
-import {loadDocument, onChange} from './collection.js';
+import {loadDocument, onChange, storedPlaces} from './collection.js';
 import {languageName} from './copy-sheet.js';
 import {isCustomId} from './custom-card.js';
 import {BASE, backWords, errorText, h} from './dom.js';
+import {applyFilters, FILTERS, filterBar, filterOn, sortItems, storageOf} from './filter-bar.js';
 import {formatCount, freeText, plural} from './format.js';
 import {applyMove, undoMove} from './moves.js';
 import {undoneText} from './moves-view.js';
 import {toast} from './shell.js';
 import {shopOwnerKnown} from './shop-owner.js';
-import {REASONS, goneFields, placeLabel, spareCheck} from './spare-check.js';
+import {ANY, CHECK_SORTS, REASONS, SHOWS, goneFields, narrowChecks, placeLabel, spareCheck, whereOptions} from './spare-check.js';
 import {withdrawListings} from './store-publish.js';
 import {FINISHES, entryFinish, tileArt} from './tile.js';
 
 const UNDO_MS = 8000;
 const PAGE = 30;
+
+// The search and filters are the bar's, kept under their own key; the
+// sort, Where, and Show are kept beside them here.
+const BAR_CHOICE = 'cardTracker.spareCheckChoice';
+const OWN_CHOICE = 'cardTracker.spareCheckOwn';
+
+// Favorites is a Show choice here, and Not in a binder is Where's Loose
+// and trays; a price and a picture say nothing about a copy's place.
+const OFFERED = FILTERS.filter((kind) => !['favorite', 'picture', 'price', 'unplaced'].includes(kind));
+
+function readOwn() {
+	try {
+		const saved = JSON.parse(localStorage.getItem(OWN_CHOICE) || 'null') || {};
+
+		return {
+			show: SHOWS.some((option) => option.value === saved.show) ? saved.show : 'all',
+			sort: CHECK_SORTS.some((option) => option.value === saved.sort) ? saved.sort : 'free',
+			where: typeof saved.where === 'string' && saved.where ? saved.where : ANY,
+		};
+	}
+	catch {
+		return {show: 'all', sort: 'free', where: ANY};
+	}
+}
+
+function writeOwn(own) {
+	try {
+		localStorage.setItem(OWN_CHOICE, JSON.stringify(own));
+	}
+	catch {
+		// The choice lasts for this visit only.
+	}
+}
 
 // The phone's own day, YYYY-MM-DD, as the trades log dates a move.
 function today() {
@@ -59,14 +98,117 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 	const back = one ? `cards/${encodeURIComponent(lang)}/${encodeURIComponent(cardId)}` : 'trade';
 	const summary = h('p', {'aria-live': 'polite', class: 'muted', id: 'check-summary'}, 'Reading your cards…');
 	const list = h('div', {class: 'check-list', id: 'check-list'});
+	// Every group as last worked out, before the choice narrows it.
+	let groups = [];
+	const own = readOwn();
+	const bar = one ? null : checkBar();
 
 	root.append(
 		h('a', {class: 'back', 'data-link': back, href: BASE + back, id: 'check-back'}, backWords(one ? 'Card' : 'Spares')),
 		h('div', {class: 'view-head'}, h('h2', {id: 'check-title', tabindex: '-1'}, 'Check spares')),
 		h('p', {class: 'muted check-intro'}, 'Where every copy is, and why it counts as free or not. If you cannot find one, tap I don\'t have this one: it is logged in Trades as given away, so your spares and the Shop follow. Undo takes it back.'),
+		...(bar ? [bar.element] : []),
 		summary,
 		list
 	);
+
+	// The bar, with the sort beside Filters, and Where and Show on the line
+	// under them. Clear all clears Where and Show too.
+	function checkBar() {
+		const option = ({label, long, value}) => h('option', {title: long || null, value}, label);
+		const sortSelect = h('select', {'aria-label': 'Sort the cards', class: 'check-sort', id: 'check-sort'}, CHECK_SORTS.map((one) => option({...one, label: `Sort: ${one.label}`})));
+		const whereSelect = h('select', {'aria-label': 'Where the copies are', class: 'check-where', id: 'check-where'});
+		const showSelect = h('select', {'aria-label': 'Which cards to show', class: 'check-show', id: 'check-show'}, SHOWS.map(option));
+		const pick = (key, select) => {
+			select.onchange = () => {
+				own[key] = select.value;
+				writeOwn(own);
+				shown = PAGE;
+				redraw();
+			};
+		};
+
+		sortSelect.value = own.sort;
+		showSelect.value = own.show;
+		pick('sort', sortSelect);
+		pick('where', whereSelect);
+		pick('show', showSelect);
+
+		const made = filterBar({
+			below: [h('div', {class: 'fb-row check-narrow'},
+				h('span', {class: 'select-wrap'}, whereSelect),
+				h('span', {class: 'select-wrap'}, showSelect))],
+			extra: [h('span', {class: 'select-wrap fb-sort-wrap'}, sortSelect)],
+			filters: OFFERED,
+			id: 'check',
+			narrowed: () => own.where !== ANY || own.show !== 'all',
+			onChange: () => {
+				shown = PAGE;
+				redraw();
+			},
+			onClearAll: () => {
+				own.where = ANY;
+				own.show = 'all';
+				writeOwn(own);
+				showSelect.value = own.show;
+			},
+			placeholder: 'Search these cards',
+			sorts: [],
+			storageKey: BAR_CHOICE,
+		});
+
+		made.drawWhere = () => {
+			const options = whereOptions(groups);
+
+			// A place chosen before stays chosen, at 0, until changed.
+			if (own.where !== ANY && !options.some((one) => one.value === own.where)) {
+				options.push({count: 0, label: 'The place picked before', value: own.where});
+			}
+
+			whereSelect.replaceChildren(
+				h('option', {value: ANY}, 'Anywhere'),
+				...options.map((one) => h('option', {value: one.value}, `${one.label} · ${plural(one.count, 'copy', 'copies')}`))
+			);
+			whereSelect.value = own.where;
+		};
+
+		return made;
+	}
+
+	// The bar's item for a group: the card's filter fields, where its
+	// copies are stored, and its words for the search.
+	function itemOf(group) {
+		const entries = group.rows.map((row) => row.entry);
+		const info = entryInfo(entries[0], index, viewing);
+		const times = entries.map((entry) => String(entry.created_at || '')).sort();
+
+		return {
+			...cardFilterItem(entries[0], info, index),
+			...storageOf(entries),
+			favorite: group.favorite,
+			group,
+			key: group.key,
+			newest: times[times.length - 1],
+			oldest: times[0],
+			search: info.search,
+		};
+	}
+
+	// The groups the choice leaves, in its order.
+	function narrowed() {
+		if (!bar) {
+			return groups;
+		}
+
+		const {filters, query} = bar.state;
+		const items = groups.map(itemOf);
+
+		bar.setItems(items);
+
+		return narrowChecks(applyFilters(items, {filters, query}), {show: own.show, sort: own.sort, sortItems, where: own.where}).map((item) => item.group);
+	}
+
+	const isNarrowed = () => Boolean(bar) && (own.where !== ANY || own.show !== 'all' || bar.state.query.trim() !== '' || Object.values(bar.state.filters).some(filterOn));
 
 	async function giveAway(row, info, button) {
 		button.disabled = true;
@@ -142,28 +284,42 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 			h('ul', {class: 'check-copies'}, ...group.rows.map((row) => copyItem({...row, groupKey: group.key}, info))));
 	}
 
-	function draw(groups) {
-		const free = groups.reduce((sum, group) => sum + group.free, 0);
-		const copies = groups.reduce((sum, group) => sum + group.copies, 0);
+	function redraw() {
+		if (bar) {
+			bar.drawWhere();
+		}
 
-		if (!groups.length) {
-			summary.textContent = one ? 'You have no copies of this card.' : 'No card has more than one copy.';
+		draw(narrowed());
+	}
+
+	function draw(kept) {
+		const free = kept.reduce((sum, group) => sum + group.free, 0);
+		const copies = kept.reduce((sum, group) => sum + group.copies, 0);
+
+		if (!kept.length) {
+			summary.textContent = one ? 'You have no copies of this card.'
+				: groups.length && isNarrowed() ? 'No card matches. Clear all shows every card again.'
+					: 'No card has more than one copy.';
 			list.replaceChildren();
 
 			return;
 		}
 
+		const counts = `${plural(copies, 'copy', 'copies')}, ${formatCount(free)} free.`;
+
 		summary.textContent = one
 			? freeText(copies, free)
-			: `${plural(groups.length, 'card', 'cards')} with more than one copy: ${plural(copies, 'copy', 'copies')}, ${formatCount(free)} free.`;
+			: isNarrowed()
+				? `${formatCount(kept.length)} of ${plural(groups.length, 'card', 'cards')} with more than one copy: ${counts}`
+				: `${plural(kept.length, 'card', 'cards')} with more than one copy: ${counts}`;
 
-		const visible = groups.slice(0, shown);
-		const more = groups.length - visible.length;
+		const visible = kept.slice(0, shown);
+		const more = kept.length - visible.length;
 
 		const moreButton = more > 0
 			? h('button', {class: 'check-more', id: 'check-more', onclick: () => {
 				shown += PAGE;
-				draw(groups);
+				draw(kept);
 			}, type: 'button'}, `Show ${formatCount(Math.min(more, PAGE))} more`)
 			: null;
 
@@ -182,14 +338,43 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 			}
 		}
 
-		const missing = visible.map((group) => ({cardId: group.card_id, catalog: group.catalog}));
+		fillMissing();
+	}
+
+	// The records the cards lack: the set, number, and name the tiles,
+	// filters, and sorts read. A whole list asks for every card's, since a
+	// filter or sort reads the cards not yet shown too. Each card is asked
+	// for once a visit, so a card the catalog lacks is not asked for again
+	// at every change of filter.
+	let filling = false;
+	const asked = new Set();
+
+	function fillMissing() {
+		if (filling) {
+			return;
+		}
+
+		const missing = groups.map((group) => ({cardId: group.card_id, catalog: group.catalog}))
+			.filter(({cardId, catalog}) => !asked.has(`${catalog}|${cardId}`));
+
+		if (!missing.length) {
+			return;
+		}
+
+		filling = true;
+
+		for (const {cardId, catalog} of missing) {
+			asked.add(`${catalog}|${cardId}`);
+		}
 
 		fillRecords(missing, index, () => alive).then((next) => {
 			if (next && alive) {
 				index = next;
-				draw(groups);
+				redraw();
 			}
-		}).catch(() => {});
+		}).catch(() => {}).finally(() => {
+			filling = false;
+		});
 	}
 
 	const check = (doc) => spareCheck(doc, {codeOf: printedCode, only: one});
@@ -202,7 +387,13 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		}
 
 		index = found;
-		draw(check(doc));
+		groups = check(doc);
+
+		if (bar) {
+			bar.setPlaces(storedPlaces(doc).map((place) => place.name));
+		}
+
+		redraw();
 	})().catch((err) => {
 		if (alive) {
 			summary.textContent = '';
@@ -212,13 +403,18 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 
 	const stop = onChange((doc) => {
 		if (alive && doc && Array.isArray(doc.cards)) {
-			draw(check(doc));
+			groups = check(doc);
+			redraw();
 		}
 	});
 
 	return () => {
 		alive = false;
 		stop();
+
+		if (bar) {
+			bar.destroy();
+		}
 	};
 }
 
