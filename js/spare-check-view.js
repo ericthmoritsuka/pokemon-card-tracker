@@ -144,6 +144,9 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		});
 
 		const made = filterBar({
+			// The sheet's Show N cards counts what the list will show, Where
+			// and Show included.
+			countShown: (state) => narrowChecks(applyFilters(groups.map(itemOf), {filters: state.filters, query: state.query}), {show: own.show, where: own.where}).length,
 			below: [h('div', {class: 'fb-row check-narrow'},
 				h('span', {class: 'select-wrap'}, whereSelect),
 				h('span', {class: 'select-wrap'}, showSelect))],
