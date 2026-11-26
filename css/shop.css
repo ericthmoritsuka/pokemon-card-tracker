@@ -689,8 +689,10 @@
 	outline-offset: -3px;
 }
 
-/* All, Awaiting payment, To hand over. */
+/* Unpaid, Separating, Ready, Delivered (v122): four across, a count under
+   each label when a label and its count do not fit side by side. */
 .shop-order-filter {
+	grid-template-columns: repeat(4, 1fr);
 	margin: 0;
 }
 

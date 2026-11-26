@@ -65,9 +65,13 @@ function openOrders() {
 	];
 }
 
-// The order functions as supabase/store-orders.sql answers them.
-async function attachOrders(page, {orders = openOrders(), setUp = true, owner = true} = {}) {
+// The order functions as supabase/store-orders.sql answers them, and the
+// ticks and delivered orders as supabase/store-order-stages.sql does (stages
+// false: that script not run yet).
+async function attachOrders(page, {orders = openOrders(), setUp = true, owner = true, stages = true, delivered = []} = {}) {
 	const calls = [];
+	const ticks = new Map();
+	const isOpen = (one) => Boolean(one) && orders.includes(one);
 	const fail = (route, status, code, message) => route.fulfill({body: JSON.stringify({code, details: null, hint: null, message}), contentType: 'application/json', status});
 
 	await page.route('**/rest/v1/rpc/store_sync', (route) => route.fulfill({body: '{}', contentType: 'application/json', status: 200}));
@@ -100,13 +104,60 @@ async function attachOrders(page, {orders = openOrders(), setUp = true, owner = 
 		}
 		else if (name === 'cancel_order' || name === 'mark_delivered') {
 			orders.splice(orders.indexOf(order), 1);
+
+			if (name === 'mark_delivered') {
+				delivered.unshift({...order, delivered_at: new Date().toISOString()});
+			}
 		}
 
 		return route.fulfill({body: JSON.stringify({code: args.order_code}), contentType: 'application/json', status: 200});
 	});
+	await page.route(/\/rest\/v1\/rpc\/(store_order_checks|set_order_check|store_orders_delivered)$/, (route) => {
+		const name = route.request().url().split('/rpc/')[1];
+		const args = route.request().postDataJSON() || {};
+
+		calls.push([name, args.order_code || null]);
+
+		if (!stages || !setUp) {
+			return fail(route, 404, 'PGRST202', `Could not find the function public.${name} in the schema cache`);
+		}
+
+		if (!owner) {
+			return fail(route, 403, '42501', 'Only the shop owner can do this.');
+		}
+
+		if (name === 'store_orders_delivered') {
+			return route.fulfill({body: JSON.stringify(delivered), contentType: 'application/json', status: 200});
+		}
+
+		if (name === 'store_order_checks') {
+			const open = Object.fromEntries([...ticks].filter(([code, set]) => set.size && isOpen(orders.find((one) => one.code === code))).map(([code, set]) => [code, [...set].sort()]));
+
+			return route.fulfill({body: JSON.stringify(open), contentType: 'application/json', status: 200});
+		}
+
+		const order = orders.find((one) => one.code === args.order_code);
+
+		if (!isOpen(order)) {
+			return fail(route, 400, '22023', `Order ${args.order_code} is no longer open.`);
+		}
+
+		const set = ticks.get(order.code) || new Set();
+
+		if (args.checked) {
+			set.add(args.listing);
+		}
+		else {
+			set.delete(args.listing);
+		}
+
+		ticks.set(order.code, set);
+
+		return route.fulfill({body: JSON.stringify({checked: Boolean(args.checked), code: order.code, listing_id: args.listing}), contentType: 'application/json', status: 200});
+	});
 	await page.route('**/storage/v1/object/sign/store-receipts/**', (route) => route.fulfill({body: JSON.stringify({signedURL: '/object/sign/store-receipts/receipt.png?token=t'}), contentType: 'application/json', status: 200}));
 
-	return {calls, orders};
+	return {calls, delivered, orders, ticks};
 }
 
 // A phone signed in as the family's owner, whose copies are on the server.
@@ -220,6 +271,15 @@ const toastText = (page) => page.locator('.toast[data-toast-key="new-order"] .to
 
 const order = (page, code) => page.locator(`#order-${code}`);
 
+// Shows one stage of the orders: pending (Unpaid), separating, ready, or
+// delivered.
+const showStage = (page, value) => page.click(`#shop-order-filter input[value="${value}"] + span`);
+
+const shownCodes = (page) => page.locator('.shop-order').evaluateAll((all) => all.map((one) => one.dataset.code));
+
+// What the server holds as ticked, by order.
+const serverTicks = (store) => Object.fromEntries([...store.ticks].filter(([, set]) => set.size).map(([code, set]) => [code, [...set].sort()]));
+
 const text = async (locator) => plain(await locator.textContent());
 
 describe('Shop orders', () => {
@@ -229,15 +289,13 @@ describe('Shop orders', () => {
 		await openShop(page);
 		await order(page, 'HTR-0007').waitFor(TIMEOUT);
 		assert.equal(await text(page.locator('#shop-orders-title')), 'Orders (3)');
-		assert.equal(await text(page.locator('#shop-orders > p').first()), '2 orders waiting for payment, 1 paid, ready to hand over.');
 		assert.equal(await text(page.locator('#shop-tab-orders')), 'Orders (3)');
+		assert.deepEqual(await shownCodes(page), ['HTR-0007', 'HTR-0008'], 'the Shop opens on Unpaid');
 		assert.equal(await text(order(page, 'HTR-0007').locator('.shop-order-head')), 'HTR-0007 · Ana');
 		assert.match(await text(order(page, 'HTR-0007').locator('.shop-order-state')), /^Waiting for payment · 4[67] h left$/);
 		assert.equal(await text(order(page, 'HTR-0007').locator('.shop-order-receipt')), 'No receipt yet');
 		assert.equal(await order(page, 'HTR-0007').locator('.shop-order-who a').getAttribute('href'), 'tel:8199999-0000'.replace('-', ''));
 		assert.match(await text(order(page, 'HTR-0008').locator('.shop-order-state')), /^Waiting for payment · (29|30) min left$/);
-		assert.equal(await text(order(page, 'HTR-0006').locator('.shop-order-state')), 'Paid · to hand over');
-		assert.equal(await order(page, 'HTR-0006').locator('button:has-text("Log the sale")').count(), 1);
 		assert.equal(await text(order(page, 'HTR-0007').locator('.shop-order-total')), 'Total R$ 5,00');
 
 		// Each card names its finish: the listing's, or on a listing
@@ -254,6 +312,12 @@ describe('Shop orders', () => {
 
 		await tab.waitForURL(/store-receipts\/receipt\.png\?token=t/, TIMEOUT);
 		await tab.close();
+
+		// The paid order, nothing ticked yet, is under Separating.
+		await showStage(page, 'separating');
+		assert.deepEqual(await shownCodes(page), ['HTR-0006']);
+		assert.equal(await text(order(page, 'HTR-0006').locator('.shop-order-state')), 'Paid · separating');
+		assert.equal(await order(page, 'HTR-0006').locator('button:has-text("Log the sale")').count(), 1);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
@@ -268,7 +332,9 @@ describe('Shop orders', () => {
 		await order(page, 'HTR-0007').locator('button:has-text("Payment received")').click();
 		assert.equal(await text(order(page, 'HTR-0007').locator('.shop-order-ask')), 'R$ 5,00 from Ana is in your account?');
 		await order(page, 'HTR-0007').locator('button:has-text("Yes, received")').click();
-		await page.waitForFunction(() => document.querySelector('#order-HTR-0007 .shop-order-state') && document.querySelector('#order-HTR-0007 .shop-order-state').textContent === 'Paid · to hand over', null, TIMEOUT);
+		// Paid, it is Separating now, and stays in sight under Unpaid until
+		// the filter changes.
+		await page.waitForFunction(() => document.querySelector('#order-HTR-0007 .shop-order-state') && document.querySelector('#order-HTR-0007 .shop-order-state').textContent === 'Paid · separating', null, TIMEOUT);
 		assert.deepEqual(store.calls.filter(([name]) => name === 'mark_paid'), [['mark_paid', 'HTR-0007']]);
 		await page.locator('#shop-international-tsa1-004-en').waitFor({state: 'detached', ...TIMEOUT});
 		assert.equal(await order(page, 'HTR-0007').locator('button:has-text("Log the sale")').count(), 0, 'the sale is logged');
@@ -285,15 +351,25 @@ describe('Shop orders', () => {
 
 		await order(page, 'HTR-0007').locator('button:has-text("Delivered")').click();
 		await order(page, 'HTR-0007').waitFor({state: 'detached', ...TIMEOUT});
+
+		// Delivered lists it, with the day, its cards, and nothing to do.
+		await showStage(page, 'delivered');
+		await order(page, 'HTR-0007').waitFor(TIMEOUT);
+		assert.deepEqual(await shownCodes(page), ['HTR-0007']);
+		assert.match(await text(order(page, 'HTR-0007').locator('.shop-order-state')), /^Delivered \d{1,2} [A-Z][a-z]{2}$/);
+		assert.equal(await order(page, 'HTR-0007').locator('.shop-order-items li').count(), 2);
+		assert.equal(await order(page, 'HTR-0007').locator('input[type="checkbox"], button').count(), 0);
+		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-orders-delivered.png`});
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
 
-	test('the checklist ticks each card off, counts the ticks, keeps them, and forgets a delivered order', async () => {
-		const {context, errors, page} = await ownerPhone();
+	test('the checklist ticks each card off, counts the ticks, keeps them on the server, and moves a paid order from Separating to Ready', async () => {
+		const {context, errors, page, store} = await ownerPhone();
 		const boxes = (code) => order(page, code).locator('.shop-order-items input[type="checkbox"]');
 		const progress = (code) => text(order(page, code).locator('.shop-order-progress'));
-		const kept = () => page.evaluate(() => JSON.parse(localStorage.getItem('cardTracker.orderChecks') || '{}'));
+		const labels = async () => (await page.locator('#shop-order-filter span[data-label]').allTextContents()).map(plain);
+		const queue = () => page.evaluate(() => JSON.parse(localStorage.getItem('cardTracker.orderChecksQueue') || '[]'));
 
 		await openShop(page);
 		await order(page, 'HTR-0007').waitFor(TIMEOUT);
@@ -307,25 +383,92 @@ describe('Shop orders', () => {
 		await boxes('HTR-0007').nth(1).check();
 		assert.equal(await progress('HTR-0007'), 'All 2 checked');
 		assert.equal(await order(page, 'HTR-0007').locator('.shop-order-progress-done').count(), 1);
+		assert.equal(await text(order(page, 'HTR-0007').locator('.shop-order-state')).then((line) => line.startsWith('Waiting for payment')), true, 'an unpaid order stays Unpaid, ticked or not');
+		await page.waitForFunction(() => JSON.parse(localStorage.getItem('cardTracker.orderChecksQueue') || '[]').length === 0, null, TIMEOUT);
+		assert.deepEqual(serverTicks(store), {'HTR-0007': ['c-03', 'c-04']});
+
+		// Ticking the paid order's only card makes it Ready: the counts
+		// follow at once, and the order stays in sight until the filter
+		// changes.
+		await showStage(page, 'separating');
+		assert.deepEqual(await labels(), ['Unpaid 2', 'Separating 1', 'Ready 0', 'Delivered 0']);
 		await boxes('HTR-0006').first().check();
 		assert.equal(await progress('HTR-0006'), 'Checked');
+		assert.equal(await text(order(page, 'HTR-0006').locator('.shop-order-state')), 'Paid · ready to hand over');
+		assert.deepEqual(await labels(), ['Unpaid 2', 'Separating 0', 'Ready 1', 'Delivered 0']);
+		assert.deepEqual(await shownCodes(page), ['HTR-0006']);
 		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-orders-checklist.png`});
+		await showStage(page, 'ready');
+		assert.deepEqual(await shownCodes(page), ['HTR-0006']);
+		await showStage(page, 'separating');
+		assert.deepEqual(await shownCodes(page), []);
+		assert.equal(await text(page.locator('#shop-orders-none')), 'Nothing to separate: every paid order has its cards checked.');
 
-		// Unticking counts down; the ticks survive a reload, which opens
-		// on the Orders tab again.
+		// Unticking counts down; the ticks survive a reload.
+		await showStage(page, 'pending');
 		await boxes('HTR-0007').first().uncheck();
 		assert.equal(await progress('HTR-0007'), 'Checked 1 of 2');
+		await page.waitForFunction(() => JSON.parse(localStorage.getItem('cardTracker.orderChecksQueue') || '[]').length === 0, null, TIMEOUT);
 		await page.reload();
 		await order(page, 'HTR-0007').waitFor(TIMEOUT);
 		assert.deepEqual(await boxes('HTR-0007').evaluateAll((all) => all.map((box) => box.checked)), [false, true]);
-		assert.equal(await progress('HTR-0007'), 'Checked 1 of 2');
-		assert.deepEqual(await kept(), {'HTR-0006': ['c-10'], 'HTR-0007': ['c-04']});
+		assert.deepEqual(serverTicks(store), {'HTR-0006': ['c-10'], 'HTR-0007': ['c-04']});
+
+		// Another device: nothing kept here, the server's ticks draw.
+		await page.evaluate(() => localStorage.removeItem('cardTracker.orderChecks'));
+		await page.reload();
+		await order(page, 'HTR-0007').waitFor(TIMEOUT);
+		await page.waitForFunction(() => document.querySelectorAll('#order-HTR-0007 input[type="checkbox"]:checked').length === 1, null, TIMEOUT);
+		assert.deepEqual(await labels(), ['Unpaid 2', 'Separating 0', 'Ready 1', 'Delivered 0']);
+		assert.deepEqual(await queue(), []);
 
 		// A delivered order's ticks are forgotten with it.
+		await showStage(page, 'ready');
 		await order(page, 'HTR-0006').locator('button:has-text("Delivered")').click();
 		await order(page, 'HTR-0006').waitFor({state: 'detached', ...TIMEOUT});
 		await page.waitForFunction(() => !('HTR-0006' in JSON.parse(localStorage.getItem('cardTracker.orderChecks') || '{}')), null, TIMEOUT);
-		assert.deepEqual(await kept(), {'HTR-0007': ['c-04']});
+		assert.deepEqual(await labels(), ['Unpaid 2', 'Separating 0', 'Ready 0', 'Delivered 1']);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('ticks made before store-order-stages.sql or offline wait on the device, and v119\'s ticks reach the server once', async () => {
+		// v119 left a tick on this phone; the server has none.
+		const v119 = () => localStorage.setItem('cardTracker.orderChecks', JSON.stringify({'HTR-0007': ['c-03']}));
+		let {context, errors, page, store} = await ownerPhone({init: v119, stages: false});
+		const boxes = (code) => order(page, code).locator('.shop-order-items input[type="checkbox"]');
+		const queue = () => page.evaluate(() => JSON.parse(localStorage.getItem('cardTracker.orderChecksQueue') || '[]'));
+
+		// Not set up: the ticks work on the phone and wait, and Delivered
+		// says what to run.
+		await openShop(page);
+		await order(page, 'HTR-0007').waitFor(TIMEOUT);
+		assert.deepEqual(await boxes('HTR-0007').evaluateAll((all) => all.map((box) => box.checked)), [true, false]);
+		await boxes('HTR-0007').nth(1).check();
+		await page.waitForTimeout(300);
+		assert.deepEqual(await queue(), [{code: 'HTR-0007', listing_id: 'c-03', on: true}, {code: 'HTR-0007', listing_id: 'c-04', on: true}]);
+		await showStage(page, 'delivered');
+		assert.equal(await text(page.locator('#shop-orders-none')), 'Delivered orders show once supabase/store-order-stages.sql is run in the Supabase SQL Editor.');
+		assert.deepEqual(errors, []);
+		await context.close();
+
+		// Set up: the v119 tick reaches the server once, and the flag that
+		// says so stops it being sent again.
+		({context, errors, page, store} = await ownerPhone({init: v119}));
+		await openShop(page);
+		await order(page, 'HTR-0007').waitFor(TIMEOUT);
+		await page.waitForFunction(() => localStorage.getItem('cardTracker.orderChecksMoved') === 'true' && JSON.parse(localStorage.getItem('cardTracker.orderChecksQueue') || '[]').length === 0, null, TIMEOUT);
+		assert.deepEqual(serverTicks(store), {'HTR-0007': ['c-03']});
+
+		// Offline, a tick waits; back online, the next read sends it.
+		await context.setOffline(true);
+		await boxes('HTR-0007').nth(1).check();
+		await page.waitForTimeout(300);
+		assert.deepEqual(await queue(), [{code: 'HTR-0007', listing_id: 'c-04', on: true}]);
+		await context.setOffline(false);
+		await backInFront(page);
+		await page.waitForFunction(() => JSON.parse(localStorage.getItem('cardTracker.orderChecksQueue') || '[]').length === 0, null, TIMEOUT);
+		assert.deepEqual(serverTicks(store), {'HTR-0007': ['c-03', 'c-04']});
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
@@ -463,6 +606,7 @@ describe('Shop orders', () => {
 		assert.deepEqual(store.calls.filter(([name]) => name === 'cancel_order'), [['cancel_order', 'HTR-0008']]);
 
 		// HTR-0006 is paid; its sale goes in once, and mark_paid is not asked.
+		await showStage(page, 'separating');
 		await order(page, 'HTR-0006').locator('button:has-text("Log the sale")').click();
 		await page.waitForFunction(() => !document.querySelector('#order-HTR-0006 .shop-order-actions button.primary') || document.querySelector('#order-HTR-0006 .shop-order-actions').textContent.indexOf('Log the sale') < 0, null, TIMEOUT);
 
@@ -514,7 +658,7 @@ describe('Shop orders', () => {
 		assert.match(await text(order(page, 'HTR-0010').locator('.shop-order-items li')), /^Booster Box Destinos de Paldea · Booster box · Portuguese · Sealed · R\$ 900,00$/);
 		await order(page, 'HTR-0010').locator('button:has-text("Payment received")').click();
 		await order(page, 'HTR-0010').locator('button:has-text("Yes, received")').click();
-		await page.waitForFunction(() => document.querySelector('#order-HTR-0010 .shop-order-state') && document.querySelector('#order-HTR-0010 .shop-order-state').textContent === 'Paid · to hand over', null, TIMEOUT);
+		await page.waitForFunction(() => document.querySelector('#order-HTR-0010 .shop-order-state') && document.querySelector('#order-HTR-0010 .shop-order-state').textContent === 'Paid · separating', null, TIMEOUT);
 		assert.deepEqual(store.calls.filter(([name]) => name === 'mark_paid'), [['mark_paid', 'HTR-0010']]);
 		assert.equal(await order(page, 'HTR-0010').locator('button:has-text("Log the sale")').count(), 0);
 
@@ -634,30 +778,56 @@ describe('Shop orders', () => {
 		await context.close();
 	});
 
-	test('the orders filter tells the unpaid ones from the paid ones ready to hand over', async () => {
-		const {context, errors, page} = await ownerPhone();
+	test('the orders filter shows the four stages with their counts, keeps its choice, and fits a phone', async () => {
+		const delivered = [{...openOrders()[0], code: 'HTR-0003', delivered_at: hours(-26), id: '00000000-0000-4000-8000-000000000003', name: 'Lia'}];
+		const {context, errors, page} = await ownerPhone({delivered});
 
 		await openShop(page);
 		await order(page, 'HTR-0007').waitFor(TIMEOUT);
 
 		const labels = async () => (await page.locator('#shop-order-filter span[data-label]').allTextContents()).map(plain);
 
-		assert.deepEqual(await labels(), ['All 3', 'Unpaid 2', 'Ready 1']);
-		await page.click('#shop-order-filter input[value="pending"] + span');
-		assert.deepEqual(await page.locator('.shop-order').evaluateAll((all) => all.map((one) => one.dataset.code)), ['HTR-0007', 'HTR-0008']);
-		await page.click('#shop-order-filter input[value="paid"] + span');
-		assert.deepEqual(await page.locator('.shop-order').evaluateAll((all) => all.map((one) => one.dataset.code)), ['HTR-0006']);
-		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-orders-to-hand-over.png`});
+		assert.deepEqual(await labels(), ['Unpaid 2', 'Separating 1', 'Ready 0', 'Delivered 1']);
+		assert.deepEqual(await shownCodes(page), ['HTR-0007', 'HTR-0008']);
+		await showStage(page, 'separating');
+		assert.deepEqual(await shownCodes(page), ['HTR-0006']);
+		await showStage(page, 'ready');
+		assert.equal(await text(page.locator('#shop-orders-none')), 'Nothing ready: no paid order has every card checked.');
+		await showStage(page, 'delivered');
+		assert.deepEqual(await shownCodes(page), ['HTR-0003']);
 
-		// Kept through a reload; once delivered, the paid filter says so.
+		// The four segments fit a phone 390 and 360 pixels wide, each label
+		// whole.
+		const fit = () => page.evaluate(() => {
+			const row = document.getElementById('shop-order-filter').getBoundingClientRect();
+			const spans = [...document.querySelectorAll('#shop-order-filter span[data-label]')];
+
+			return {
+				clipped: spans.filter((span) => span.scrollWidth > span.clientWidth + 1).map((span) => span.dataset.label),
+				inside: row.left >= 0 && row.right <= document.documentElement.clientWidth,
+				oneRow: new Set(spans.map((span) => Math.round(span.getBoundingClientRect().top))).size === 1,
+			};
+		});
+
+		assert.deepEqual(await fit(), {clipped: [], inside: true, oneRow: true});
+		await page.setViewportSize({height: 800, width: 360});
+		await page.waitForTimeout(200);
+		assert.deepEqual(await fit(), {clipped: [], inside: true, oneRow: true}, 'at 360 px');
+		await page.locator('#shop-orders').screenshot({path: `${SHOTS}/shop-orders-filter-360.png`});
+		await page.setViewportSize({height: 844, width: 390});
+		await page.waitForTimeout(200);
+		await page.locator('#shop-orders').screenshot({path: `${SHOTS}/shop-orders-filter.png`});
+
+		// Kept through a reload; v118's Ready, kept by an open tab, becomes
+		// Separating.
+		await showStage(page, 'separating');
 		await page.reload();
 		await order(page, 'HTR-0006').waitFor(TIMEOUT);
-		assert.ok(await page.isChecked('#shop-order-filter input[value="paid"]'));
-		await order(page, 'HTR-0006').locator('button:has-text("Log the sale")').click();
-		await order(page, 'HTR-0006').locator('button:has-text("Delivered")').click();
-		await order(page, 'HTR-0006').waitFor({state: 'detached', ...TIMEOUT});
-		assert.equal(await text(page.locator('#shop-orders-none')), 'Nothing ready: no paid order is waiting to be handed over.');
-		assert.deepEqual(await labels(), ['All 2', 'Unpaid 2', 'Ready 0']);
+		assert.ok(await page.isChecked('#shop-order-filter input[value="separating"]'));
+		await page.evaluate(() => sessionStorage.setItem('cardTracker.shopOrderFilter', 'paid'));
+		await page.reload();
+		await order(page, 'HTR-0006').waitFor(TIMEOUT);
+		assert.ok(await page.isChecked('#shop-order-filter input[value="separating"]'));
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

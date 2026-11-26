@@ -453,12 +453,14 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   in r3b, a blank list edit) and Add a card here give the second form its own pocket by hand. A
   later build would read the form from the card (TCGdex names it, or the Pokémon's form list from
   PokeAPI) and add a "One pocket per form" switch to the binder's rule. Medium; not started.
-- **The order checklist's ticks on every device (Eric, 2026-11-26; backlog for now):** v119's
-  ticks live in the device's localStorage (`cardTracker.orderChecks`, `js/store-orders.js`), so
-  cards ticked on the phone show unticked on the computer. Keeping them on the server means a
-  column or table in `supabase/store-orders.sql` (the listing IDs ticked per order, written by the
-  owner only) that `store_orders_open` returns, so Eric runs SQL before the release. A tick made
-  offline still needs a home until the write goes through. Medium.
+- **The order checklist's ticks on every device (Eric, 2026-11-26): built for v122 on branch
+  `order-stages-v122`.** The ticks are on the server (`store_order_items.checked_at`, through
+  `store_order_checks` and `set_order_check` in `supabase/store-order-stages.sql`, its own script
+  because `store_orders_open` is written again by `store-sealed.sql` and `store-bundles.sql`).
+  The device keeps what it last knew and a queue of ticks not sent yet (offline, or before the
+  script is run), and v119's ticks join the queue once. The ticks also decide the Orders filter:
+  Unpaid, Separating (paid, a card not ticked), Ready (paid, every card ticked), and Delivered
+  (`store_orders_delivered`, the last 30 days); All is gone (Eric, 2026-11-26).
 - **Delivered asks about unticked cards (Eric, 2026-11-26; backlog for now):** v119's Delivered
   closes the order whether or not every card was ticked. With some unticked, it would ask first,
   as Cancel does ("2 cards are not checked. Deliver anyway?"), and an order with every card
