@@ -408,6 +408,50 @@ describe('Check spares: search, sort, Where, and Show', () => {
 		await context.close();
 	});
 
+	// Eric's piles (2026-11-26): small bags of similar sets, a box of Kanto
+	// Pokémon only, and spares kept set by set. Test Beta (2025) holds
+	// Pikachu and Sprigatito; Test Alpha (2026) Bulbasaur, Charmander, and
+	// Charizard ex; Sprigatito is the one Paldea Pokémon.
+	test('several sets at once in the oldest set\'s order, the Kanto region, and the choice kept on the phone', async () => {
+		const {context, errors, page} = await phone({copies: MORE});
+
+		await page.goto(`${server.origin}${BASE}trade/check`);
+		await summaryIs(page, '5 cards with more than one copy: 11 copies, 3 free.');
+		await page.selectOption('#check-sort', 'setOld');
+		await page.selectOption('#check-show', 'free');
+
+		// A bag of similar sets: one set, then another, the sheet's count
+		// being what the list shows, Show included.
+		await page.click('#check-filters');
+		await page.locator('#check-sheet').waitFor(TIMEOUT);
+		await page.selectOption('#check-f-set', 'international|tsa1');
+		await page.waitForFunction(() => document.querySelector('#check-sheet .fb-show').textContent === 'Show 1 card', null, TIMEOUT);
+		await page.selectOption('#check-f-set', 'international|tsb2');
+		await page.waitForFunction(() => document.querySelector('#check-sheet .fb-show').textContent === 'Show 3 cards', null, TIMEOUT);
+		await page.click('#check-sheet-close');
+		await summaryIs(page, '3 of 5 cards with more than one copy: 7 copies, 3 free.');
+		assert.deepEqual(await names(page), ['Pikachu', 'Sprigatito', 'Charmander']);
+		assert.equal(await page.locator('.fb-chips .fb-chip').count(), 2);
+
+		// Kept on the phone: the sets, the sort, and Show.
+		await page.reload();
+		await summaryIs(page, '3 of 5 cards with more than one copy: 7 copies, 3 free.');
+		assert.deepEqual(await names(page), ['Pikachu', 'Sprigatito', 'Charmander']);
+		assert.deepEqual([await page.locator('#check-sort').inputValue(), await page.locator('#check-show').inputValue()], ['setOld', 'free']);
+
+		// The Kanto box.
+		await page.locator('.fb-clear').click();
+		await summaryIs(page, '5 cards with more than one copy: 11 copies, 3 free.');
+		await page.click('#check-filters');
+		await page.locator('#check-f-region option[value="kanto"]').waitFor({state: 'attached', timeout: 20000});
+		await page.selectOption('#check-f-region', 'kanto');
+		await page.click('#check-sheet-close');
+		await summaryIs(page, '4 of 5 cards with more than one copy: 9 copies, 2 free.');
+		assert.deepEqual(await names(page), ['Pikachu', 'Bulbasaur', 'Charmander', 'Charizard ex']);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('one card\'s check has no bar', async () => {
 		const {context, errors, page} = await phone({copies: MORE});
 
