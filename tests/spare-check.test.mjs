@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {freeCopyIds} from '../js/shop.js';
-import {REASONS, freeText, goneFields, placeLabel, placesOf, spareCheck} from '../js/spare-check.js';
+import {ANY, CHECK_SORTS, LOOSE, REASONS, SHOWS, freeText, goneFields, narrowChecks, placeLabel, placesOf, rowWheres, spareCheck, whereOptions} from '../js/spare-check.js';
 
 const at = (minute) => `2026-11-25T10:${String(minute).padStart(2, '0')}:00.000Z`;
 
@@ -114,6 +114,114 @@ describe('spareCheck', () => {
 
 		assert.deepEqual([...freeCopyIds(doc.cards, {held: new Set(['c1', 'c2'])})], ['c3']);
 		assert.deepEqual([...freeCopyIds(doc.cards)].sort(), ['c2', 'c3'], 'with nothing held, the oldest is kept');
+	});
+});
+
+// Eric, 2026-11-26: favorites with more than one copy belong in Check
+// spares too. They were in the list, but last, behind every card with a
+// free copy, so past the first page of 30.
+describe('favorites with more than one copy', () => {
+	// 31 cards with a free copy each, then a starred card with two copies.
+	const crowded = () => {
+		const cards = [];
+
+		for (let n = 1; n <= 31; n++) {
+			cards.push(card(`s${n}a`, {card_id: `spare-${n}`}), card(`s${n}b`, {card_id: `spare-${n}`}));
+		}
+
+		cards.push(card('f1', {card_id: 'fav-1', is_favorite: true}), card('f2', {card_id: 'fav-1'}));
+
+		return {binders: [], cards};
+	};
+	const items = (groups) => groups.map((group) => ({group}));
+
+	test('are listed, every copy marked Favorite and none free', () => {
+		const groups = spareCheck(crowded());
+		const favorite = groups.find((group) => group.card_id === 'fav-1');
+
+		assert.ok(favorite, 'listed');
+		assert.equal(favorite.favorite, true);
+		assert.equal(favorite.free, 0);
+		assert.deepEqual(favorite.rows.map((row) => row.reason), ['favorite', 'favorite']);
+		assert.equal(groups.filter((group) => group.favorite).length, 1);
+	});
+
+	test('sorted by the most free, a favorite falls past the first 30; Show Favorites brings it up', () => {
+		const groups = spareCheck(crowded());
+		const byFree = narrowChecks(items(groups));
+
+		assert.ok(byFree.findIndex((item) => item.group.card_id === 'fav-1') >= 30, 'past the first page');
+		assert.deepEqual(narrowChecks(items(groups), {show: 'favorite'}).map((item) => item.group.card_id), ['fav-1']);
+	});
+
+	test('the star covers every language: an unstarred Portuguese pair of a starred card is a favorite', () => {
+		const doc = {binders: [], cards: [card('e1', {is_favorite: true, language: 'en'}), card('p1'), card('p2')]};
+		const [group] = spareCheck(doc);
+
+		assert.deepEqual([group.language, group.favorite, group.free], ['pt', true, 0]);
+	});
+});
+
+describe('narrowChecks', () => {
+	// Hoenn holds Scraggy (page 2) and Treecko (page 1); Treecko's other
+	// copy is in Hoenn's tray; Mudkip's two copies are loose.
+	const piles = () => ({
+		binders: [binderOf('Hoenn', {slots: [pocket('t1', 1, 3), pocket('s1', 2, 1)], staged: ['t2']})],
+		cards: [
+			card('s1', {card_id: 'scraggy'}), card('s2', {card_id: 'scraggy'}),
+			card('t1', {card_id: 'treecko'}), card('t2', {card_id: 'treecko'}),
+			card('m1', {card_id: 'mudkip'}), card('m2', {card_id: 'mudkip'}),
+		],
+	});
+	const items = () => spareCheck(piles()).map((group) => ({group}));
+	const ids = (list) => list.map((item) => item.group.card_id);
+
+	test('Where offers each binder\'s pockets, then its tray, then Loose, with the copies at each', () => {
+		assert.deepEqual(whereOptions(spareCheck(piles())), [
+			{count: 2, label: 'Hoenn', value: 'pocket:Hoenn'},
+			{count: 1, label: 'Tray of Hoenn', value: 'tray:Hoenn'},
+			{count: 3, label: 'Loose', value: LOOSE},
+		]);
+	});
+
+	test('Where keeps the cards with a copy there', () => {
+		assert.deepEqual(ids(narrowChecks(items(), {sort: 'where', where: 'tray:Hoenn'})), ['treecko']);
+		assert.deepEqual(ids(narrowChecks(items(), {sort: 'where', where: 'pocket:Hoenn'})), ['treecko', 'scraggy']);
+		assert.deepEqual(ids(narrowChecks(items(), {sort: 'where', where: LOOSE})).sort(), ['mudkip', 'scraggy']);
+	});
+
+	test('the Where sort walks a binder page by page and pocket by pocket, then trays, then loose', () => {
+		assert.deepEqual(ids(narrowChecks(items(), {sort: 'where', where: ANY})), ['treecko', 'scraggy', 'mudkip']);
+	});
+
+	test('Show: with free copies, none free', () => {
+		const doc = piles();
+
+		doc.cards[5].for_sale = false;
+
+		const list = spareCheck(doc).map((group) => ({group}));
+
+		assert.deepEqual(ids(narrowChecks(list, {show: 'nofree'})).sort(), ['mudkip']);
+		assert.deepEqual(ids(narrowChecks(list, {show: 'free'})).sort(), ['scraggy', 'treecko']);
+	});
+
+	test('the bar\'s sorts go to the bar; an unknown sort is the most free', () => {
+		const seen = [];
+		const sortItems = (list, sort) => {
+			seen.push(sort);
+
+			return [...list].reverse();
+		};
+
+		narrowChecks(items(), {sort: 'setOld', sortItems});
+		narrowChecks(items(), {sort: 'bogus', sortItems});
+		assert.deepEqual(seen, ['setOld']);
+		assert.deepEqual(CHECK_SORTS.map((option) => option.value), ['free', 'where', 'setOld', 'set', 'name', 'dex']);
+		assert.deepEqual(SHOWS.map((option) => option.value), ['all', 'free', 'nofree', 'favorite']);
+	});
+
+	test('rowWheres: a copy with no place is loose', () => {
+		assert.deepEqual(rowWheres({places: []}), [LOOSE]);
 	});
 });
 

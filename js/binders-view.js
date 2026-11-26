@@ -293,10 +293,11 @@ function groupPicks(items, keyOf = (item) => pickKey(item.entry)) {
 	return [...groups.values()];
 }
 
-// A picker's tile as the Filters sheet reads it (js/filter-bar.js), from
-// the card index: what My Cards' tiles carry, but the price.
-function pickFilterItem(group, index) {
-	const {entry, info} = group.items[0];
+// A card as the Filters sheet reads it (js/filter-bar.js), from the card
+// index: what My Cards' tiles carry, but the price, the key, and where the
+// copies are stored. The binder pickers and Check spares
+// (js/spare-check-view.js) build their items on it.
+export function cardFilterItem(entry, info, index) {
 	const catalog = entry.catalog || 'international';
 	const record = index.get(indexKey(catalog, entry.card_id)) || null;
 	const setId = (record && record.set_id) || setIdOfCard(entry.card_id);
@@ -305,8 +306,6 @@ function pickFilterItem(group, index) {
 		artist: (record && record.illustrator) || null,
 		category: (record && record.category) || null,
 		dexIds: (record && record.dex_ids) || [],
-		group,
-		key: group.key,
 		language: entry.language || null,
 		name: info.name,
 		number: (record && record.collector_number) || info.number || null,
@@ -316,6 +315,13 @@ function pickFilterItem(group, index) {
 		setName: info.setName || entry.set_name_local || null,
 		types: (record && record.types) || [],
 	};
+}
+
+// A picker's tile as the Filters sheet reads it.
+function pickFilterItem(group, index) {
+	const {entry, info} = group.items[0];
+
+	return {...cardFilterItem(entry, info, index), group, key: group.key};
 }
 
 // The tiles the sheet's choice leaves, in its sort. Tiles the sort ties

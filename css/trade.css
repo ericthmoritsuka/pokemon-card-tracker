@@ -43,6 +43,17 @@
 	margin: 0 0 var(--space-2);
 }
 
+/* Where and Show under the search, sort, and Filters: half the line each,
+   each on its own line before its words would be cut. */
+.check-narrow > .select-wrap {
+	flex: 1 1 9rem;
+	min-width: 9rem;
+}
+
+.check-narrow select {
+	width: 100%;
+}
+
 .check-list {
 	display: flex;
 	flex-direction: column;
