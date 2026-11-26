@@ -56,12 +56,14 @@
 	gap: 6px;
 }
 
-.fb-chip {
+.fb-chip,
+.fb-picked-chip {
 	gap: 6px;
 	max-width: 100%;
 }
 
-.fb-chip span:first-child {
+.fb-chip span:first-child,
+.fb-picked-chip span:first-child {
 	overflow-wrap: anywhere;
 }
 
@@ -152,6 +154,14 @@
 }
 
 /* The Pokédex range: From [ ] to [ ] on one line. */
+/* A multi filter's chosen values, under its select (js/filter-bar.js). */
+.fb-picked {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: var(--space-2);
+}
+
 .fb-dex-row {
 	align-items: center;
 	display: grid;

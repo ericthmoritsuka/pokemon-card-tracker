@@ -97,7 +97,20 @@ export const FILTERS = ['set', 'language', 'rarity', 'type', 'category', 'region
 // The filters that are a checkbox, not a choice.
 export const BOOLEAN_FILTERS = ['unplaced', 'favorite'];
 
-export const emptyFilters = () => ({artist: '', category: '', dex: '', favorite: false, language: '', picture: '', price: '', rarity: '', region: '', set: '', storage: '', type: '', unplaced: false});
+// The filters that hold several values at once, a card fitting any of them
+// (Eric, 2026-11-26: "more than one set at the same time"); each filter
+// still narrows the others. The rest hold one: a Pokédex range, a price or
+// picture state, or a checkbox.
+export const MULTI_FILTERS = ['set', 'language', 'rarity', 'type', 'category', 'region', 'artist', 'storage'];
+
+export const emptyFilters = () => ({artist: [], category: [], dex: '', favorite: false, language: [], picture: '', price: '', rarity: [], region: [], set: [], storage: [], type: [], unplaced: false});
+
+// A filter's values as a list: a multi filter's own, or one value as a list
+// of one ("" is none), so a collection rule can still pass a single value.
+const filterValues = (value) => (Array.isArray(value) ? value : value ? [value] : []);
+
+// Whether a filter's value narrows the list: an empty list does not.
+export const filterOn = (value) => (Array.isArray(value) ? value.length > 0 : Boolean(value));
 
 // The Stored in filter's values: "place:<name>" for a place, matched
 // whatever its case, and NOT_STORED for copies stored nowhere.
@@ -108,19 +121,19 @@ export const placeValue = (name) => `place:${cleanPlace(name)}`;
 const placeOfValue = (value) => (String(value).startsWith('place:') ? String(value).slice(6) : null);
 
 // The copies of a tile the Stored in filter means: all of them with no
-// filter, else those stored in the place, or stored nowhere.
+// filter, else those stored in one of its places, or stored nowhere when it
+// holds Not set. value is one value or a list of them.
 export function storedEntries(entries, value) {
-	if (!value) {
+	const values = filterValues(value);
+
+	if (!values.length) {
 		return entries;
 	}
 
-	if (value === NOT_STORED) {
-		return entries.filter((entry) => !cleanPlace(entry.storage));
-	}
+	const nowhere = values.includes(NOT_STORED);
+	const folds = new Set(values.filter((one) => one !== NOT_STORED).map((one) => placeFold(placeOfValue(one))));
 
-	const fold = placeFold(placeOfValue(value));
-
-	return entries.filter((entry) => cleanPlace(entry.storage) && placeFold(entry.storage) === fold);
+	return entries.filter((entry) => (cleanPlace(entry.storage) ? folds.has(placeFold(entry.storage)) : nowhere));
 }
 
 // An item's stored and unstored, from its copies.
@@ -324,9 +337,13 @@ const matchers = {
 export function applyFilters(items, {filters = emptyFilters(), query = ''} = {}) {
 	const parsed = parseQuery(query);
 	const searching = parsed.words.length || parsed.dex.length || parsed.printed.length;
-	const active = FILTERS.filter((kind) => filters[kind]);
+	const active = FILTERS.filter((kind) => filterOn(filters[kind]));
+	// A multi filter fits when any of its values does.
+	const fits = (item, kind) => (MULTI_FILTERS.includes(kind)
+		? filterValues(filters[kind]).some((value) => matchers[kind](item, value))
+		: matchers[kind](item, filters[kind]));
 
-	const filtered = items.filter((item) => active.every((kind) => matchers[kind](item, filters[kind])));
+	const filtered = items.filter((item) => active.every((kind) => fits(item, kind)));
 	const found = searching ? filtered.filter((item) => matchesQuery(item, parsed)) : filtered;
 
 	// Typos forgiven only when nothing matches as typed (js/search-match.js),
@@ -469,7 +486,13 @@ export function filterOptions(items, {places = []} = {}) {
 	};
 }
 
-export const activeFilters = (filters) => FILTERS.filter((kind) => filters && filters[kind]);
+export const activeFilters = (filters) => FILTERS.filter((kind) => filters && filterOn(filters[kind]));
+
+// The active filters one value each, {kind, value}, in FILTERS order: two
+// sets are two, each with its own chip.
+const activeValues = (filters) => activeFilters(filters).flatMap((kind) => (MULTI_FILTERS.includes(kind)
+	? filters[kind].map((value) => ({kind, value}))
+	: [{kind, value: filters[kind]}]));
 
 // ---------------------------------------------------------- remembering
 
@@ -493,7 +516,9 @@ function readChoice(storageKey, legacy) {
 }
 
 // Every filter, off unless raw turns it on with a value of the right kind.
-function cleanFilters(raw) {
+// A multi filter saved before it held several values, one string, becomes
+// a list of one, so nobody loses the set they had chosen.
+export function cleanFilters(raw) {
 	const filters = emptyFilters();
 
 	for (const kind of FILTERS) {
@@ -501,6 +526,9 @@ function cleanFilters(raw) {
 
 		if (BOOLEAN_FILTERS.includes(kind)) {
 			filters[kind] = value === true;
+		}
+		else if (MULTI_FILTERS.includes(kind)) {
+			filters[kind] = [...new Set(filterValues(value).filter((one) => typeof one === 'string' && one))];
 		}
 		else if (typeof value === 'string') {
 			filters[kind] = value;
@@ -607,7 +635,7 @@ export function filterBar({
 
 	for (const kind of FILTERS) {
 		if (!offered.includes(kind)) {
-			state.filters[kind] = BOOLEAN_FILTERS.includes(kind) ? false : '';
+			state.filters[kind] = emptyFilters()[kind];
 		}
 	}
 
@@ -727,8 +755,10 @@ export function filterBar({
 		return value;
 	};
 
+	// One chip per value, so two sets are two chips and either goes alone;
+	// the Filters button counts the chips.
 	function drawChips() {
-		const active = activeFilters(state.filters);
+		const active = activeValues(state.filters);
 
 		countBadge.hidden = !active.length;
 		countBadge.textContent = ` · ${active.length}`;
@@ -738,13 +768,14 @@ export function filterBar({
 
 		chips.hidden = clearChip ? !narrowed : !active.length;
 		chips.replaceChildren(...[
-			...active.map((kind) => h('button', {
-				'aria-label': `Remove filter ${labelOf(kind, state.filters[kind])}`,
+			...active.map(({kind, value}) => h('button', {
+				'aria-label': `Remove filter ${labelOf(kind, value)}`,
 				class: 'chip fb-chip',
 				'data-filter': kind,
-				onclick: () => setFilter(kind, BOOLEAN_FILTERS.includes(kind) ? false : ''),
+				'data-value': MULTI_FILTERS.includes(kind) ? value : null,
+				onclick: () => dropValue(kind, value),
 				type: 'button',
-			}, h('span', null, labelOf(kind, state.filters[kind])), h('span', {'aria-hidden': 'true', class: 'fb-chip-x'}, '×'))),
+			}, h('span', {lang: langOf(kind, value)}, labelOf(kind, value)), h('span', {'aria-hidden': 'true', class: 'fb-chip-x'}, '×'))),
 			narrowed && clearChip ? h('button', {class: 'chip fb-clear', onclick: clearAll, type: 'button'}, 'Clear all') : null,
 		].filter(Boolean));
 	}
@@ -755,10 +786,30 @@ export function filterBar({
 	let sheetBody = null;
 	let showButton = null;
 
+	// A multi filter takes a list, or one value as a list of one.
 	function setFilter(kind, value) {
-		state.filters[kind] = BOOLEAN_FILTERS.includes(kind) ? value === true : String(value || '');
+		state.filters[kind] = BOOLEAN_FILTERS.includes(kind) ? value === true
+			: MULTI_FILTERS.includes(kind) ? cleanFilters({[kind]: value})[kind]
+				: String(value || '');
 		changed('filter');
 		drawSheet();
+	}
+
+	// A multi filter's value in or out, the others kept.
+	function toggleValue(kind, value) {
+		const now = state.filters[kind];
+
+		setFilter(kind, now.includes(value) ? now.filter((one) => one !== value) : [...now, value]);
+	}
+
+	// A chip's value off: the one value of a multi filter, or the filter.
+	function dropValue(kind, value) {
+		if (MULTI_FILTERS.includes(kind)) {
+			setFilter(kind, state.filters[kind].filter((one) => one !== value));
+		}
+		else {
+			setFilter(kind, BOOLEAN_FILTERS.includes(kind) ? false : '');
+		}
 	}
 
 	function clearFilters() {
@@ -831,16 +882,58 @@ export function filterBar({
 		);
 	};
 
-	// A one-of-many choice as buttons, for the short lists: the energy types
-	// with their theme colors, and the categories.
+	// A multi filter's select adds a value: it lists the values not chosen
+	// yet, under "Any set" until one is, then "Add another set", and the ones
+	// chosen sit under it as chips, each removed with a tap. The select itself
+	// always shows its first line, so it reads the same with any number on.
+	const multiSelect = (kind, label, anyText, addText, options) => {
+		const chosen = state.filters[kind];
+		const first = chosen.length ? addText : anyText;
+		const control = h('select', {id: `${id}-f-${kind}`, onchange: () => {
+			if (control.value) {
+				toggleValue(kind, control.value);
+			}
+		}},
+		h('option', {value: ''}, first),
+		options.filter((option) => !chosen.includes(option.value)).map((option) => h('option', {lang: langOf(kind, option.value), value: option.value}, `${option.label} (${option.count.toLocaleString('en-US')})`))
+		);
+
+		control.value = '';
+
+		// A remembered value the list no longer holds still shows, at 0, so
+		// it can be removed here as well as from its chip.
+		const countOf = (value) => (options.find((option) => option.value === value) || {count: 0}).count;
+		const picked = chosen.length
+			? h('div', {'aria-label': `${label} chosen`, class: 'fb-picked', role: 'group'},
+				chosen.map((value) => h('button', {
+					'aria-label': `Remove ${labelOf(kind, value)}`,
+					class: 'chip fb-picked-chip',
+					'data-value': value,
+					onclick: () => toggleValue(kind, value),
+					type: 'button',
+				},
+				h('span', {lang: langOf(kind, value)}, `${labelOf(kind, value)} (${countOf(value).toLocaleString('en-US')})`),
+				h('span', {'aria-hidden': 'true', class: 'fb-chip-x'}, '×'))))
+			: null;
+
+		return h('div', {class: 'fb-field', 'data-filter': kind},
+			h('label', {for: control.id}, label),
+			h('span', {class: 'select-wrap fb-select'}, control, h('span', {'aria-hidden': 'true', class: 'fb-select-text'}, first)),
+			picked
+		);
+	};
+
+	// The short lists as buttons: the energy types with their theme colors,
+	// and the categories. Each button turns its value on or off, so two
+	// types can be on at once; Any turns them all off.
 	const choices = (kind, label, options, swatch = null) => h('fieldset', {class: `fb-field fb-choices fb-${kind}`, 'data-filter': kind},
 		h('legend', null, label),
 		h('div', {class: 'fb-choice-row'},
 			[{count: null, label: 'Any', value: ''}, ...options].map((option) => h('button', {
-				'aria-pressed': String(state.filters[kind] === option.value),
+				'aria-pressed': String(option.value === '' ? !state.filters[kind].length : state.filters[kind].includes(option.value)),
 				class: 'chip fb-choice',
 				'data-value': option.value,
-				onclick: () => setFilter(kind, option.value),
+				onclick: () => (option.value === '' ? setFilter(kind, []) : toggleValue(kind, option.value)),
 				type: 'button',
 			},
 			swatch && option.value ? h('span', {'aria-hidden': 'true', class: 'fb-swatch', style: `--swatch: ${swatch(option.value)}`}) : null,
@@ -904,7 +997,7 @@ export function filterBar({
 
 	function fieldFor(kind, options) {
 		if (kind === 'region') {
-			return select('region', 'Region or generation', 'Any region', options.region);
+			return multiSelect('region', 'Region or generation', 'Any region', 'Add another region', options.region);
 		}
 
 		if (kind === 'type') {
@@ -916,19 +1009,19 @@ export function filterBar({
 		}
 
 		if (kind === 'set') {
-			return select('set', 'Set', 'Any set', options.set);
+			return multiSelect('set', 'Set', 'Any set', 'Add another set', options.set);
 		}
 
 		if (kind === 'language') {
-			return select('language', 'Language', 'Any language', options.language);
+			return multiSelect('language', 'Language', 'Any language', 'Add another language', options.language);
 		}
 
 		if (kind === 'rarity') {
-			return select('rarity', 'Rarity', 'Any rarity', options.rarity);
+			return multiSelect('rarity', 'Rarity', 'Any rarity', 'Add another rarity', options.rarity);
 		}
 
 		if (kind === 'artist') {
-			return select('artist', 'Artist', 'Any artist', options.artist);
+			return multiSelect('artist', 'Artist', 'Any artist', 'Add another artist', options.artist);
 		}
 
 		if (kind === 'price') {
@@ -940,7 +1033,7 @@ export function filterBar({
 		}
 
 		if (kind === 'storage') {
-			return select('storage', 'Stored in (copies)', 'Anywhere', options.storage);
+			return multiSelect('storage', 'Stored in (copies)', 'Anywhere', 'Add another place', options.storage);
 		}
 
 		// The label holds the box, so the whole 48 px row is the target, not
@@ -975,8 +1068,10 @@ export function filterBar({
 		const options = filterOptions(items, {places});
 		const waiting = items.length && !items.some((item) => item.category);
 		const active = document.activeElement;
+		// The focused control by id, or a button by its filter and value (a
+		// value may hold a colon: "place:Box A").
 		const focused = active && sheetBody.contains(active)
-			? (active.id || (active.dataset.value !== undefined ? `choice:${active.closest('[data-filter]').dataset.filter}:${active.dataset.value}` : null))
+			? (active.id ? {id: active.id} : active.dataset.value !== undefined ? {kind: active.closest('[data-filter]').dataset.filter, value: active.dataset.value} : null)
 			: null;
 
 		slots.get('note').replaceChildren(...(waiting && offered.some((kind) => DETAIL_FILTERS.includes(kind))
@@ -1001,11 +1096,13 @@ export function filterBar({
 		showButton.textContent = `Show ${shown.toLocaleString('en-US')} ${shown === 1 ? 'card' : 'cards'}`;
 
 		// Redrawing must not drop the keyboard's place.
+		// A chosen value's chip removed is gone, so its filter's select or
+		// first button takes the focus.
 		if (focused && !sheetBody.contains(document.activeElement)) {
-			const [, kind, value] = focused.startsWith('choice:') ? focused.split(':') : [];
-			const target = kind
-				? sheetBody.querySelector(`[data-filter="${kind}"] [data-value="${CSS.escape(value)}"]`)
-				: document.getElementById(focused);
+			const field = focused.kind ? sheetBody.querySelector(`[data-filter="${focused.kind}"]`) : null;
+			const target = focused.kind
+				? (field && (field.querySelector(`[data-value="${CSS.escape(focused.value)}"]`) || field.querySelector('select, button')))
+				: document.getElementById(focused.id);
 
 			if (target) {
 				target.focus();
