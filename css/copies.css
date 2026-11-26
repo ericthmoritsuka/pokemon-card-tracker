@@ -13,16 +13,38 @@
 	width: 1px;
 }
 
-/* The heading with Add a copy at its right, as in the design review. */
+/* The heading with Add a copy at its right, as in the design review. A
+   button that does not fit (Consign, on a phone) wraps to a line of its own
+   at the right rather than squeezing the heading and moving the star. */
 .copies-head {
 	align-items: center;
 	display: flex;
-	gap: var(--space-3);
-	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: var(--space-2) var(--space-3);
+	justify-content: flex-end;
 }
 
 .copies-head h3 {
 	margin: 0;
+}
+
+/* The star sits right after the heading, and the free space opens after it,
+   so Add and Consign keep to the right edge. Before, space-between floated
+   the star mid-row on one copy and pushed it against Add on two or more,
+   where the Check link's title block took the free space (Eric,
+   2026-11-26: the star moved right with a second copy). With the wrap above,
+   a Consign button that appears late, once the shop owner is known, no
+   longer moves it either. */
+.copies-head > :first-child {
+	margin-right: auto;
+}
+
+.copies-head > :first-child:has(+ :is(.favorite-toggle, .favorite-mark)) {
+	margin-right: 0;
+}
+
+.copies-head > :is(.favorite-toggle, .favorite-mark) {
+	margin-right: auto;
 }
 
 .card-detail .copies {
@@ -592,7 +614,6 @@ button.step-more {
 .copies-title {
 	display: flex;
 	flex-direction: column;
-	margin-right: auto;
 	min-width: 0;
 }
 

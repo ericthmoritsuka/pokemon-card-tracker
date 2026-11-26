@@ -100,6 +100,42 @@ describe('favorites', () => {
 		await context.close();
 	});
 
+	test('the star stays beside the heading with one copy or several, and when Consign arrives late', async () => {
+		const {context, errors, page} = await phone();
+		const starLeft = () => page.evaluate(() => Math.round(document.getElementById('favorite-toggle').getBoundingClientRect().left));
+		const titleRight = () => page.evaluate(() => Math.round(document.querySelector('.copies-head > :first-child').getBoundingClientRect().right));
+		const lefts = [];
+
+		// Mew has one copy (a bare heading); Charmander has five (the heading
+		// with Check under it). Eric, 2026-11-26: the star moved right with a
+		// second copy.
+		for (const id of ['tsa1-001', 'tsa1-004']) {
+			await page.goto(`${server.origin}${BASE}cards/en/${id}`);
+			await page.locator('#favorite-toggle').waitFor(TIMEOUT);
+
+			const left = await starLeft();
+
+			lefts.push(left);
+			assert.ok(left - await titleRight() <= 16, `the star follows the heading on ${id}`);
+		}
+
+		// The copy count's digit is the only difference between the two.
+		assert.ok(Math.abs(lefts[0] - lefts[1]) <= 8, `star at ${lefts.join(' and ')}`);
+
+		// Consign joins the row once the shop owner is known, sometimes after
+		// the first paint (js/catalog-views.js consignButton); it wraps rather
+		// than move the star.
+		await page.evaluate(() => {
+			const button = Object.assign(document.createElement('button'), {className: 'small copy-consign', id: 'test-consign', textContent: 'Consign'});
+
+			document.querySelector('.copies-head').append(button);
+		});
+		assert.equal(await starLeft(), lefts[1], 'a late Consign leaves the star where it was');
+		await page.locator('.copies-head').screenshot({path: `${SHOTS}/favorites-star-row.png`});
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('the Favorites filter keeps only starred tiles, shows a chip, and is remembered', async () => {
 		const copies = COPIES.map((copy) => (['c-07', 'c-09'].includes(copy.id) ? {...copy, is_favorite: true} : copy));
 		const {context, errors, page} = await phone(copies);
