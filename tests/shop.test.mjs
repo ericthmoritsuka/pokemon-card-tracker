@@ -186,6 +186,11 @@ describe('one price per finish (Eric, 2026-11-24)', () => {
 		const rows = listingRows(shopGroups(cards));
 
 		assert.deepEqual(rows.map((row) => row.id).sort(), ['bb', 'ccc']);
+
+		// A normal can be the wrong one too: a reverse holo added first was the
+		// old keeper, so the lone normal was listed and the SQL withdrew it.
+		assert.deepEqual(listingRows(shopGroups([reverse('a', {sale_price: 8}), normal('bb', {sale_price: 1})])), []);
+		assert.deepEqual(listingRows(shopGroups([reverse('a', {sale_price: 8}), normal('bb', {sale_price: 1}), normal('ccc', {sale_price: 1})])).map((row) => row.id), ['ccc'], 'a second normal is a spare and goes back');
 	});
 
 	test('a price typed on one finish goes on that finish\'s copies only', () => {
