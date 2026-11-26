@@ -121,8 +121,16 @@ async function ownerPhone(options) {
 		user_id: user.id,
 	});
 
+	if (options && options.init) {
+		await context.addInitScript(options.init);
+	}
+
 	const page = await context.newPage();
 	const errors = [];
+
+	if (options && options.clock) {
+		await page.clock.install();
+	}
 
 	page.on('pageerror', (err) => errors.push(err.message));
 
@@ -144,11 +152,68 @@ async function ownerPhone(options) {
 	return {context, errors, page, store};
 }
 
-async function openShop(page) {
+// The orders are on the Shop's Orders tab (Eric, 2026-11-26).
+async function openShop(page, {tab = 'orders'} = {}) {
 	await page.goto(`${server.origin}${BASE}shop`);
 	await page.locator('.shop-row').first().waitFor(TIMEOUT);
 	await page.click('#shop-filter input[value="all"] + span');
+
+	if (tab) {
+		await page.click(`#shop-tab-${tab}`);
+	}
 }
+
+// What a notification and a chime would have done, recorded: the tests
+// block the service worker, so js/order-alerts.js falls back to the page's
+// own Notification, and the browser has no sound in a headless run.
+function recordAlerts() {
+	window.__notes = [];
+	window.__tones = 0;
+	window.Notification = class {
+		constructor(title, options) {
+			window.__notes.push({body: options.body, tag: options.tag, title});
+		}
+
+		static get permission() {
+			return 'granted';
+		}
+
+		static requestPermission() {
+			return Promise.resolve('granted');
+		}
+	};
+	window.AudioContext = class {
+		constructor() {
+			this.currentTime = 0;
+			this.destination = {};
+			this.state = 'suspended';
+		}
+
+		resume() {
+			this.state = 'running';
+
+			return Promise.resolve();
+		}
+
+		createOscillator() {
+			window.__tones += 1;
+
+			return {connect: (node) => node, frequency: {}, start() {}, stop() {}};
+		}
+
+		createGain() {
+			return {connect: (node) => node, gain: {exponentialRampToValueAtTime() {}, setValueAtTime() {}}};
+		}
+	};
+}
+
+// The app comes back to the front, which reads the orders again.
+const backInFront = (page) => page.evaluate(() => {
+	Object.defineProperty(document, 'visibilityState', {configurable: true, get: () => 'visible'});
+	document.dispatchEvent(new Event('visibilitychange'));
+});
+
+const toastText = (page) => page.locator('.toast[data-toast-key="new-order"] .toast-text');
 
 const order = (page, code) => page.locator(`#order-${code}`);
 
@@ -161,7 +226,8 @@ describe('Shop orders', () => {
 		await openShop(page);
 		await order(page, 'HTR-0007').waitFor(TIMEOUT);
 		assert.equal(await text(page.locator('#shop-orders-title')), 'Orders (3)');
-		assert.equal(await text(page.locator('#shop-orders > p').first()), '2 orders waiting for payment.');
+		assert.equal(await text(page.locator('#shop-orders > p').first()), '2 orders waiting for payment, 1 paid, ready to hand over.');
+		assert.equal(await text(page.locator('#shop-tab-orders')), 'Orders (3)');
 		assert.equal(await text(order(page, 'HTR-0007').locator('.shop-order-head')), 'HTR-0007 · Ana');
 		assert.match(await text(order(page, 'HTR-0007').locator('.shop-order-state')), /^Waiting for payment · 4[67] h left$/);
 		assert.equal(await text(order(page, 'HTR-0007').locator('.shop-order-receipt')), 'No receipt yet');
@@ -345,9 +411,168 @@ describe('Shop orders', () => {
 		await context.close();
 
 		({context, errors, page} = await ownerPhone({owner: false}));
-		await openShop(page);
+		await openShop(page, {tab: null});
 		await page.waitForTimeout(1500);
 		assert.ok(await page.locator('#shop-orders').isHidden());
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('the Shop opens on Prices, keeps its tab, and opens on Orders from the bag or ?tab=orders', async () => {
+		let {context, errors, page} = await ownerPhone({orders: []});
+
+		await openShop(page, {tab: null});
+		assert.deepEqual(await page.locator('#shop-tabs [role="tab"]').allTextContents(), ['Prices', 'Kits', 'Orders']);
+		assert.equal(await page.getAttribute('#shop-tab-prices', 'aria-selected'), 'true');
+		assert.ok(await page.locator('#shop-panel-orders').isHidden());
+		assert.ok(await page.locator('#shop-panel-kits').isHidden());
+		await page.screenshot({clip: {height: 260, width: 390, x: 0, y: 0}, path: `${SHOTS}/shop-tabs.png`});
+
+		// The tab is kept through a reload on this browser tab.
+		await page.click('#shop-tab-kits');
+		await page.reload();
+		await page.locator('#shop-tabs').waitFor(TIMEOUT);
+		assert.equal(await page.getAttribute('#shop-tab-kits', 'aria-selected'), 'true');
+		assert.ok(await page.locator('#shop-panel-prices').isHidden());
+
+		// Arrow keys move along the tabs.
+		await page.focus('#shop-tab-kits');
+		await page.keyboard.press('ArrowRight');
+		assert.equal(await page.getAttribute('#shop-tab-orders', 'aria-selected'), 'true');
+		assert.equal(await page.evaluate(() => document.activeElement.id), 'shop-tab-orders');
+		await page.keyboard.press('ArrowRight');
+		assert.equal(await page.getAttribute('#shop-tab-prices', 'aria-selected'), 'true');
+		assert.deepEqual(errors, []);
+		await context.close();
+
+		// With orders open, the header's bag opens the Orders tab.
+		({context, errors, page} = await ownerPhone());
+		await page.goto(`${server.origin}${BASE}cards`);
+		await page.locator('#shop-badge:not([hidden])').waitFor(TIMEOUT);
+		await page.click('#shop-link');
+		await page.locator('#shop-panel-orders:not([hidden]) #order-HTR-0007').waitFor(TIMEOUT);
+		assert.equal(await page.getAttribute('#shop-tab-orders', 'aria-selected'), 'true');
+
+		// ?tab=orders, from a notification, opens Orders and leaves the address clean.
+		await page.click('#shop-tab-prices');
+		await page.goto(`${server.origin}${BASE}shop?tab=orders`);
+		await page.locator('#shop-panel-orders:not([hidden]) #order-HTR-0007').waitFor(TIMEOUT);
+		assert.ok(!page.url().includes('?tab='), page.url());
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('the orders filter tells the unpaid ones from the paid ones ready to hand over', async () => {
+		const {context, errors, page} = await ownerPhone();
+
+		await openShop(page);
+		await order(page, 'HTR-0007').waitFor(TIMEOUT);
+
+		const labels = async () => (await page.locator('#shop-order-filter span[data-label]').allTextContents()).map(plain);
+
+		assert.deepEqual(await labels(), ['All 3', 'Unpaid 2', 'Ready 1']);
+		await page.click('#shop-order-filter input[value="pending"] + span');
+		assert.deepEqual(await page.locator('.shop-order').evaluateAll((all) => all.map((one) => one.dataset.code)), ['HTR-0007', 'HTR-0008']);
+		await page.click('#shop-order-filter input[value="paid"] + span');
+		assert.deepEqual(await page.locator('.shop-order').evaluateAll((all) => all.map((one) => one.dataset.code)), ['HTR-0006']);
+		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-orders-to-hand-over.png`});
+
+		// Kept through a reload; once delivered, the paid filter says so.
+		await page.reload();
+		await order(page, 'HTR-0006').waitFor(TIMEOUT);
+		assert.ok(await page.isChecked('#shop-order-filter input[value="paid"]'));
+		await order(page, 'HTR-0006').locator('button:has-text("Log the sale")').click();
+		await order(page, 'HTR-0006').locator('button:has-text("Delivered")').click();
+		await order(page, 'HTR-0006').waitFor({state: 'detached', ...TIMEOUT});
+		assert.equal(await text(page.locator('#shop-orders-none')), 'Nothing ready: no paid order is waiting to be handed over.');
+		assert.deepEqual(await labels(), ['All 2', 'Unpaid 2', 'Ready 0']);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a new order or receipt rings: a toast always, and with alerts on, a chime and a notification', async () => {
+		const {context, errors, page, store} = await ownerPhone({init: recordAlerts});
+
+		await openShop(page);
+		await order(page, 'HTR-0007').waitFor(TIMEOUT);
+		assert.match(await text(page.locator('#shop-alerts-note')), /^Turn on alerts to hear a chime/);
+		assert.equal(await page.evaluate(() => document.getElementById('shop-panel-orders').firstElementChild.id), 'shop-alerts', 'off, the alerts lead the tab');
+		await page.click('#shop-alerts-on');
+		await page.locator('#shop-alerts-off').waitFor(TIMEOUT);
+		assert.equal(await page.evaluate(() => document.getElementById('shop-panel-orders').lastElementChild.id), 'shop-alerts', 'on, they wait below the orders');
+		assert.match(await text(page.locator('#shop-alerts-note')), /^On: a chime and a Chrome notification/);
+		await page.waitForFunction(() => window.__tones === 2, null, TIMEOUT);
+		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-orders-alerts.png`});
+
+		// The orders open when the alerts went on were only remembered.
+		assert.deepEqual(await page.evaluate(() => window.__notes), []);
+		assert.equal(await toastText(page).count(), 0);
+
+		// A new order: the toast, the notification, the chime, and the list.
+		store.orders.push({...store.orders[1], code: 'HTR-0011', id: '00000000-0000-4000-8000-000000000011', name: 'Caio', receipt_path: null});
+		await backInFront(page);
+		await toastText(page).waitFor(TIMEOUT);
+		assert.equal(await text(toastText(page)), 'New order HTR-0011 from Caio: 2 items, R$ 5,00');
+		await order(page, 'HTR-0011').waitFor(TIMEOUT);
+		assert.deepEqual((await page.evaluate(() => window.__notes)).map((note) => ({...note, title: plain(note.title)})), [{body: '', tag: 'order-HTR-0011', title: 'New order HTR-0011 from Caio: 2 items, R$ 5,00'}]);
+		assert.equal(await page.evaluate(() => window.__tones), 4);
+
+		// A receipt sent for an order already seen.
+		store.orders.find((one) => one.code === 'HTR-0007').receipt_path = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890/new.png';
+		await backInFront(page);
+		await page.waitForFunction(() => window.__notes.length === 2, null, TIMEOUT);
+		assert.equal((await page.evaluate(() => window.__notes))[1].title, 'Ana sent the receipt for HTR-0007');
+		assert.equal(await text(toastText(page)), 'Ana sent the receipt for HTR-0007');
+		await order(page, 'HTR-0007').locator('.shop-order-receipt button').waitFor(TIMEOUT);
+
+		// Read again with nothing new: no second alert.
+		await backInFront(page);
+		await page.waitForTimeout(1000);
+		assert.equal(await page.evaluate(() => window.__notes.length), 2);
+
+		// Turned off, a new order still toasts, with no chime or notification.
+		await page.click('#shop-alerts-off');
+		store.orders.push({...store.orders[1], code: 'HTR-0012', id: '00000000-0000-4000-8000-000000000012', receipt_path: null});
+		await backInFront(page);
+		await page.waitForFunction(() => document.querySelector('.toast[data-toast-key="new-order"] .toast-text').textContent.includes('HTR-0012'), null, TIMEOUT);
+		assert.equal(await page.evaluate(() => window.__notes.length), 2);
+		assert.equal(await page.evaluate(() => window.__tones), 6, 'the chimes of the order and the receipt only');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('with alerts on, the minute\'s read goes on in a tab behind others', async () => {
+		const {context, errors, page, store} = await ownerPhone({clock: true, init: recordAlerts});
+
+		await page.goto(`${server.origin}${BASE}cards`);
+		await page.locator('#shop-badge:not([hidden])').waitFor(TIMEOUT);
+		await page.evaluate(async () => {
+			const alerts = await import('/pokemon-card-tracker/js/order-alerts.js');
+
+			await alerts.turnOn();
+		});
+		await page.evaluate(() => {
+			Object.defineProperty(document, 'visibilityState', {configurable: true, get: () => 'hidden'});
+			document.dispatchEvent(new Event('visibilitychange'));
+		});
+
+		const reads = () => store.calls.filter(([name]) => name === 'store_orders_open').length;
+		const before = reads();
+
+		store.orders.push({...store.orders[1], code: 'HTR-0013', id: '00000000-0000-4000-8000-000000000013', receipt_path: null});
+		await page.clock.runFor(61000);
+		await page.waitForFunction(() => window.__notes.length === 1, null, TIMEOUT);
+		assert.ok(reads() > before, 'read while hidden');
+		assert.equal((await page.evaluate(() => window.__notes))[0].tag, 'order-HTR-0013');
+
+		// Off, a hidden tab reads nothing.
+		await page.evaluate(async () => (await import('/pokemon-card-tracker/js/order-alerts.js')).turnOff());
+
+		const offBefore = reads();
+
+		await page.clock.runFor(61000);
+		await page.waitForTimeout(500);
+		assert.equal(reads(), offBefore);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

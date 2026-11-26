@@ -29,7 +29,7 @@ import {heldCopies} from './binders.js';
 import {loadedSpeciesNames} from './catalog-views.js';
 import {cardIndex, compareNumbers, importApi, indexKey, pricesDue, printedCode, readPriceRecord, savedCardRecords, saveToCardIndex, setFacts, setIdOfCard, setList, shopSetMark, viewingLanguage} from './catalog.js';
 import {listCards, loadDocument, updateCards} from './collection.js';
-import {BASE, errorText, go, h} from './dom.js';
+import {BASE, errorText, go, h, segmentCounts} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {languageLabel} from './languages.js';
 import {finishLabel} from './monprice.js';
@@ -40,7 +40,8 @@ import {PRICE_FILTERS, forSalePatches, groupCopy, groupMark, hasCards, listingRo
 import {setPicker} from './set-picker.js';
 import {consignmentSection} from './shop-consignment.js';
 import {kitsSection, openKitSheet, orderItemsNode} from './shop-kits.js';
-import {checkShopOwner, onShopOwner, setAddAndSell, shopOwnerKnown} from './shop-owner.js';
+import {alertsOn, NEW_ORDERS_EVENT, notifyPermission, turnOff, turnOn} from './order-alerts.js';
+import {checkShopOwner, onShopOwner, setAddAndSell, setShopTab, SHOP_TABS, shopOwnerKnown, shopTab} from './shop-owner.js';
 import {openDialogSheet} from './sheet.js';
 import {announceOrders, cancelOrder, markDelivered, markPaid, openOrders, orderErrorText, receiptLink} from './store-orders.js';
 import {publishErrorText, syncListings, uploadOwnPicture, uploadPicture} from './store-publish.js';
@@ -155,7 +156,17 @@ export function shopView(root) {
 	const ordersBox = h('section', {'aria-labelledby': 'shop-orders-title', class: 'shop-orders', hidden: true, id: 'shop-orders'});
 	// Kits (plans/hotaru-bundles-plan.md): several cards sold together,
 	// made from the ticked cards (js/shop-kits.js).
-	const kits = kitsSection({finishText: (group) => finishName(groupCopy(group), group), groups: () => groups, toast});
+	// The kit count for the Kits tab, kept until the tabs are drawn: the
+	// section may draw before them.
+	let kitCount = null;
+	let tabsDrawn = false;
+	const kits = kitsSection({finishText: (group) => finishName(groupCopy(group), group), groups: () => groups, onDraw: (count) => {
+		kitCount = count;
+
+		if (tabsDrawn) {
+			tabLabel('kits', count);
+		}
+	}, toast});
 	// Consignment (plans/hotaru-consignment-plan.md): other people's cards,
 	// sold for a commission, kept on the server only (js/shop-consignment.js).
 	const consignment = consignmentSection({go, onLoad: () => {
@@ -293,24 +304,170 @@ export function shopView(root) {
 		drawList();
 	});
 
+	// Prices, Kits, and Orders each on a tab of their own (Eric, 2026-11-26:
+	// orders and kits in one column above the cards would get confusing as
+	// both grow; one part to price the cards, one for kits, one for orders). The tab is kept on this browser tab (js/shop-owner.js
+	// shopTab); ?tab= in the address, from a new order's notification, and
+	// the header's bag while orders are open choose Orders. The Save bar
+	// stays under every tab, so unsaved prices are never out of sight.
+	const TAB_NAMES = {kits: 'Kits', orders: 'Orders', prices: 'Prices'};
+	const tabButtons = {};
+	const panels = {};
+	let tab = startTab();
+
+	function startTab() {
+		const asked = new URLSearchParams(window.location.search).get('tab');
+
+		if (SHOP_TABS.includes(asked)) {
+			setShopTab(asked);
+			history.replaceState(history.state, '', window.location.pathname);
+		}
+
+		return shopTab();
+	}
+
+	function tabLabel(name, count) {
+		const button = tabButtons[name];
+
+		if (button) {
+			button.textContent = count ? `${TAB_NAMES[name]} (${formatCount(count)})` : TAB_NAMES[name];
+		}
+	}
+
+	function showTab(name, {focus = false} = {}) {
+		tab = name;
+		setShopTab(name);
+
+		for (const each of SHOP_TABS) {
+			const on = each === name;
+
+			tabButtons[each].classList.toggle('on', on);
+			tabButtons[each].setAttribute('aria-selected', String(on));
+			tabButtons[each].tabIndex = on ? 0 : -1;
+			panels[each].hidden = !on;
+		}
+
+		if (focus) {
+			tabButtons[name].focus();
+		}
+
+		drawSelBar();
+	}
+
+	// Arrow keys move between the tabs, as a tab list does.
+	function tabKeys(event) {
+		const step = {ArrowLeft: -1, ArrowRight: 1}[event.key];
+		const at = SHOP_TABS.indexOf(tab);
+		let next = null;
+
+		if (step) {
+			next = SHOP_TABS[(at + step + SHOP_TABS.length) % SHOP_TABS.length];
+		}
+		else if (event.key === 'Home') {
+			next = SHOP_TABS[0];
+		}
+		else if (event.key === 'End') {
+			next = SHOP_TABS[SHOP_TABS.length - 1];
+		}
+
+		if (next) {
+			event.preventDefault();
+			showTab(next, {focus: true});
+		}
+	}
+
+	const tabList = h('div', {'aria-label': 'Shop', class: 'lists-switch shop-tabs', id: 'shop-tabs', onkeydown: tabKeys, role: 'tablist'},
+		SHOP_TABS.map((name) => {
+			tabButtons[name] = h('button', {'aria-controls': `shop-panel-${name}`, class: 'lists-switch-item', id: `shop-tab-${name}`, onclick: () => showTab(name), role: 'tab', type: 'button'}, TAB_NAMES[name]);
+
+			return tabButtons[name];
+		}));
+
+	const panel = (name, ...children) => {
+		panels[name] = h('div', {'aria-labelledby': `shop-tab-${name}`, class: 'shop-panel', id: `shop-panel-${name}`, role: 'tabpanel'}, ...children);
+
+		return panels[name];
+	};
+
+	// The new-order alerts (js/order-alerts.js): a chime and a Chrome
+	// notification, turned on here because the browser asks only from a tap.
+	const alertsBox = h('div', {class: 'card shop-alerts', id: 'shop-alerts'});
+
+	function drawAlerts() {
+		const on = alertsOn();
+		const permission = notifyPermission();
+		let note;
+
+		if (!on) {
+			note = 'Turn on alerts to hear a chime, and get a Chrome notification, when an order or a receipt comes in while the Card Tracker is open.';
+		}
+		else if (permission === 'granted') {
+			note = 'On: a chime and a Chrome notification for each new order or receipt while the Card Tracker is open, even in a tab behind others.';
+		}
+		else if (permission === 'denied') {
+			note = 'On, with the chime only: Chrome is blocking notifications for this site. Allow them in the site settings (the icon left of the address) to get them too.';
+		}
+		else {
+			note = 'On, with the chime only: this browser shows no notifications.';
+		}
+
+		// Off, it leads the tab, where it is seen; on, it waits below the
+		// orders.
+		if (panels.orders) {
+			if (on) {
+				panels.orders.append(alertsBox);
+			}
+			else {
+				panels.orders.prepend(alertsBox);
+			}
+		}
+
+		alertsBox.replaceChildren(
+			h('p', {class: 'muted', id: 'shop-alerts-note'}, note),
+			h('div', {class: 'shop-alerts-actions'},
+				on
+					? h('button', {class: 'small', id: 'shop-alerts-off', onclick: () => {
+						turnOff();
+						drawAlerts();
+					}, type: 'button'}, 'Turn off alerts')
+					: h('button', {class: 'small primary', id: 'shop-alerts-on', onclick: async () => {
+						await turnOn();
+
+						if (alive) {
+							drawAlerts();
+						}
+					}, type: 'button'}, 'Turn on alerts'))
+		);
+	}
+
+	drawAlerts();
+
 	root.append(
 		h('div', {class: 'view-head'}, h('h2', null, 'Shop')),
-		h('p', {class: 'muted shop-intro'}, 'Price your spares for HOTARU. Only cards with a price will be offered, and the suggestions stay on this screen.'),
-		sealedAdmin,
-		sellMore,
-		summary,
 		publishLine,
-		ordersBox,
-		kits.node,
-		consignment.node,
-		h('div', {class: 'shop-controls'}, search, filter, h('div', {class: 'shop-selects'}, setSelect.node, raritySelect, finishSelect)),
-		bulk,
-		bulkError,
-		list,
-		empty,
-		selBar,
+		tabList,
+		panel('prices',
+			h('p', {class: 'muted shop-intro'}, 'Price your spares for HOTARU. Only cards with a price will be offered, and the suggestions stay on this screen.'),
+			sealedAdmin,
+			sellMore,
+			summary,
+			h('div', {class: 'shop-controls'}, search, filter, h('div', {class: 'shop-selects'}, setSelect.node, raritySelect, finishSelect)),
+			bulk,
+			bulkError,
+			list,
+			empty,
+			selBar),
+		panel('kits', kits.node),
+		// Consignment sits with the orders (it is people and the money owed
+		// them after Payment received, consignment session 2026-11-26).
+		panel('orders', ordersBox, consignment.node, alertsBox),
 		saveBar
 	);
+
+	tabsDrawn = true;
+	tabLabel('kits', kitCount);
+	drawAlerts();
+	showTab(tab);
 
 	// Each group's name, set, and rarity, worked out once per load.
 	function describe(group) {
@@ -1364,19 +1521,94 @@ export function shopView(root) {
 		);
 	}
 
+	// Which orders the list shows (Eric, 2026-11-26: tell the ones ready to
+	// put together and hand over from the ones still waiting for the Pix).
+	const ORDER_FILTERS = ['all', 'pending', 'paid'];
+	const ORDER_FILTER_KEY = 'cardTracker.shopOrderFilter';
+	let orderFilter = (() => {
+		try {
+			const kept = sessionStorage.getItem(ORDER_FILTER_KEY);
+
+			return ORDER_FILTERS.includes(kept) ? kept : 'all';
+		}
+		catch {
+			return 'all';
+		}
+	})();
+
+	function setOrderFilter(value) {
+		orderFilter = value;
+
+		try {
+			sessionStorage.setItem(ORDER_FILTER_KEY, value);
+		}
+		catch {
+			// Not kept past this screen.
+		}
+
+		drawOrders();
+	}
+
+	// One control, kept across redraws, with its counts (js/dom.js
+	// segmentCounts, as All, Owned, Missing elsewhere). Short words, so
+	// label and count fit side by side on a phone: Ready is paid and still
+	// to put together and hand over.
+	const ORDER_FILTER_NAMES = {all: 'All', paid: 'Ready', pending: 'Unpaid'};
+	const orderFilterNode = h('div', {'aria-label': 'Show orders', class: 'segmented shop-order-filter', id: 'shop-order-filter', role: 'radiogroup'},
+		ORDER_FILTERS.map((value) => h('label', null,
+			h('input', {checked: value === orderFilter, id: `shop-order-filter-${value}`, name: 'shop-order-filter', onchange: () => setOrderFilter(value), type: 'radio', value}),
+			h('span', {'data-label': ORDER_FILTER_NAMES[value]}, ORDER_FILTER_NAMES[value]))));
+
 	function drawOrders() {
 		ordersBox.hidden = false;
-		announceOrders(orders.length);
+		announceOrders(orders);
+		tabLabel('orders', orders.length);
 
-		const waiting = orders.filter((order) => order.status === 'pending').length;
+		const counts = {
+			all: orders.length,
+			paid: orders.filter((order) => order.status === 'paid').length,
+			pending: orders.filter((order) => order.status === 'pending').length,
+		};
+		const shownOrders = orderFilter === 'all' ? orders : orders.filter((order) => order.status === orderFilter);
+		// The radios are drawn anew with the list; the one that had the
+		// focus gets it back.
+		const hadFocus = orderFilterNode.contains(document.activeElement);
 
-		ordersBox.replaceChildren(
+		for (const input of orderFilterNode.querySelectorAll('input')) {
+			input.checked = input.value === orderFilter;
+		}
+		const none = {
+			all: 'No open orders.',
+			paid: 'Nothing ready: no paid order is waiting to be handed over.',
+			pending: 'Nothing waiting for payment.',
+		};
+
+		ordersBox.replaceChildren(...[
 			h('h3', {id: 'shop-orders-title'}, orders.length ? `Orders (${formatCount(orders.length)})` : 'Orders'),
-			orders.length
-				? h('p', {class: 'muted'}, waiting ? `${plural(waiting, 'order', 'orders')} waiting for payment.` : 'Nothing waiting for payment.')
-				: h('p', {class: 'muted', id: 'shop-orders-none'}, 'No open orders.'),
-			...orders.map(orderCard)
-		);
+			orders.length ? orderFilterNode : null,
+			orders.length && orderFilter === 'all'
+				? h('p', {class: 'muted'}, [
+					counts.pending ? `${plural(counts.pending, 'order', 'orders')} waiting for payment` : 'Nothing waiting for payment',
+					counts.paid ? `${formatCount(counts.paid)} paid, ready to hand over` : null,
+				].filter(Boolean).join(', ') + '.')
+				: null,
+			shownOrders.length
+				? null
+				: h('p', {class: 'muted', id: 'shop-orders-none'}, none[orderFilter]),
+			...shownOrders.map(orderCard),
+		].filter(Boolean));
+
+		if (orders.length) {
+			segmentCounts(orderFilterNode, counts);
+		}
+
+		if (hadFocus) {
+			const checked = ordersBox.querySelector('input[name="shop-order-filter"]:checked');
+
+			if (checked) {
+				checked.focus();
+			}
+		}
 	}
 
 	async function run(order, action) {
@@ -1506,6 +1738,27 @@ export function shopView(root) {
 	};
 
 	document.addEventListener('visibilitychange', ordersOnReturn);
+
+	// A new order or receipt heard by the header's read (js/order-alerts.js):
+	// the list reads again, and Publish reads store_sync, so the order's
+	// cards show Reserved by an order at once rather than at the next
+	// Publish. An order the list already has is not read again.
+	const ordersOnNew = (event) => {
+		const detail = event.detail || {};
+		const known = new Set(orders.map((order) => order.code));
+		const fresh = (detail.orders || []).some((order) => !known.has(order.code));
+		const receipt = (detail.receipts || []).some((order) => !(orders.find((each) => each.code === order.code) || {}).receipt_path);
+
+		if (fresh || receipt) {
+			loadOrders();
+		}
+
+		if ((detail.orders || []).length) {
+			publish();
+		}
+	};
+
+	window.addEventListener(NEW_ORDERS_EVENT, ordersOnNew);
 
 	async function reload() {
 		const [cards, doc] = await Promise.all([listCards(), loadDocument()]);
@@ -1686,6 +1939,7 @@ export function shopView(root) {
 		consignment.stop();
 		window.removeEventListener('beforeunload', warnUnsaved);
 		document.removeEventListener('visibilitychange', ordersOnReturn);
+		window.removeEventListener(NEW_ORDERS_EVENT, ordersOnNew);
 
 		if (stopWaiting) {
 			stopWaiting();

@@ -81,7 +81,9 @@ const recordOf = (kit, changes = {}) => kitRecord({
 
 // The Kits section. groups() and finishText(group) are the Shop's; toast
 // is its toast. Shown to the owner once the kits are read.
-export function kitsSection({finishText, groups, toast}) {
+// onDraw is told the number of kits after each draw (null while unknown),
+// for the Shop's Kits tab.
+export function kitsSection({finishText, groups, onDraw = () => {}, toast}) {
 	let alive = true;
 	let owner = false;
 	let kits = [];
@@ -93,6 +95,7 @@ export function kitsSection({finishText, groups, toast}) {
 
 	function draw() {
 		node.hidden = !owner || (!loaded && !problem);
+		onDraw(node.hidden || problem ? null : kits.length);
 
 		if (node.hidden) {
 			return;
@@ -110,7 +113,7 @@ export function kitsSection({finishText, groups, toast}) {
 			h('h3', {id: 'shop-kits-title'}, kits.length ? `Kits (${formatCount(kits.length)})` : 'Kits'),
 			h('p', {class: 'muted', id: 'shop-kits-note'}, kits.length
 				? `${plural(live, 'kit', 'kits')} on HOTARU. Their cards are still sold one by one too.`
-				: `Tick ${KIT_MIN} or more priced cards below, then tap Kit selected, to sell them together for less.`),
+				: `On the Prices tab, tick ${KIT_MIN} or more priced cards, then tap Kit selected, to sell them together for less.`),
 			...kits.map(kitCard)
 		);
 	}

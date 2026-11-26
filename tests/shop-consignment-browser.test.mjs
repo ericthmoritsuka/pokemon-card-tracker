@@ -185,6 +185,8 @@ async function ownerPhone(options) {
 async function openShop(page) {
 	await page.goto(`${server.origin}${BASE}shop`);
 	await page.locator('.shop-row').first().waitFor(TIMEOUT);
+	// Consignment is on the Orders tab (Prices | Kits | Orders, v118).
+	await page.click('#shop-tab-orders');
 	await page.locator('#shop-consign').waitFor(TIMEOUT);
 }
 

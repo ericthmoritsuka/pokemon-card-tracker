@@ -127,3 +127,35 @@ export function setAddAndSell(on) {
 		// Not kept: the sheet opens unticked, and the box is still there.
 	}
 }
+
+// The Shop's tab (Eric, 2026-11-26: one part to price the cards, one for
+// kits, one for the orders): 'prices', 'kits', or 'orders', kept on this tab
+// so the Shop opens where it was left. A new order's alert, and the
+// header's bag while orders are open, set 'orders' before opening it.
+const TAB_KEY = 'cardTracker.shopTab';
+
+export const SHOP_TABS = ['prices', 'kits', 'orders'];
+
+export function shopTab() {
+	try {
+		const tab = sessionStorage.getItem(TAB_KEY);
+
+		return SHOP_TABS.includes(tab) ? tab : 'prices';
+	}
+	catch {
+		return 'prices';
+	}
+}
+
+export function setShopTab(tab) {
+	if (!SHOP_TABS.includes(tab)) {
+		return;
+	}
+
+	try {
+		sessionStorage.setItem(TAB_KEY, tab);
+	}
+	catch {
+		// Not kept: the Shop opens on Prices.
+	}
+}

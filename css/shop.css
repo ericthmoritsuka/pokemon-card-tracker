@@ -571,3 +571,44 @@
 		animation: sheet-in 200ms ease-out;
 	}
 }
+
+/* The Shop's tabs, Prices, Kits, and Orders (js/shop-view.js, Eric
+   2026-11-26), drawn as the Lists tab's switch. They are buttons, so the
+   button look is taken off. */
+.shop-tabs {
+	grid-template-columns: repeat(3, 1fr);
+}
+
+.shop-tabs .lists-switch-item {
+	border: 0;
+	border-radius: 0;
+	cursor: pointer;
+	font: inherit;
+	font-weight: 600;
+	margin: 0;
+	padding: 0 var(--space-2);
+}
+
+.shop-tabs .lists-switch-item + .lists-switch-item {
+	border-left: 1px solid var(--border);
+}
+
+.shop-tabs .lists-switch-item:focus-visible {
+	outline-offset: -3px;
+}
+
+/* All, Awaiting payment, To hand over. */
+.shop-order-filter {
+	margin: 0;
+}
+
+/* The new-order alerts (js/order-alerts.js). */
+.shop-alerts {
+	display: grid;
+	gap: var(--space-2);
+	margin: var(--space-3) 0;
+}
+
+.shop-alerts p {
+	margin: 0;
+}
