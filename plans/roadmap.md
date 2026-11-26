@@ -453,6 +453,16 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   in r3b, a blank list edit) and Add a card here give the second form its own pocket by hand. A
   later build would read the form from the card (TCGdex names it, or the Pokémon's form list from
   PokeAPI) and add a "One pocket per form" switch to the binder's rule. Medium; not started.
+- **The order checklist's ticks on every device (Eric, 2026-11-26; backlog for now):** v119's
+  ticks live in the device's localStorage (`cardTracker.orderChecks`, `js/store-orders.js`), so
+  cards ticked on the phone show unticked on the computer. Keeping them on the server means a
+  column or table in `supabase/store-orders.sql` (the listing IDs ticked per order, written by the
+  owner only) that `store_orders_open` returns, so Eric runs SQL before the release. A tick made
+  offline still needs a home until the write goes through. Medium.
+- **Delivered asks about unticked cards (Eric, 2026-11-26; backlog for now):** v119's Delivered
+  closes the order whether or not every card was ticked. With some unticked, it would ask first,
+  as Cancel does ("2 cards are not checked. Deliver anyway?"), and an order with every card
+  ticked closes at once as today. Small.
 
 ## Scan a trade or a sale (Eric, 2026-11-06): built on branch `scan-trade`, to check on the phone
 
