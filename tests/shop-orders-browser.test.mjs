@@ -22,7 +22,7 @@ import {after, before, describe, test} from 'node:test';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
-import {BASE, documentWith, fakeServices, indexRecords, seed} from './my-cards-fixtures.mjs';
+import {BASE, CARDS, documentWith, fakeServices, fullRecord, indexRecords, seed} from './my-cards-fixtures.mjs';
 import {startPagesServer} from './pages-server.mjs';
 import {SPARE_COPIES} from './trade-harness.mjs';
 
@@ -380,6 +380,66 @@ describe('Shop orders', () => {
 		await context.close();
 	});
 
+	test('a consigned card in an order shows its catalog picture on a long press, read from TCGdex when the phone lacks it', async () => {
+		// Two consigned cards, never in the collection: Charmander, whose
+		// record the phone keeps, and Charizard ex, whose record it must read
+		// (js/shop-view.js readOrderPicture: card_id + catalogFor(language)).
+		const index = indexRecords();
+		const charmander = 'https://assets.tcgdex.net/en/sm/tsa1/004';
+		const charizard = 'https://assets.tcgdex.net/en/sm/tsa1/006';
+
+		for (const localization of Object.values(index['international|tsa1-004'].localizations)) {
+			localization.image = charmander;
+		}
+
+		delete index['international|tsa1-006'];
+
+		const consigned = (id, cardId, name, number) => ({...item(id, name, 20), card_id: cardId, kind: 'consigned', number});
+		const orders = [{code: 'HTR-0020', created_at: hours(-1), id: '00000000-0000-4000-8000-000000000020', items: [consigned('cons-7', 'tsa1-004', 'Charmander', '004'), consigned('cons-8', 'tsa1-006', 'Charizard ex', '006')], name: 'Duda', note: null, paid_at: null, phone: '81 98888-0000', receipt_at: null, receipt_path: null, reserved_until: hours(47), status: 'pending', total: 40}];
+		const {context, errors, page} = await ownerPhone({index, orders});
+		const read = [];
+
+		await page.route(/^https:\/\/assets\.tcgdex\.net\/en\/sm\/tsa1\/00[46]\//, (route) => route.fulfill({body: Buffer.from(PNG, 'base64'), contentType: 'image/png', status: 200}));
+		await page.route('https://api.tcgdex.net/v2/en/cards/tsa1-006', (route) => {
+			read.push('tsa1-006');
+
+			return route.fulfill({body: JSON.stringify({...fullRecord(CARDS.find((card) => card.id === 'tsa1-006')), image: charizard}), contentType: 'application/json', status: 200});
+		});
+
+		await openShop(page);
+		await order(page, 'HTR-0020').waitFor(TIMEOUT);
+
+		const lines = order(page, 'HTR-0020').locator('.shop-order-check');
+
+		assert.equal(await lines.count(), 2, 'each consigned card has its line');
+
+		const press = (line, kind) => line.evaluate((node, type) => {
+			const rect = node.getBoundingClientRect();
+
+			node.querySelector('span').dispatchEvent(new PointerEvent(type, {bubbles: true, clientX: rect.left + 40, clientY: rect.top + 8, pointerId: 9, pointerType: 'touch'}));
+		}, kind);
+
+		for (const [i, base] of [[0, charmander], [1, charizard]]) {
+			const line = lines.nth(i);
+			const peek = line.locator('.shop-order-peek');
+
+			await press(line, 'pointerdown');
+			await peek.waitFor({state: 'visible', ...TIMEOUT});
+			assert.equal(await peek.getAttribute('src'), `${base}/high.webp`, `the large catalog picture of line ${i + 1}`);
+
+			if (i === 1) {
+				await page.screenshot({fullPage: true, path: `${SHOTS}/shop-orders-peek-consigned.png`});
+			}
+
+			await press(line, 'pointerup');
+			await peek.waitFor({state: 'hidden', ...TIMEOUT});
+		}
+
+		assert.deepEqual(read, ['tsa1-006'], 'only the card the phone lacked is read');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('Cancel asks first, then gives the cards back; Log the sale logs a missing sale once', async () => {
 		const {context, errors, page, store} = await ownerPhone();
 
@@ -543,7 +603,9 @@ describe('Shop orders', () => {
 		assert.equal(await page.getAttribute('#shop-tab-orders', 'aria-selected'), 'true');
 		assert.equal(await page.evaluate(() => document.activeElement.id), 'shop-tab-orders');
 		await page.keyboard.press('ArrowRight');
-		assert.equal(await page.getAttribute('#shop-tab-prices', 'aria-selected'), 'true');
+		assert.equal(await page.getAttribute('#shop-tab-consign', 'aria-selected'), 'true');
+		await page.keyboard.press('ArrowRight');
+		assert.equal(await page.getAttribute('#shop-tab-prices', 'aria-selected'), 'true', 'the last tab wraps to the first');
 		assert.deepEqual(errors, []);
 		await context.close();
 
