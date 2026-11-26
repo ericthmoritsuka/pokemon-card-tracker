@@ -464,6 +464,45 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   as Cancel does ("2 cards are not checked. Deliver anyway?"), and an order with every card
   ticked closes at once as today. Small.
 
+## Backlog: preventing wrong listings (Eric, 2026-11-26)
+
+On the night of 2026-11-26, three faults put cards on HOTARU that should not have been there:
+v118 to v121 counted a lone reverse holo as a spare and listed it (two sold); opening the Shop
+re-listed 56 withdrawn cards at 20:08; and two list binders showing the same copy left that
+binder copy counted free and listed (Illumise 30th, Cherrim). These tickets keep it from
+happening again.
+
+- **Publish is explicit, not on Shop open:** a "Publish changes" button with a summary ("12 new,
+  3 withdrawn") instead of syncing whenever the Shop opens (today opening the screen publishes,
+  `js/shop-view.js`). Why: opening the Shop re-listed 56 withdrawn cards at 20:08.
+- **Publish diff guard:** if a publish would list more than N new copies, or any copy that is the
+  only one of its finish or is held in a binder, show the list and ask before syncing. Why: the
+  lone reverse holos and the binder copies of Illumise 30th and Cherrim went live with nothing
+  asking first, and the 56 re-listed cards went out in one sync.
+- **One invariant, checked in `store_sync` before the upsert and in tests:** never list a held
+  copy (binder pocket, pick, or shown) or the last copy of a card, language, and finish. Fail
+  closed: skip the copy and report it. Why: both wrong-listing faults broke this rule (a lone
+  reverse holo, and a binder copy two list binders showed), and nothing on the server stopped
+  them.
+- **Real-collection fixture:** an anonymized snapshot of the shape of Eric's document
+  (multi-finish cards, monprice-imported duplicates, cards in two list binders, trays), used by
+  the spare, held, and listing tests. Why: tonight's faults came from these shapes, a lone
+  reverse holo beside normals and one copy shown by two list binders.
+- **One source of truth for held and free:** Trade, Check spares, the ×N|M badge, binders, and
+  the Shop all call the same function, with a test that the five agree on the fixture. Why: the
+  binders showed Illumise 30th and Cherrim as held while the Shop counted the same copy free and
+  listed it.
+- **Shop audit screen (read-only):** lists the live HOTARU listings that break the invariant, so
+  Eric can check after any release. Why: the wrong listings from v118 to v121 stayed live until
+  two had sold.
+- **Monprice import check:** list the copies imported with more than one per finish (for
+  example Phantump and Metang CRI, all added 2026-10-31 10:22) for Eric to verify physically.
+  Why: since v122 a second copy in the same finish is a spare, so a duplicate the import made
+  by mistake would be listed as a card Eric can sell.
+- **Copies with no finish set:** a screen to set them in bulk. Why: an unset finish never pairs
+  with Normal (Eric's 2026-11-26 decision), so real duplicates with no finish stay home and
+  never reach the spares.
+
 ## Scan a trade or a sale (Eric, 2026-11-06): built on branch `scan-trade`, to check on the phone
 
 Eric: "Maybe I could use the scanner to register the trades/sales too instead of registering them
