@@ -23,6 +23,15 @@ export const RELEASES = [
 	{
 		date: '2026-11-26',
 		items: [
+			'Each card of an order in the Shop\'s Orders tab has a box: tick it off as you put the order together, so the right cards go out.',
+			'A kit\'s cards each have their own box, and a line under the cards counts what you have checked.',
+			'The ticks stay on this phone or computer until the order is delivered or cancelled.',
+		],
+		version: 'v119',
+	},
+	{
+		date: '2026-11-26',
+		items: [
 			'The Shop has three tabs: Prices to price your cards, Kits, and Orders, where Consignment now sits.',
 			'Orders filters All, Unpaid, and Ready: Ready is paid and waiting to be put together and handed over.',
 			'A new order or a Pix receipt shows a message in the app. Turn on alerts in Orders to also hear a chime and get a Chrome notification.',
