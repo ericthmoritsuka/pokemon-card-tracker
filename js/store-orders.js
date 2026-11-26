@@ -6,13 +6,16 @@ import {getClient} from './auth.js';
 
 export const RECEIPT_BUCKET = 'store-receipts';
 
-// Said on window with {count} whenever the Shop screen has the open orders,
-// so the header's count (js/shell.js) follows a payment, a delivery, or a
-// cancel at once.
+// Said on window with {count, orders} whenever the Shop screen has the open
+// orders, so the header's count (js/shell.js) follows a payment, a
+// delivery, or a cancel at once, and a new order rings
+// (js/order-alerts.js).
 export const ORDERS_EVENT = 'card-tracker-shop-orders';
 
-export function announceOrders(count) {
-	window.dispatchEvent(new CustomEvent(ORDERS_EVENT, {detail: {count}}));
+export function announceOrders(orders) {
+	const list = Array.isArray(orders) ? orders : [];
+
+	window.dispatchEvent(new CustomEvent(ORDERS_EVENT, {detail: {count: list.length, orders: list}}));
 }
 
 async function call(name, args = {}) {

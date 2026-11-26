@@ -292,6 +292,7 @@ const SHELL = [
 	'js/consignment.js',
 	'js/pix.js',
 	'vendor/qrcode-generator-1.4.4.min.js',
+	'js/order-alerts.js',
 	'js/shop-owner.js',
 	'js/set-picker.js',
 	'js/store-publish.js',
@@ -397,6 +398,29 @@ self.addEventListener('message', (event) => {
 	if (event.data && event.data.type === 'version' && event.ports[0]) {
 		event.ports[0].postMessage({version: VERSION});
 	}
+});
+
+// A tap on a new order's notification (js/order-alerts.js): an open app
+// window comes to the front and opens the Shop's Orders tab; with none,
+// one opens on it.
+self.addEventListener('notificationclick', (event) => {
+	event.notification.close();
+
+	const url = new URL((event.notification.data && event.notification.data.url) || './shop?tab=orders', self.registration.scope).href;
+
+	event.waitUntil((async () => {
+		const open = await self.clients.matchAll({includeUncontrolled: true, type: 'window'});
+		const client = open.find((each) => each.url.startsWith(self.registration.scope));
+
+		if (client) {
+			await client.focus();
+			client.postMessage({type: 'open-orders'});
+
+			return;
+		}
+
+		await self.clients.openWindow(url);
+	})());
 });
 
 // The longest activation waits for the old shell caches to go.

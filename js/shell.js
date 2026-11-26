@@ -29,7 +29,8 @@ import {formatCount} from './format.js';
 import {DRAFT_EVENT, draftCount} from './scan/draft.js';
 import {favoritePokemon, onSettings} from './settings.js';
 import {openDialogSheet} from './sheet.js';
-import {checkShopOwner, shopOwnerKnown} from './shop-owner.js';
+import {alertsOn, checkOrders, openOrdersTab} from './order-alerts.js';
+import {checkShopOwner, setShopTab, shopOwnerKnown} from './shop-owner.js';
 import {ORDERS_EVENT, openOrders} from './store-orders.js';
 import {onSyncStatus, syncStatus} from './sync.js';
 
@@ -549,9 +550,12 @@ function drawShopLink(owner = shopOwnerKnown()) {
 // HOTARU's open orders, waiting for payment or for delivery (Eric,
 // 2026-11-24, from the design review: an order has 48 hours to be paid, and
 // nothing outside the Shop said one had come). Read at start, when the app
-// comes back to the front, every few minutes while it is in front, and said
-// by the Shop screen whenever it has them (js/store-orders.js ORDERS_EVENT).
-const ORDERS_EVERY_MS = 5 * 60 * 1000;
+// comes back to the front, every minute while it is in front, and said by
+// the Shop screen whenever it has them (js/store-orders.js ORDERS_EVENT).
+// Each read goes to js/order-alerts.js, which rings for a new order or
+// receipt (Eric, 2026-11-26); with the alerts on, the minute's read goes on
+// in a tab behind others too, so the chime comes while he works elsewhere.
+const ORDERS_EVERY_MS = 60 * 1000;
 let orderCount = 0;
 let ordersTimer = null;
 
@@ -579,7 +583,7 @@ function drawShopBadge(count = orderCount) {
 async function loadOrderCount() {
 	const user = currentUser();
 
-	if (!user || shopOwnerKnown() !== true || !navigator.onLine || document.visibilityState === 'hidden') {
+	if (!user || shopOwnerKnown() !== true || !navigator.onLine || (document.visibilityState === 'hidden' && !alertsOn())) {
 		return;
 	}
 
@@ -588,6 +592,7 @@ async function loadOrderCount() {
 
 		if (currentUser() === user) {
 			drawShopBadge(found.length);
+			checkOrders(found, {toast});
 		}
 	}
 	catch {
@@ -597,7 +602,37 @@ async function loadOrderCount() {
 }
 
 function watchOrders() {
-	window.addEventListener(ORDERS_EVENT, (event) => drawShopBadge((event.detail && event.detail.count) || 0));
+	window.addEventListener(ORDERS_EVENT, (event) => {
+		const detail = event.detail || {};
+
+		drawShopBadge(detail.count || 0);
+
+		if (Array.isArray(detail.orders)) {
+			checkOrders(detail.orders, {toast});
+		}
+	});
+
+	// With orders open, the bag opens the Shop on its Orders tab. This runs
+	// before app.js's link handler, which listens on the document.
+	const link = document.getElementById('shop-link');
+
+	if (link) {
+		link.addEventListener('click', () => {
+			if (orderCount) {
+				setShopTab('orders');
+			}
+		});
+	}
+
+	// A tap on an order's notification, when the app was already open
+	// (sw.js notificationclick).
+	if ('serviceWorker' in navigator) {
+		navigator.serviceWorker.addEventListener('message', (event) => {
+			if (event.data && event.data.type === 'open-orders') {
+				openOrdersTab();
+			}
+		});
+	}
 	document.addEventListener('visibilitychange', () => {
 		if (document.visibilityState === 'visible') {
 			loadOrderCount();

@@ -161,8 +161,11 @@ async function openShop(page) {
 	await page.goto(`${server.origin}${BASE}shop`);
 	await page.locator('.shop-row').first().waitFor(TIMEOUT);
 	await page.click('#shop-filter input[value="all"] + span');
-	await page.locator('#shop-kits').waitFor(TIMEOUT);
+	await page.locator('#shop-kits').waitFor({state: 'attached', ...TIMEOUT});
 }
+
+// Prices, Kits, and Orders are tabs (Eric, 2026-11-26).
+const showTab = (page, name) => page.click(`#shop-tab-${name}`);
 
 const text = async (locator) => plain(await locator.textContent());
 
@@ -180,8 +183,12 @@ describe('Shop kits', () => {
 		const {context, errors, page, store} = await ownerPhone();
 
 		await openShop(page);
+		await showTab(page, 'kits');
+		await page.locator('#shop-kits').waitFor(TIMEOUT);
 		assert.equal(await text(page.locator('#shop-kits-title')), 'Kits');
-		assert.match(await text(page.locator('#shop-kits-note')), /^Tick 2 or more priced cards below/);
+		assert.equal(await text(page.locator('#shop-tab-kits')), 'Kits');
+		assert.match(await text(page.locator('#shop-kits-note')), /^On the Prices tab, tick 2 or more priced cards/);
+		await showTab(page, 'prices');
 		assert.equal(await page.locator('#shop-kit-make').isVisible(), false, 'no kit button before two ticks');
 
 		await tick(page, 'tsa1-004');
@@ -225,6 +232,8 @@ describe('Shop kits', () => {
 
 		const kit = page.locator('.shop-kit').first();
 
+		await page.waitForFunction(() => document.getElementById('shop-tab-kits').textContent === 'Kits (1)', null, TIMEOUT);
+		await showTab(page, 'kits');
 		await kit.waitFor(TIMEOUT);
 		assert.equal(await text(page.locator('#shop-kits-title')), 'Kits (1)');
 		assert.equal(await text(kit.locator('.shop-kit-price')), 'R$ 14,25 · 5% off · R$ 15,00 apart');
@@ -256,6 +265,13 @@ describe('Shop kits', () => {
 
 		assert.ok(bar.y + bar.height <= 844, 'the bar is on screen');
 		assert.ok(fill.height >= 44);
+
+		// The bar belongs to Prices: another tab hides it, and the ticks stay.
+		await showTab(page, 'orders');
+		assert.equal(await page.locator('#shop-selbar').isVisible(), false, 'no bar on Orders');
+		await showTab(page, 'prices');
+		await page.locator('#shop-selbar').waitFor(TIMEOUT);
+		assert.equal(await text(page.locator('#shop-selbar-count')), '1 selected');
 
 		await tick(page, 'tsa1-006');
 		assert.equal(await text(page.locator('#shop-selbar-count')), '2 selected');
@@ -291,6 +307,7 @@ describe('Shop kits', () => {
 		const {context, errors, page, store} = await ownerPhone({kits: [{active: true, description: null, discount_pct: 5, id: 'k1', items: ['c-04', 'c-08'], name: 'Duo', price_brl: null, price_mode: 'percent'}]});
 
 		await openShop(page);
+		await showTab(page, 'kits');
 		await page.locator('#kit-k1').waitFor(TIMEOUT);
 		await page.locator('#kit-k1 button:has-text("Edit")').click();
 		await page.locator('#shop-kit-sheet').waitFor(TIMEOUT);
@@ -327,6 +344,7 @@ describe('Shop kits', () => {
 		const {context, errors, page, store} = await ownerPhone({kits, statuses: {'c-04': 'reserved'}});
 
 		await openShop(page);
+		await showTab(page, 'kits');
 		await page.locator('#kit-k2').waitFor(TIMEOUT);
 
 		// The refill runs after the Shop's first Publish.
@@ -352,6 +370,7 @@ describe('Shop kits', () => {
 		const {context, errors, page} = await ownerPhone({orders, setUp: false});
 
 		await openShop(page);
+		await showTab(page, 'orders');
 		await page.locator('#order-HTR-0009').waitFor(TIMEOUT);
 
 		const lines = await page.locator('#order-HTR-0009 .shop-order-items > li').allTextContents();
@@ -360,8 +379,9 @@ describe('Shop kits', () => {
 		assert.equal(plain(lines[0]), 'Pikachu · #025 · Test Alpha · English · R$ 5,00');
 		assert.equal(await text(page.locator('#order-HTR-0009 .shop-order-kit-name')), 'Kit Duo · R$ 9,50');
 		assert.equal(await page.locator('#order-HTR-0009 .shop-order-kit li').count(), 2);
-		assert.equal(await text(page.locator('#shop-kits-problem')), 'Kits are not set up yet: run supabase/store-bundles.sql in the Supabase SQL Editor.');
 		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-kits-order.png`});
+		await showTab(page, 'kits');
+		assert.equal(await text(page.locator('#shop-kits-problem')), 'Kits are not set up yet: run supabase/store-bundles.sql in the Supabase SQL Editor.');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
