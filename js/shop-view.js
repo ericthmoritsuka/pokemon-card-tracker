@@ -41,7 +41,7 @@ import {setPicker} from './set-picker.js';
 import {consignmentSection} from './shop-consignment.js';
 import {kitsSection, openKitSheet, orderItemsNode} from './shop-kits.js';
 import {alertsOn, NEW_ORDERS_EVENT, notifyPermission, turnOff, turnOn} from './order-alerts.js';
-import {checkShopOwner, onShopOwner, setAddAndSell, setShopTab, SHOP_TABS, shopOwnerKnown, shopTab} from './shop-owner.js';
+import {checkShopOwner, onShopOwner, setAddAndSell, setConsignPick, setShopTab, SHOP_TABS, shopOwnerKnown, shopTab} from './shop-owner.js';
 import {openDialogSheet} from './sheet.js';
 import {announceOrders, cancelOrder, markDelivered, markPaid, openOrders, orderErrorText, receiptLink} from './store-orders.js';
 import {publishErrorText, syncListings, uploadOwnPicture, uploadPicture} from './store-publish.js';
@@ -193,6 +193,8 @@ export function shopView(root) {
 
 	// Opening the Shop ends an Add and sell left unfinished.
 	setAddAndSell(false);
+	// And a Consign a card left unfinished.
+	setConsignPick(false);
 
 	// The owner's controls, shown at once from the answer kept on the phone,
 	// and as the server answers, now or once the session is back.
@@ -310,7 +312,7 @@ export function shopView(root) {
 	// shopTab); ?tab= in the address, from a new order's notification, and
 	// the header's bag while orders are open choose Orders. The Save bar
 	// stays under every tab, so unsaved prices are never out of sight.
-	const TAB_NAMES = {kits: 'Kits', orders: 'Orders', prices: 'Prices'};
+	const TAB_NAMES = {consign: 'Consign', kits: 'Kits', orders: 'Orders', prices: 'Prices'};
 	const tabButtons = {};
 	const panels = {};
 	let tab = startTab();
@@ -458,9 +460,9 @@ export function shopView(root) {
 			empty,
 			selBar),
 		panel('kits', kits.node),
-		// Consignment sits with the orders (it is people and the money owed
-		// them after Payment received, consignment session 2026-11-26).
-		panel('orders', ordersBox, consignment.node, alertsBox),
+		panel('orders', ordersBox, alertsBox),
+		// Consigned cards have a tab of their own (Eric, 2026-11-26).
+		panel('consign', consignment.node),
 		saveBar
 	);
 
