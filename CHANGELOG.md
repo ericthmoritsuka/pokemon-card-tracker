@@ -17,6 +17,24 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-26
 
+- **v120:** several values per filter, and search, filters, and sort on Check spares. `b4a31d3`, `b55d26a`,
+  `7839ee4`, `8b676cf`, `aacc010`, `9f2ef8f`, `be99d4c`, `0ac904a`
+  - Changed (Eric: "eu deveria poder selecionar mais de um elemento para o filtro. por exemplo, mais de um set ao
+    mesmo tempo"): Set, Language, Rarity, Region, Artist, and Stored in pick several values, the select reading
+    "Any set" until one is chosen and "Add another set" after, each chosen value a chip under it; the Energy type and
+    Category buttons turn on and off one by one, Any clearing them. A card fits a filter when it fits any of its
+    values, and still every filter. One chip per value above the list, and Filters · N counts values. Price,
+    Pictures, the Pokédex range, and the two checkboxes keep one choice. A choice saved with one value per filter
+    loads as a list of one (`js/filter-bar.js` cleanFilters); v119 reading a saved list ignores it.
+  - Added: Check spares has a search, the Filters sheet, and a sort (Most free, Where, Set oldest or newest, Name,
+    Pokédex), narrows to one place (a binder, Tray of a binder, or Loose), and shows All cards, With free copies,
+    None free, or Favorites. Tested with several similar sets at once (Eric's card bags) and Region Kanto (his
+    Kanto box).
+  - Not covered: Check spares downloads no card details itself and does not redraw when they arrive, so a card My
+    Cards' background pass has not read yet has no region there; the sheet says so (backlog).
+  - Suite before release: 170 files, 2,504 pass, 0 fail on the last run of each file. The first pass at four files
+    at a time failed 7 timing-sensitive tests in five scanner and photo viewer files; each file passed on a rerun
+    alone.
 - **v119:** a checklist to tick off each card of an order. `ad960b3`, `815c6e3`
   - Added (Eric: "uma checklist para eu fazer a conferencia das cartas que estou vendendo como checkboxes ao lado das
     cartas do pedido"): every card line of an order on the Orders tab has a checkbox, a kit's cards included (not
