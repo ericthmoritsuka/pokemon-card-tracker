@@ -66,12 +66,13 @@ function startingData() {
 
 // The consignment calls as supabase/store-consignment.sql answers them,
 // over data kept here.
-async function attachConsignment(page, {data = startingData(), orders = [], setUp = true} = {}) {
+async function attachConsignment(page, {data = startingData(), delivered = [], orders = [], setUp = true} = {}) {
 	const calls = [];
 	const reply = (route, body, status = 200) => route.fulfill({body: JSON.stringify(body), contentType: 'application/json', status});
 
 	await page.route('**/rest/v1/rpc/store_sync', (route) => reply(route, {}));
 	await page.route('**/rest/v1/rpc/store_orders_open', (route) => reply(route, orders));
+	await page.route('**/rest/v1/rpc/store_orders_delivered', (route) => reply(route, delivered));
 	await page.route('**/rest/v1/rpc/store_bundles_admin', (route) => reply(route, []));
 	await page.route(/\/rest\/v1\/rpc\/(store_consignment_admin|save_consigned|save_consignor|save_store_settings|return_consigned|relist_consigned|mark_payouts_paid)$/, (route) => {
 		const name = route.request().url().split('/rpc/')[1];
@@ -403,6 +404,25 @@ describe('Shop consignment', () => {
 		assert.ok(names.indexOf('save_consignor') < names.indexOf('save_consigned'), 'the consignor is saved first');
 		assert.equal(store.calls.find(([name]) => name === 'save_consignor')[1].consignor.name, 'Bia');
 		assert.equal(store.calls.find(([name]) => name === 'save_consigned')[1].card.consignor_id, data.consignors[0].id);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a delivered order still names whose consigned card it held, set apart', async () => {
+		// Delivered (v123) reads store_orders_delivered; the consignor's
+		// name comes from store_consignment_admin, whose cards keep a sold one.
+		const items = [
+			{bundle_id: null, bundle_name: null, card_id: 'tsa1-006', condition: 'Near Mint', finish: 'Holo', kind: 'consigned', language: 'en', listing_id: 'cons-1', name: 'Charizard ex', number: '006', price_brl: 100, set_name: 'Test Alpha'},
+		];
+		const delivered = [{code: 'HTR-0012', created_at: '2026-11-25T12:00:00Z', delivered_at: '2026-11-25T18:00:00Z', id: '00000000-0000-4000-8000-000000000012', items, name: 'Buyer', note: null, paid_at: '2026-11-25T13:00:00Z', phone: '81 99999-0000', receipt_at: null, receipt_path: null, status: 'paid', total: 100}];
+		const {context, errors, page} = await ownerPhone({delivered});
+
+		await openShop(page);
+		await page.click('#shop-tab-orders');
+		await page.click('#shop-order-filter input[value="delivered"] + span');
+		await page.locator('#order-HTR-0012').waitFor(TIMEOUT);
+		assert.equal(plain((await page.locator('#order-HTR-0012 .shop-order-items > li').allTextContents())[0]), 'Charizard ex · #006 · Holo · Test Alpha · English · Near Mint · Consigned · Ana · R$ 100,00');
+		assert.equal(await page.locator('#order-HTR-0012 .shop-order-items > li.shop-order-consigned').count(), 1);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
