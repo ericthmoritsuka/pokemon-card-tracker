@@ -17,6 +17,12 @@
 // and its own sort, Where, and Show (js/spare-check.js narrowChecks), so
 // Eric can check one pile at a time in the order it lies (2026-11-26). The
 // choice is kept on this phone; one card's check has none.
+//
+// Checked (Eric, 2026-11-26): a card whose copies are all there leaves the
+// whole list when he taps Checked, and the next card comes up under his
+// thumb. The mark is kept on this phone only and changes no copy
+// (js/spare-check.js isChecked); Show: Checked lists the marked cards, each
+// with Not checked to bring it back.
 
 import {artOf, cardFilterItem, entryInfo, fillRecords} from './binders-view.js';
 import {catalogFor, cardIndex, printedCode, viewingLanguage} from './catalog.js';
@@ -30,7 +36,7 @@ import {applyMove, undoMove} from './moves.js';
 import {undoneText} from './moves-view.js';
 import {toast} from './shell.js';
 import {shopOwnerKnown} from './shop-owner.js';
-import {ANY, CHECK_SORTS, REASONS, SHOWS, goneFields, narrowChecks, placeLabel, spareCheck, whereOptions} from './spare-check.js';
+import {ANY, CHECK_SORTS, REASONS, SHOWS, checkedPool, checkedSignature, goneFields, isChecked, keepChecked, narrowChecks, placeLabel, spareCheck, whereOptions} from './spare-check.js';
 import {withdrawListings} from './store-publish.js';
 import {FINISHES, entryFinish, tileArt} from './tile.js';
 
@@ -41,6 +47,7 @@ const PAGE = 30;
 // sort, Where, and Show are kept beside them here.
 const BAR_CHOICE = 'cardTracker.spareCheckChoice';
 const OWN_CHOICE = 'cardTracker.spareCheckOwn';
+const CHECKED_KEY = 'cardTracker.spareChecked';
 
 // Favorites is a Show choice here, and Not in a binder is Where's Loose
 // and trays; a price and a picture say nothing about a copy's place.
@@ -59,6 +66,28 @@ function readOwn() {
 	}
 	catch {
 		return {show: 'all', sort: 'free', where: ANY, whereLabel: ''};
+	}
+}
+
+// The cards marked Checked, {group key: signature}. Without storage (a
+// private window), the marks last for this visit.
+function readChecked() {
+	try {
+		const saved = JSON.parse(localStorage.getItem(CHECKED_KEY) || 'null');
+
+		return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+	}
+	catch {
+		return {};
+	}
+}
+
+function writeChecked(marks) {
+	try {
+		localStorage.setItem(CHECKED_KEY, JSON.stringify(marks));
+	}
+	catch {
+		// The marks last for this visit only.
 	}
 }
 
@@ -94,6 +123,10 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 	let index = new Map();
 	let shown = PAGE;
 	let focusKey = null;
+	// After Checked, the place in the list whose card gets the focus: the
+	// next card has moved up into it.
+	let focusAt = null;
+	let marks = readChecked();
 	const one = cardId ? {card_id: cardId, catalog: isCustomId(cardId) ? 'custom' : catalogFor(lang)} : null;
 	const viewing = viewingLanguage();
 	const back = one ? `cards/${encodeURIComponent(lang)}/${encodeURIComponent(cardId)}` : 'trade';
@@ -107,7 +140,7 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 	root.append(
 		h('a', {class: 'back', 'data-link': back, href: BASE + back, id: 'check-back'}, backWords(one ? 'Card' : 'Spares')),
 		h('div', {class: 'view-head'}, h('h2', {id: 'check-title', tabindex: '-1'}, 'Check spares')),
-		h('p', {class: 'muted check-intro'}, 'Where every copy is, and why it counts as free or not. If you cannot find one, tap I don\'t have this one: it is logged in Trades as given away, so your spares and the Shop follow. Undo takes it back.'),
+		h('p', {class: 'muted check-intro'}, `Where every copy is, and why it counts as free or not. If you cannot find one, tap I don't have this one: it is logged in Trades as given away, so your spares and the Shop follow. Undo takes it back.${one ? '' : ' When every copy is there, tap Checked and the next card comes up.'}`),
 		...(bar ? [bar.element] : []),
 		summary,
 		list
@@ -149,7 +182,7 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 			// Check spares reads the details My Cards has downloaded and
 			// downloads none itself, so a card added since may lack them.
 			detailsPending: (items) => items.some((item) => !item.category && item.group.catalog !== 'custom'),
-			countShown: (state) => narrowChecks(applyFilters(groups.map(itemOf), {filters: state.filters, query: state.query}), {show: own.show, where: own.where}).length,
+			countShown: (state) => narrowChecks(applyFilters(groups.map(itemOf), {filters: state.filters, query: state.query}), {checked: marks, show: own.show, where: own.where}).length,
 			below: [h('div', {class: 'fb-row check-narrow'},
 				h('span', {class: 'select-wrap'}, whereSelect),
 				h('span', {class: 'select-wrap'}, showSelect))],
@@ -174,7 +207,7 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		});
 
 		made.drawWhere = () => {
-			const options = whereOptions(groups);
+			const options = whereOptions(checkedPool(groups, {checked: marks, show: own.show}));
 
 			// A place chosen stays chosen, at 0, once every card there is
 			// checked, until another is picked.
@@ -222,7 +255,7 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 
 		bar.setItems(items);
 
-		return narrowChecks(applyFilters(items, {filters, query}), {show: own.show, sort: own.sort, sortItems, where: own.where}).map((item) => item.group);
+		return narrowChecks(applyFilters(items, {filters, query}), {checked: marks, show: own.show, sort: own.sort, sortItems, where: own.where}).map((item) => item.group);
 	}
 
 	const isNarrowed = () => Boolean(bar) && (own.where !== ANY || own.show !== 'all' || bar.state.query.trim() !== '' || Object.values(bar.state.filters).some(filterOn));
@@ -258,6 +291,53 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 
 			toast(`Not saved. ${errorText(err)}`);
 		}
+	}
+
+	// Checked, or Not checked under Show: Checked. The card leaves the list
+	// and the one after it takes its place, where the focus goes.
+	function setChecked(group, info, on) {
+		const node = [...list.querySelectorAll('.check-group')].findIndex((section) => section.dataset.key === group.key);
+		const before = marks;
+
+		marks = {...marks};
+
+		if (on) {
+			marks[group.key] = checkedSignature(group);
+		}
+		else {
+			delete marks[group.key];
+		}
+
+		writeChecked(marks);
+		focusAt = node < 0 ? null : node;
+		redraw();
+
+		toast(on ? `${info.name} checked.` : `${info.name} is back in the list.`, {
+			action: () => {
+				if (!alive) {
+					return;
+				}
+
+				marks = before;
+				writeChecked(marks);
+				focusKey = group.key;
+				redraw();
+			},
+			actionLabel: 'Undo',
+			timeout: UNDO_MS,
+		});
+	}
+
+	function checkedButton(group, info) {
+		const on = !isChecked(group, marks);
+		const button = h('button', {class: on ? 'primary check-done' : 'check-done', type: 'button'}, on ? 'Checked' : 'Not checked');
+
+		button.setAttribute('aria-label', on
+			? `Checked: every copy of ${info.name} is there`
+			: `Not checked: put ${info.name} back in the list`);
+		button.onclick = () => setChecked(group, info, on);
+
+		return h('div', {class: 'check-foot'}, button);
 	}
 
 	function copyItem(row, info) {
@@ -298,7 +378,8 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 					h('h3', {class: 'check-name', id: headingId, tabindex: '-1'}, h('a', {'data-link': info.route, href: BASE + info.route}, info.name)),
 					h('span', {class: 'check-meta'}, [info.number ? `#${info.number}` : null, info.setName, languageName(group.language)].filter(Boolean).join(' · ')),
 					h('span', {class: group.free ? 'check-count is-free' : 'check-count'}, freeText(group.copies, group.free)))),
-			h('ul', {class: 'check-copies'}, ...group.rows.map((row) => copyItem({...row, groupKey: group.key}, info))));
+			h('ul', {class: 'check-copies'}, ...group.rows.map((row) => copyItem({...row, groupKey: group.key}, info))),
+			...(bar ? [checkedButton(group, info)] : []));
 	}
 
 	function redraw() {
@@ -313,11 +394,24 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		const free = kept.reduce((sum, group) => sum + group.free, 0);
 		const copies = kept.reduce((sum, group) => sum + group.copies, 0);
 
+		// The cards marked Checked, left out of every Show but Checked.
+		const done = bar ? groups.filter((group) => isChecked(group, marks)).length : 0;
+		const hidden = own.show === 'checked' || !done ? '' : ` ${formatCount(done)} checked.`;
+
 		if (!kept.length) {
 			summary.textContent = one ? 'You have no copies of this card.'
-				: groups.length && isNarrowed() ? 'No card matches. Clear all shows every card again.'
-					: 'No card has more than one copy.';
+				: own.show === 'checked' && !done ? 'No card is checked yet.'
+					: groups.length && isNarrowed() ? 'No card matches. Clear all shows every card again.'
+						: groups.length && done === groups.length ? 'Every card is checked. Show: Checked lists them.'
+							: 'No card has more than one copy.';
 			list.replaceChildren();
+
+			// The last card checked: the focus goes to the title.
+			if (focusKey !== null || focusAt !== null) {
+				focusKey = null;
+				focusAt = null;
+				root.querySelector('#check-title').focus();
+			}
 
 			return;
 		}
@@ -326,8 +420,8 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 
 		summary.textContent = one
 			? freeText(copies, free)
-			: isNarrowed()
-				? `${formatCount(kept.length)} of ${plural(groups.length, 'card', 'cards')} with more than one copy: ${counts}`
+			: isNarrowed() || done
+				? `${formatCount(kept.length)} of ${plural(groups.length, 'card', 'cards')} with more than one copy: ${counts}${hidden}`
 				: `${plural(kept.length, 'card', 'cards')} with more than one copy: ${counts}`;
 
 		const visible = kept.slice(0, shown);
@@ -352,6 +446,20 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 
 			if (target) {
 				target.focus();
+			}
+		}
+
+		// After Checked, the card now in its place, top of the screen, or
+		// the last card when the checked one was last.
+		if (focusAt !== null) {
+			const sections = [...list.querySelectorAll('.check-group')];
+			const section = sections[Math.min(focusAt, sections.length - 1)];
+
+			focusAt = null;
+
+			if (section) {
+				section.scrollIntoView({block: 'start'});
+				section.querySelector('.check-name').focus({preventScroll: true});
 			}
 		}
 
@@ -405,6 +513,14 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 
 		index = found;
 		groups = check(doc);
+
+		// Forget the marks on cards whose copies changed since: the list
+		// they were checked against no longer holds. Only at opening, so an
+		// Undo during the visit brings a mark back with its copy.
+		if (bar) {
+			marks = keepChecked(groups, marks);
+			writeChecked(marks);
+		}
 
 		if (bar) {
 			bar.setPlaces(storedPlaces(doc).map((place) => place.name));

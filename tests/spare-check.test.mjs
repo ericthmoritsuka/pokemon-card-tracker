@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {freeCopyIds} from '../js/shop.js';
-import {ANY, CHECK_SORTS, LOOSE, REASONS, SHOWS, freeText, goneFields, narrowChecks, placeLabel, placesOf, rowWheres, spareCheck, whereOptions} from '../js/spare-check.js';
+import {ANY, CHECK_SORTS, LOOSE, REASONS, SHOWS, checkedPool, checkedSignature, freeText, goneFields, isChecked, keepChecked, narrowChecks, placeLabel, placesOf, rowWheres, spareCheck, whereOptions} from '../js/spare-check.js';
 
 const at = (minute) => `2026-11-25T10:${String(minute).padStart(2, '0')}:00.000Z`;
 
@@ -217,11 +217,76 @@ describe('narrowChecks', () => {
 		narrowChecks(items(), {sort: 'bogus', sortItems});
 		assert.deepEqual(seen, ['setOld']);
 		assert.deepEqual(CHECK_SORTS.map((option) => option.value), ['free', 'where', 'setOld', 'set', 'name', 'dex']);
-		assert.deepEqual(SHOWS.map((option) => option.value), ['all', 'free', 'nofree', 'favorite']);
+		assert.deepEqual(SHOWS.map((option) => option.value), ['all', 'free', 'nofree', 'favorite', 'checked']);
 	});
 
 	test('rowWheres: a copy with no place is loose', () => {
 		assert.deepEqual(rowWheres({places: []}), [LOOSE]);
+	});
+});
+
+// Eric, 2026-11-26: a card whose copies are all there leaves the list once
+// marked Checked, so the next one comes up.
+describe('Checked', () => {
+	const doc = () => ({
+		binders: [binderOf('Hoenn', {slots: [pocket('t1', 1, 3)]})],
+		cards: [
+			card('s1', {card_id: 'scraggy'}), card('s2', {card_id: 'scraggy'}),
+			card('t1', {card_id: 'treecko'}), card('t2', {card_id: 'treecko'}),
+			card('f1', {card_id: 'fav', is_favorite: true}), card('f2', {card_id: 'fav'}),
+		],
+	});
+	const groupOf = (groups, id) => groups.find((group) => group.card_id === id);
+	const ids = (list) => list.map((item) => item.group.card_id).sort();
+
+	test('a checked card shows under Show: Checked only, and every other Show leaves it out', () => {
+		const groups = spareCheck(doc());
+		const treecko = groupOf(groups, 'treecko');
+		const checked = {[treecko.key]: checkedSignature(treecko)};
+		const items = groups.map((group) => ({group}));
+
+		assert.equal(isChecked(treecko, checked), true);
+		assert.equal(isChecked(groupOf(groups, 'scraggy'), checked), false);
+		assert.deepEqual(ids(narrowChecks(items, {checked})), ['fav', 'scraggy']);
+		assert.deepEqual(ids(narrowChecks(items, {checked, show: 'free'})), ['scraggy']);
+		assert.deepEqual(ids(narrowChecks(items, {checked, show: 'checked'})), ['treecko']);
+		assert.deepEqual(ids(narrowChecks(items, {checked: null, show: 'checked'})), []);
+		assert.deepEqual(ids(narrowChecks(items)), ['fav', 'scraggy', 'treecko'], 'no marks, every card');
+
+		// Where counts the copies left to check, or the checked ones.
+		assert.deepEqual(checkedPool(groups, {checked}).map((group) => group.card_id).sort(), ['fav', 'scraggy']);
+		assert.deepEqual(checkedPool(groups, {checked, show: 'checked'}).map((group) => group.card_id), ['treecko']);
+	});
+
+	test('a favorite checked only leaves the list: still a favorite, nothing free', () => {
+		const before = spareCheck(doc());
+		const fav = groupOf(before, 'fav');
+		const checked = {[fav.key]: checkedSignature(fav)};
+		const items = before.map((group) => ({group}));
+
+		assert.deepEqual(ids(narrowChecks(items, {checked, show: 'favorite'})), []);
+		assert.deepEqual(ids(narrowChecks(items, {checked, show: 'checked'})), ['fav']);
+
+		// The mark lives beside the document, never in it: the copies count as before.
+		const after = groupOf(spareCheck(doc()), 'fav');
+
+		assert.deepEqual([after.favorite, after.free, after.rows.map((row) => row.reason)], [true, 0, ['favorite', 'favorite']]);
+		assert.deepEqual([...freeCopyIds(doc().cards)].filter((id) => id.startsWith('f')), []);
+	});
+
+	test('a copy added or gone undoes the mark; keepChecked forgets it', () => {
+		const groups = spareCheck(doc());
+		const scraggy = groupOf(groups, 'scraggy');
+		const checked = {[scraggy.key]: checkedSignature(scraggy), 'gone|pt|nothing': 'x'};
+		const more = doc();
+
+		more.cards.push(card('s3', {card_id: 'scraggy'}));
+
+		const grown = groupOf(spareCheck(more), 'scraggy');
+
+		assert.equal(isChecked(grown, checked), false);
+		assert.deepEqual(keepChecked(spareCheck(more), checked), {});
+		assert.deepEqual(keepChecked(groups, checked), {[scraggy.key]: 's1,s2'});
 	});
 });
 

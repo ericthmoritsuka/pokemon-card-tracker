@@ -493,6 +493,104 @@ describe('Check spares: search, sort, Where, and Show', () => {
 		await summaryIs(page, '2 copies, none free');
 		assert.equal(await page.locator('#check-search').count(), 0);
 		assert.equal(await page.locator('#check-where').count(), 0);
+		assert.equal(await page.locator('.check-done').count(), 0, 'no Checked on one card');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+// Eric, 2026-11-26: a card whose copies are all there leaves the list when
+// he taps Checked, so he checks the next one. The mark stays on the phone
+// and changes no copy. In the most-free order: Charmander, Pikachu,
+// Charizard ex.
+describe('Check spares: Checked', () => {
+	const names = (page) => page.locator('.check-group .check-name').allTextContents();
+	const summaryIs = (page, text) => page.waitForFunction((want) => document.getElementById('check-summary').textContent === want, text, TIMEOUT);
+	const focused = (page) => page.evaluate(() => document.activeElement && document.activeElement.textContent);
+	const checkedOf = (page, name) => page.locator('.check-group', {hasText: name}).locator('.check-done');
+
+	test('Checked takes the card out and the next one gets the focus; Undo, Show: Checked, and Not checked bring it back', async () => {
+		const {context, errors, page} = await phone();
+
+		await page.goto(`${server.origin}${BASE}trade/check`);
+		await summaryIs(page, '3 cards with more than one copy: 7 copies, 2 free.');
+		assert.deepEqual(await names(page), ['Charmander', 'Pikachu', 'Charizard ex']);
+		assert.equal(await checkedOf(page, 'Charmander').getAttribute('aria-label'), 'Checked: every copy of Charmander is there');
+
+		// Each Checked button sits under its card's last copy, inside the screen.
+		const [group, foot] = await Promise.all([page.locator('.check-group').first().boundingBox(), checkedOf(page, 'Charmander').boundingBox()]);
+
+		assert.ok(foot.y + foot.height <= group.y + group.height + 0.5 && foot.x + foot.width <= 390.5, 'inside the card');
+		assert.ok(foot.height >= 44, `a ${foot.height} px target`);
+		await page.screenshot({path: `${SHOTS}/spare-check-checked-button.png`});
+
+		const before = await saved(page);
+
+		await checkedOf(page, 'Charmander').click();
+		await page.locator('.toast', {hasText: 'Charmander checked.'}).waitFor(TIMEOUT);
+		await summaryIs(page, '2 of 3 cards with more than one copy: 4 copies, 1 free. 1 checked.');
+		assert.deepEqual(await names(page), ['Pikachu', 'Charizard ex']);
+		assert.equal(await focused(page), 'Pikachu', 'the next card has the focus');
+
+		// Only a note on the phone: the collection is as it was.
+		const after = await saved(page);
+
+		assert.deepEqual(after.cards, before.cards);
+		assert.deepEqual(after.moves || [], before.moves || []);
+		assert.deepEqual(Object.values(await page.evaluate(() => JSON.parse(localStorage.getItem('cardTracker.spareChecked')))), ['c-02,c-03,c-04']);
+
+		// Undo puts it back, focused.
+		await page.locator('.toast', {hasText: 'Charmander checked.'}).locator('button', {hasText: 'Undo'}).click();
+		await summaryIs(page, '3 cards with more than one copy: 7 copies, 2 free.');
+		assert.equal(await focused(page), 'Charmander');
+
+		// Every card checked: the list says so, and the focus is at the title.
+		for (const name of ['Charmander', 'Pikachu', 'Charizard ex']) {
+			await checkedOf(page, name).click();
+			await page.locator('.toast', {hasText: `${name} checked.`}).waitFor(TIMEOUT);
+		}
+
+		await summaryIs(page, 'Every card is checked. Show: Checked lists them.');
+		assert.equal(await focused(page), 'Check spares');
+
+		// Kept on the phone; Show: Checked lists them, each with Not checked.
+		await page.reload();
+		await summaryIs(page, 'Every card is checked. Show: Checked lists them.');
+		assert.deepEqual(await page.locator('#check-show option').allTextContents(), ['All cards', 'With free copies', 'None free', 'Favorites', 'Checked']);
+		await page.selectOption('#check-show', 'checked');
+		await summaryIs(page, '3 of 3 cards with more than one copy: 7 copies, 2 free.');
+		assert.deepEqual(await page.locator('.check-done').allTextContents(), ['Not checked', 'Not checked', 'Not checked']);
+		assert.deepEqual(await page.locator('#check-where option').allTextContents(), ['Anywhere', '30 anos · 1 copy', 'Region · 1 copy', 'Loose · 5 copies']);
+		await page.screenshot({fullPage: true, path: `${SHOTS}/spare-check-checked-list.png`});
+
+		await checkedOf(page, 'Pikachu').click();
+		await page.locator('.toast', {hasText: 'Pikachu is back in the list.'}).waitFor(TIMEOUT);
+		assert.deepEqual(await names(page), ['Charmander', 'Charizard ex']);
+		await page.selectOption('#check-show', 'all');
+		await summaryIs(page, '1 of 3 cards with more than one copy: 2 copies, 1 free. 2 checked.');
+		assert.deepEqual(await names(page), ['Pikachu']);
+		assert.deepEqual(await page.locator('#check-where option').allTextContents(), ['Anywhere', 'Loose · 2 copies']);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a copy given away from a checked card brings the card back; Undo checks it again', async () => {
+		const {context, errors, page} = await phone();
+
+		await page.goto(`${server.origin}${BASE}trade/check`);
+		await summaryIs(page, '3 cards with more than one copy: 7 copies, 2 free.');
+		await checkedOf(page, 'Charmander').click();
+		await summaryIs(page, '2 of 3 cards with more than one copy: 4 copies, 1 free. 1 checked.');
+
+		await page.selectOption('#check-show', 'checked');
+		await page.locator('.check-group', {hasText: 'Charmander'}).locator('.check-copy').first().locator('.check-gone').click();
+		await page.locator('.toast', {hasText: 'logged as given away'}).waitFor(TIMEOUT);
+		await summaryIs(page, 'No card is checked yet.');
+		await page.selectOption('#check-show', 'all');
+		await summaryIs(page, '3 cards with more than one copy: 6 copies, 1 free.');
+
+		await page.locator('.toast', {hasText: 'logged as given away'}).locator('button', {hasText: 'Undo'}).click();
+		await summaryIs(page, '2 of 3 cards with more than one copy: 4 copies, 1 free. 1 checked.');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
