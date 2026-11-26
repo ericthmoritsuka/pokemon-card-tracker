@@ -156,6 +156,7 @@ test('a sale of one copy from its card page shows in History and on the card pag
 	await page.click('.moves-row');
 	await page.waitForSelector('#move-undo');
 	assert.match(await page.locator('#move-sheet-money').textContent(), /^Received R\$\s30,50$/, 'the sheet says which way the money went');
+	assert.deepEqual(await page.evaluate(() => [...document.querySelector('#move-sheet').childNodes].filter((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim()).map((node) => node.textContent)), [], 'a sale with no copy out twice prints no stray "null" under the note');
 	await page.click('#move-undo');
 	await page.click('#move-undo-go');
 	await page.waitForSelector('#moves-empty');

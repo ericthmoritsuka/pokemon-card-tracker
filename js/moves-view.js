@@ -354,7 +354,9 @@ export function historyView(root) {
 				...(came.length ? [h('dt', null, 'Coming in'), cameIn] : []),
 				...(move.note ? [h('dt', null, 'Note'), h('dd', null, move.note)] : [])
 			),
-			drawn.twice && drawn.twice.has(move.id) ? h('p', {class: 'moves-twice', id: 'move-sheet-twice'}, twiceOutText(drawn.twice.get(move.id), {names: cardNames})) : null,
+			// replaceChildren prints a null argument as "null", so the warning
+			// is spread in only when this move took a copy out twice.
+			...(drawn.twice && drawn.twice.has(move.id) ? [h('p', {class: 'moves-twice', id: 'move-sheet-twice'}, twiceOutText(drawn.twice.get(move.id), {names: cardNames}))] : []),
 			h('div', {class: 'button-row move-sheet-actions'}, edit),
 			h('p', {class: 'muted move-edit-hint'}, `Edit changes the date, ${move.kind === 'bought' ? 'where from, the prices' : 'who, price'}, and note. To change the cards, undo this trade or sale and log it again.`),
 			h('div', {class: 'copy-danger'}, undo, confirm)
