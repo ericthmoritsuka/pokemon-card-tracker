@@ -343,6 +343,71 @@ describe('Check spares: search, sort, Where, and Show', () => {
 		await context.close();
 	});
 
+	// Eric checks a card bag of several similar sets at once, and his Kanto
+	// box by region (2026-11-26): the Filters sheet takes several sets, and
+	// a region, here as on My Cards.
+	test('Filters: several sets at once, a region, and both together', async () => {
+		const copies = [...MORE, copy('c-15', 'TSJ1-025', {catalog: 'ja', language: 'ja'}), copy('c-16', 'TSJ1-025', {catalog: 'ja', language: 'ja'})];
+		const {context, errors, page} = await phone({copies});
+		// The names shown, in any order, once they settle.
+		const namesAre = async (want) => {
+			try {
+				await page.waitForFunction((list) => {
+					const shown = [...document.querySelectorAll('.check-group .check-name')].map((node) => node.textContent).sort();
+
+					return JSON.stringify(shown) === JSON.stringify(list);
+				}, [...want].sort(), TIMEOUT);
+			}
+			catch {
+				assert.deepEqual((await names(page)).sort(), [...want].sort());
+			}
+		};
+		const filters = async (pick) => {
+			await page.click('#check-filters');
+			await page.waitForSelector('#check-sheet[open]');
+			await pick();
+			await page.click('#check-sheet .fb-show');
+			await page.locator('#check-sheet').waitFor({state: 'hidden'});
+		};
+
+		// The card details My Cards' background pass keeps on the phone,
+		// which give each owned card its Pokédex number and so its region.
+		const owned = ['international|tsa1-001', 'international|tsa1-004', 'international|tsa1-006', 'international|tsb2-025', 'international|tsb2-090', 'ja|TSJ1-025'];
+		const start = Date.now();
+
+		while (!await page.evaluate(async (keys) => {
+			const {cardIndex} = await import('/pokemon-card-tracker/js/catalog.js');
+			const index = await cardIndex();
+
+			return keys.every((key) => index.has(key) && Array.isArray(index.get(key).dex_ids));
+		}, owned)) {
+			assert.ok(Date.now() - start < TIMEOUT.timeout, 'every owned card\'s details reach the index');
+			await page.waitForTimeout(100);
+		}
+
+		await page.goto(`${server.origin}${BASE}trade/check`);
+		await namesAre(['Bulbasaur', 'Charizard ex', 'Charmander', 'Pikachu', 'Sprigatito', 'ピカチュウ']);
+
+		await filters(async () => {
+			await page.selectOption('#check-f-set', 'international|tsb2');
+			await page.selectOption('#check-f-set', 'ja|TSJ1');
+		});
+		await namesAre(['Pikachu', 'Sprigatito', 'ピカチュウ']);
+		assert.equal(await page.locator('.fb-chip[data-filter="set"]').count(), 2, 'a chip a set');
+		await page.screenshot({path: `${SHOTS}/spare-check-two-sets.png`});
+		await page.click('.fb-chip[data-value="international|tsb2"]');
+		await namesAre(['ピカチュウ']);
+		await page.locator('.fb-clear').click();
+
+		// Kanto: the Pokédex numbers 1 to 151, so Sprigatito goes.
+		await filters(() => page.selectOption('#check-f-region', 'kanto'));
+		await namesAre(['Bulbasaur', 'Charizard ex', 'Charmander', 'Pikachu', 'ピカチュウ']);
+		await filters(() => page.selectOption('#check-f-set', 'international|tsa1'));
+		await namesAre(['Bulbasaur', 'Charizard ex', 'Charmander']);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('one card\'s check has no bar', async () => {
 		const {context, errors, page} = await phone({copies: MORE});
 
