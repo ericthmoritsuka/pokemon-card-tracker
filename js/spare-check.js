@@ -118,8 +118,8 @@ function copyRows(entries, {favorites, ids, places}) {
 }
 
 // What Check spares shows: one group per card and language that has more
-// than one live copy, [{key, catalog, card_id, language, copies, free,
-// rows}], copies and free being counts. only: {catalog, card_id} narrows it
+// than one live copy, [{key, catalog, card_id, language, copies, favorite,
+// free, rows}], copies and free being counts. only: {catalog, card_id} narrows it
 // to one card, every language, even a language with one copy (the card
 // page's Check). Groups with free copies come first, the most first.
 // codeOf: the set's printed code, as the Shop takes it (js/shop.js
@@ -147,6 +147,10 @@ export function spareCheck(doc, {codeOf = () => null, only = null} = {}) {
 				card_id: entries[0].card_id,
 				catalog: entries[0].catalog || 'international',
 				copies: rows.length,
+				// The star covers the card in every language and finish
+				// (js/wishlist.js favoriteCards), so an unstarred copy of a
+				// starred card makes its group a favorite too.
+				favorite: entries.some((entry) => context.favorites.has(favoriteKey(entry))),
 				free: rows.filter((row) => row.free).length,
 				key: cardLanguageKey(entries[0]),
 				language: entries[0].language || null,
@@ -165,4 +169,131 @@ export {freeText};
 // logged, so History tells it apart from a gift he logged himself.
 export function goneFields(entryId, {date}) {
 	return {date, kind: 'gift', note: 'Not found in Check spares', out: [entryId], who: null};
+}
+
+// ------------------------------------------------- narrowing and order
+//
+// Eric, 2026-11-26: he keeps the cards to check in separate piles, so he
+// narrows the list to one pile and walks it in his own order. The bar's
+// search and filters (js/filter-bar.js) read an item per group; Where,
+// Show, and the sort below are Check spares' own.
+
+const collator = new Intl.Collator('en', {numeric: true, sensitivity: 'base'});
+
+// Where filter values: 'pocket:<binder id>' for a binder's pockets,
+// 'tray:<binder id>' for its tray, LOOSE for a copy in neither, and ANY.
+export const ANY = 'any';
+export const LOOSE = 'loose';
+
+const whereOf = (place) => (place && place.kind !== 'loose' ? `${place.kind}:${place.binder_id}` : LOOSE);
+const placesOrLoose = (row) => (row.places.length ? row.places : [null]);
+
+// The places a copy is, as Where values.
+export const rowWheres = (row) => placesOrLoose(row).map(whereOf);
+
+// The Where choices the groups offer, with how many copies are at each:
+// [{value, label, count}], each binder's pockets by binder name, then each
+// tray, then Loose.
+export function whereOptions(groups) {
+	const options = new Map();
+
+	for (const group of groups) {
+		for (const row of group.rows) {
+			for (const place of placesOrLoose(row)) {
+				const value = whereOf(place);
+				const old = options.get(value);
+				const kind = value === LOOSE ? LOOSE : place.kind;
+
+				options.set(value, {
+					count: (old ? old.count : 0) + 1,
+					kind,
+					label: kind === LOOSE ? 'Loose' : kind === 'tray' ? `Tray of ${place.binder_name}` : String(place.binder_name || ''),
+					name: kind === LOOSE ? '' : String(place.binder_name || ''),
+					value,
+				});
+			}
+		}
+	}
+
+	const rank = {loose: 2, pocket: 0, tray: 1};
+
+	return [...options.values()]
+		.sort((a, b) => (rank[a.kind] - rank[b.kind]) || collator.compare(a.name, b.name) || a.value.localeCompare(b.value))
+		.map(({count, label, value}) => ({count, label, value}));
+}
+
+// Show: every group, the ones with a free copy, the ones with none, or the
+// favorite cards, whose copies all stay (they are never spares).
+export const SHOWS = [
+	{label: 'All cards', value: 'all'},
+	{label: 'With free copies', value: 'free'},
+	{label: 'None free', value: 'nofree'},
+	{label: 'Favorites', value: 'favorite'},
+];
+
+const showMatches = {
+	all: () => true,
+	favorite: (group) => group.favorite === true,
+	free: (group) => group.free > 0,
+	nofree: (group) => group.free === 0,
+};
+
+// The sorts, the bar's (js/filter-bar.js sortItems) and two of Check
+// spares' own: the most free copies first, as the screen opened before
+// 2026-11-26, and Where, which walks each binder page by page and pocket
+// by pocket, then the trays, then the loose copies, so the list follows a
+// pile as it lies.
+export const CHECK_SORTS = [
+	{label: 'Most free', long: 'Most free copies first', value: 'free'},
+	{label: 'Where', long: 'Where they are: binder, page, and pocket, then trays, then loose', value: 'where'},
+	{label: 'Set, oldest', long: 'Set and number, oldest set first', value: 'setOld'},
+	{label: 'Set, newest', long: 'Set and number, newest set first', value: 'set'},
+	{label: 'Name', long: 'Name, A to Z', value: 'name'},
+	{label: 'Pokédex', long: 'Pokédex number', value: 'dex'},
+];
+
+const byFree = (a, b) => (b.group.free - a.group.free) || (b.group.copies - a.group.copies) || a.group.key.localeCompare(b.group.key);
+
+// A group's first place in Where order, among the places Where keeps.
+function firstPlace(group, where) {
+	const rank = {pocket: 0, tray: 1};
+	let best = null;
+
+	for (const row of group.rows) {
+		for (const place of placesOrLoose(row)) {
+			if (where !== ANY && whereOf(place) !== where) {
+				continue;
+			}
+
+			const key = place ? [rank[place.kind], String(place.binder_name || ''), place.binder_id, place.page || 0, place.position || 0] : [2, '', '', 0, 0];
+
+			if (!best || comparePlaces(key, best) < 0) {
+				best = key;
+			}
+		}
+	}
+
+	return best || [3, '', '', 0, 0];
+}
+
+function comparePlaces(a, b) {
+	return (a[0] - b[0]) || collator.compare(a[1], b[1]) || String(a[2]).localeCompare(String(b[2])) || (a[3] - b[3]) || (a[4] - b[4]);
+}
+
+// The items Show and Where leave, in the sort's order. items: [{group}],
+// as the bar's search and filters left them (the view applies those, so
+// this module needs no page). sortItems: the bar's sort
+// (js/filter-bar.js), for the sorts that are not Check spares' own.
+export function narrowChecks(items, {show = 'all', sort = 'free', sortItems = null, where = ANY} = {}) {
+	const kept = items
+		.filter((item) => (showMatches[show] || showMatches.all)(item.group))
+		.filter((item) => where === ANY || item.group.rows.some((row) => rowWheres(row).includes(where)));
+
+	if (sort === 'where') {
+		return kept.map((item) => ({item, place: firstPlace(item.group, where)}))
+			.sort((a, b) => comparePlaces(a.place, b.place) || byFree(a.item, b.item))
+			.map(({item}) => item);
+	}
+
+	return sort === 'free' || !sortItems || !CHECK_SORTS.some((option) => option.value === sort) ? [...kept].sort(byFree) : sortItems(kept, sort);
 }
