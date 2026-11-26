@@ -75,8 +75,8 @@ describe('favorites', () => {
 
 		const marked = await flags(page);
 
-		// All five Charmander copies, English and Portuguese; nothing else.
-		assert.deepEqual(Object.keys(marked).filter((id) => marked[id]).sort(), ['c-02', 'c-03', 'c-04', 'c-05', 'c-06']);
+		// All seven Charmander copies, English and Portuguese; nothing else.
+		assert.deepEqual(Object.keys(marked).filter((id) => marked[id]).sort(), ['c-02', 'c-03', 'c-04', 'c-05', 'c-06', 'c-20', 'c-21']);
 		assert.equal(await page.locator('#favorite-toggle').textContent(), '★');
 		// What the star means, under the copies (Eric, 2026-11-24).
 		await page.locator('#copies-favorite').waitFor(TIMEOUT);
