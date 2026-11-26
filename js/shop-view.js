@@ -31,7 +31,7 @@ import {cardIndex, compareNumbers, importApi, indexKey, pricesDue, printedCode, 
 import {listCards, loadDocument, updateCards} from './collection.js';
 import {BASE, errorText, go, h, segmentCounts} from './dom.js';
 import {formatCount, plural} from './format.js';
-import {languageLabel} from './languages.js';
+import {catalogFor, languageLabel} from './languages.js';
 import {finishLabel} from './monprice.js';
 import {applyMove, parsePrice, priceForInput, PRICE_FORM_TEXT} from './moves.js';
 import {addPhotoButton, mainSlide, slideSrc} from './photos/index.js';
@@ -1459,6 +1459,162 @@ export function shopView(root) {
 		: [item.name, item.number ? `#${item.number}` : null, item.set_name, item.language ? languageLabel(item.language) : null, item.condition,
 			item.kind === 'consigned' ? ['Consigned', consignment.ownerOf(item.listing_id)].filter(Boolean).join(' · ') : null].filter(Boolean).join(' · '));
 
+	// The card's picture over its order line while the pointer rests on it
+	// (Eric, 2026-11-26: to find the card by its picture when its number is
+	// not enough). The copy's own picture, as its tiles show it; a consigned
+	// card, never in the collection, the catalog print in the order's
+	// language. Read once per card while the Shop is open.
+	const orderPictures = new Map();
+
+	async function readOrderPicture(item) {
+		if (item.kind === 'sealed') {
+			return null;
+		}
+
+		const copy = ((orderDoc && orderDoc.cards) || []).find((entry) => entry && entry.id === item.listing_id) || null;
+		const entry = copy
+			? {...copy, catalog: copy.catalog || 'international'}
+			: (item.card_id ? {card_id: item.card_id, catalog: catalogFor(item.language), language: item.language} : null);
+
+		if (!entry) {
+			return null;
+		}
+
+		let records = index;
+
+		if (!records.has(indexKey(entry.catalog, entry.card_id))) {
+			records = (await fillCardRecords([{catalog: entry.catalog, cardId: entry.card_id}], index, () => alive).catch(() => null)) || index;
+		}
+
+		const info = entryInfo(entry, records, item.language || entry.language);
+
+		if (info.full || info.image) {
+			return info.full || info.image;
+		}
+
+		if (copy) {
+			const slide = mainSlide([copy], null);
+
+			if (slide.kind === 'twin' && slide.src) {
+				return slide.src;
+			}
+
+			if (slide.kind === 'photo' && slide.photo) {
+				return slideSrc({photo: slide.photo});
+			}
+		}
+
+		return null;
+	}
+
+	function orderPicture(item) {
+		if (!orderPictures.has(item.listing_id)) {
+			orderPictures.set(item.listing_id, readOrderPicture(item).catch(() => null));
+		}
+
+		return orderPictures.get(item.listing_id);
+	}
+
+	// Shows the picture above the line, or below it when the line is too
+	// near the top of the window. A mouse shows it while it rests on the
+	// line, the keyboard while the box has the focus, and a finger while it
+	// holds the line down (a long press, which then does not tick the box;
+	// a tap still ticks it, and a finger that moves is scrolling).
+	const LONG_PRESS_MS = 450;
+
+	function peekNode(item, label) {
+		const peek = h('img', {alt: '', class: 'shop-order-peek', decoding: 'async', hidden: true});
+		let wanted = false;
+
+		const show = () => {
+			wanted = true;
+			orderPicture(item).then((url) => {
+				if (!wanted || !url || !label.isConnected) {
+					return;
+				}
+
+				if (peek.getAttribute('src') !== url) {
+					peek.src = url;
+				}
+
+				peek.classList.toggle('shop-order-peek-below', label.getBoundingClientRect().top < 300);
+				peek.hidden = false;
+			});
+		};
+		const hide = () => {
+			wanted = false;
+			peek.hidden = true;
+		};
+
+		let press = null;
+		let pressed = false;
+		const endPress = () => {
+			if (press) {
+				clearTimeout(press.timer);
+				press = null;
+			}
+		};
+
+		label.addEventListener('pointerdown', (event) => {
+			if (event.pointerType === 'mouse') {
+				return;
+			}
+
+			endPress();
+			pressed = false;
+			press = {
+				timer: setTimeout(() => {
+					pressed = true;
+					show();
+				}, LONG_PRESS_MS),
+				x: event.clientX,
+				y: event.clientY,
+			};
+		});
+		label.addEventListener('pointermove', (event) => {
+			if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10) {
+				endPress();
+			}
+		});
+		for (const name of ['pointerup', 'pointercancel']) {
+			label.addEventListener(name, (event) => {
+				if (event.pointerType !== 'mouse') {
+					endPress();
+					hide();
+				}
+			});
+		}
+		// The long press opened the picture: the click it ends with leaves
+		// the box as it was, and no menu opens.
+		label.addEventListener('click', (event) => {
+			if (pressed) {
+				pressed = false;
+				event.preventDefault();
+			}
+		});
+		label.addEventListener('contextmenu', (event) => {
+			if (press || pressed) {
+				event.preventDefault();
+			}
+		});
+
+		peek.addEventListener('error', hide);
+		label.addEventListener('pointerenter', (event) => {
+			if (event.pointerType === 'mouse') {
+				show();
+			}
+		});
+		label.addEventListener('pointerleave', hide);
+		label.addEventListener('focusin', (event) => {
+			if (event.target.matches(':focus-visible')) {
+				show();
+			}
+		});
+		label.addEventListener('focusout', hide);
+
+		return peek;
+	}
+
 	// The order's checklist (Eric, 2026-11-26): a box beside each card to
 	// tick it off while putting the order together, so the right cards go
 	// out, and a line counting the ticks. Ticking redraws only the line, so
@@ -1493,6 +1649,8 @@ export function shopView(root) {
 				drawProgress();
 			}, type: 'checkbox'});
 			const label = h('label', {class: `shop-order-check${on ? ' shop-order-checked' : ''}`}, box, h('span', null, text));
+
+			label.append(peekNode(item, label));
 
 			return label;
 		};
