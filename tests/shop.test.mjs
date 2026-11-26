@@ -193,6 +193,18 @@ describe('one price per finish (Eric, 2026-11-24)', () => {
 		assert.deepEqual(listingRows(shopGroups([reverse('a', {sale_price: 8}), normal('bb', {sale_price: 1}), normal('ccc', {sale_price: 1})])).map((row) => row.id), ['ccc'], 'a second normal is a spare and goes back');
 	});
 
+	test('the copy in a binder is its finish\'s keeper, so the loose one is listed in its place (Phantump CRI 038, 2026-11-26)', () => {
+		// Two reverse holos: the one added first is loose, the later one sits in
+		// a binder. The old listing pointed at the binder copy; the publish sends
+		// the loose one, and store_sync withdraws every single it is not sent.
+		const cards = [reverse('a', {sale_price: 3}), reverse('bb', {sale_price: 3})];
+		const rows = listingRows(shopGroups(cards, {held: new Set(['bb'])}));
+
+		assert.deepEqual(rows.map((row) => row.id), ['a']);
+		assert.deepEqual(listingRows(shopGroups(cards)).map((row) => row.id), ['bb'], 'with no binder, the one added first is kept');
+		assert.deepEqual(listingRows(shopGroups(cards, {held: new Set(['a', 'bb'])})), [], 'both in binders: nothing to sell');
+	});
+
 	test('a price typed on one finish goes on that finish\'s copies only', () => {
 		const cards = [normal('a'), normal('bb'), reverse('ccc'), reverse('dddd')];
 		const groups = byFinish(shopGroups(cards));
