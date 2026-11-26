@@ -23,6 +23,17 @@ export const RELEASES = [
 	{
 		date: '2026-11-26',
 		items: [
+			'A copy is a spare only when you have another copy in the same finish. Three normals and one reverse holo are two spare normals, and the reverse holo stays yours.',
+			'This counts everywhere a spare does: Trade, Check spares, the ×N | M on a tile, and the Shop.',
+			'The next time you open the Shop, HOTARU drops any card that was your only copy in its finish.',
+			'Check spares has a Checked button: the card leaves the list and the next one comes up. Show: Checked lists them again.',
+			'A checked card comes back by itself when its copies change.',
+		],
+		version: 'v122',
+	},
+	{
+		date: '2026-11-26',
+		items: [
 			'Consign has its own tab in the Shop, beside Prices, Kits, and Orders, and each consigned card shows what you keep beside its price.',
 			'Consign a card takes you to your cards: open one and its Consign sheet opens by itself, and saving brings you back to the Consign tab.',
 			'A consignor with no cards for sale and nothing owed can be removed, and restored later. Their history stays.',
