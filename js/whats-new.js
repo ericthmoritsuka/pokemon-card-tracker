@@ -23,6 +23,16 @@ export const RELEASES = [
 	{
 		date: '2026-11-26',
 		items: [
+			'Consign has its own tab in the Shop, beside Prices, Kits, and Orders.',
+			'Consign a card takes you to your cards: open one and its Consign sheet opens by itself, and saving brings you back to the Consign tab.',
+			'Each consigned card shows what you keep beside its price.',
+			'A consignor with no cards for sale and nothing owed can be removed, and restored later. Their history stays.',
+		],
+		version: 'v119',
+	},
+	{
+		date: '2026-11-26',
+		items: [
 			'The Shop has three tabs: Prices to price your cards, Kits, and Orders, where Consignment now sits.',
 			'Orders filters All, Unpaid, and Ready: Ready is paid and waiting to be put together and handed over.',
 			'A new order or a Pix receipt shows a message in the app. Turn on alerts in Orders to also hear a chime and get a Chrome notification.',
