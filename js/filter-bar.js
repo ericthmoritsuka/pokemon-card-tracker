@@ -101,6 +101,9 @@ export const BOOLEAN_FILTERS = ['unplaced', 'favorite'];
 // (Eric, 2026-11-26: "more than one set at the same time"); each filter
 // still narrows the others. The rest hold one: a Pokédex range, a price or
 // picture state, or a checkbox.
+// The sheet's note while card details download (detailsPending).
+export const DETAILS_NOTE = 'Regions, Pokédex numbers, types, categories, rarities, and artists fill in as card details download. Cards without them do not match those filters yet.';
+
 export const MULTI_FILTERS = ['set', 'language', 'rarity', 'type', 'category', 'region', 'artist', 'storage'];
 
 export const emptyFilters = () => ({artist: [], category: [], dex: '', favorite: false, language: [], picture: '', price: '', rarity: [], region: [], set: [], storage: [], type: [], unplaced: false});
@@ -604,6 +607,9 @@ export function filterBar({
 	below = [],
 	clearChip = true,
 	countShown = null,
+	// (items) => whether to say that card details are still downloading;
+	// by default, while no item has them yet.
+	detailsPending = null,
 	extra = [],
 	// Pictures needs items that say whether they have a photo and a catalog
 	// picture (js/cards-view.js does), so a screen asks for it by name.
@@ -1066,7 +1072,7 @@ export function filterBar({
 		}
 
 		const options = filterOptions(items, {places});
-		const waiting = items.length && !items.some((item) => item.category);
+		const waiting = detailsPending ? detailsPending(items) : items.length && !items.some((item) => item.category);
 		const active = document.activeElement;
 		// The focused control by id, or a button by its filter and value (a
 		// value may hold a colon: "place:Box A").
@@ -1075,7 +1081,7 @@ export function filterBar({
 			: null;
 
 		slots.get('note').replaceChildren(...(waiting && offered.some((kind) => DETAIL_FILTERS.includes(kind))
-			? [h('p', {class: 'muted fb-note'}, 'Regions, Pokédex numbers, types, categories, rarities, and artists fill in as card details download. Cards without them do not match those filters yet.')]
+			? [h('p', {class: 'muted fb-note'}, DETAILS_NOTE)]
 			: []));
 
 		for (const kind of offered) {
