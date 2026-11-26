@@ -5,8 +5,8 @@ commission. The buyer pays Eric by Pix, as today; Eric then pays the card's owne
 card stays with Eric from the day he receives it until it is delivered or returned, so he never
 depends on anyone else to hold the money or the card.
 
-Status: plan only. Nothing is built until Eric answers the decisions in section 9, relayed by the
-orchestrator session. Release slot: the next free tracker version, gated on a new SQL file Eric
+Status: plan only, with the decisions in section 9 answered by Eric on 2026-11-26. Nothing is
+built until he says to start. Release slot: the next free tracker version, gated on a new SQL file Eric
 runs by hand, plus one HOTARU pull request.
 
 Builds on: `store_listings` (`supabase/store.sql`; `kind` is `single` or `sealed`); `store_sync`
@@ -185,17 +185,20 @@ There is no consignor login in this plan (section 8).
   answers for damage while the card is with Eric, and that the owner can take the card back while
   it is not reserved.
 
-## 9. Decisions for Eric
+## 9. Decisions
 
-1. **Defaults:** 15% with a R$ 5,00 minimum per card (recommended), or 15% with R$ 10,00. Both are
-   editable later in the Shop; this only sets the starting values.
-2. **Buyer sees consignment:** no mark (recommended), or a small "Consignado" tag on the tile.
-3. **Where consigned cards are entered:** the tracker (recommended: it already has the card search,
-   finishes, price suggestions, and picture upload), or HOTARU's `admin.html`.
-4. **When a payout is due:** after the order is marked Delivered (recommended), or as soon as the
-   payment is received.
-5. **Terms per card:** each card copies the consignor's terms and can change them (recommended), or
-   every card always uses the consignor's terms.
+Eric answered 1 to 4 on 2026-11-26, each time choosing the recommended option. Decision 5 was not
+asked, so it stays at the recommended option unless he says otherwise.
+
+1. **Defaults:** 15% with a R$ 5,00 minimum per card. **Chosen.** (The alternative was R$ 10,00.)
+   Both numbers stay editable in the Shop and per consignor, as Eric asked.
+2. **Buyer sees consignment:** no mark. **Chosen.** (The alternative was a "Consignado" tag.)
+3. **Where consigned cards are entered:** the tracker. **Chosen.** (The alternative was HOTARU's
+   `admin.html`.)
+4. **When a payout is due:** after the order is marked Delivered. **Chosen.** (The alternative was
+   as soon as the payment is received.)
+5. **Terms per card:** each card copies the consignor's terms and can change them. Default, not
+   asked.
 
 ## 10. Build Order
 
