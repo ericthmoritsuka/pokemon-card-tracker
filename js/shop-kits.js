@@ -474,12 +474,15 @@ export function openKitSheet({chosen = null, existing = null, kits = [], onSaved
 // check(item, text), when given, draws each card's line with a box to tick
 // it off (js/shop-view.js orderCard); a kit's name is not ticked, its cards
 // are.
+// A consigned card's line is set apart (Eric, 2026-11-26: so it is plain
+// that the card is not his).
 export function orderItemsNode(items, itemLine, check) {
 	const line = (item, text) => (check ? check(item, text) : text);
+	const mark = (item) => (item.kind === 'consigned' ? 'shop-order-consigned' : null);
 
 	return h('ul', {class: `shop-order-items${check ? ' shop-order-checklist' : ''}`}, orderGroups(items).map((one) => (one.kind === 'single'
-		? h('li', null, line(one.item, `${itemLine(one.item)} · ${formatBrl(one.item.price_brl)}`))
+		? h('li', {class: mark(one.item)}, line(one.item, `${itemLine(one.item)} · ${formatBrl(one.item.price_brl)}`))
 		: h('li', {class: 'shop-order-kit'},
 			h('span', {class: 'shop-order-kit-name'}, `Kit ${one.name} · ${formatBrl(one.price)}`),
-			h('ul', null, one.items.map((item) => h('li', null, line(item, itemLine(item)))))))));
+			h('ul', null, one.items.map((item) => h('li', {class: mark(item)}, line(item, itemLine(item)))))))));
 }
