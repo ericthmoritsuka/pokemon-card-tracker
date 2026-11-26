@@ -17,6 +17,16 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-26
 
+- **v119:** a checklist to tick off each card of an order. `ad960b3`, `815c6e3`
+  - Added (Eric: "uma checklist para eu fazer a conferencia das cartas que estou vendendo como checkboxes ao lado das
+    cartas do pedido"): every card line of an order on the Orders tab has a checkbox, a kit's cards included (not
+    the kit's name), and the whole line is the tap target. A ticked line greys, and a line under the cards counts
+    the ticks: Checked 1 of 2, then All 2 checked. The ticks are kept on the device (`cardTracker.orderChecks` in
+    localStorage, by order code and listing ID, `js/store-orders.js`) and forgotten once the order is delivered or
+    cancelled, at the next read of the open orders.
+  - Not covered: the ticks do not travel between devices, and Delivered does not ask about unticked cards.
+  - Suite before release: 170 files, 2,488 pass, 0 fail on the last run of each file. The first pass at six files
+    at a time timed out 27 files under other sessions' load; each passed on a rerun with the machine quiet.
 - **v118:** the Shop in three tabs, an orders filter, and alerts for new orders. `a7242f1`, `e75b936`
   - Changed (Eric: "dentro de shop ... uma sessao para precificar as cartas, uma para kits e uma com pedidos"; orders
     and kits in one column would get confusing as both grow): the Shop is three tabs, Prices (the spares list, the
