@@ -342,6 +342,9 @@ describe('Shop consignment', () => {
 			await openShop(page);
 			await page.locator('#order-HTR-0012').waitFor(TIMEOUT);
 			assert.equal(plain((await page.locator('#order-HTR-0012 .shop-order-items > li').allTextContents())[0]), 'Charizard ex · #006 · Holo · Test Alpha · English · Near Mint · Consigned · Ana · R$ 100,00');
+			// The consigned card's line is set apart from his own cards.
+			assert.equal(await page.locator('#order-HTR-0012 .shop-order-items > li.shop-order-consigned').count(), 1);
+			await page.screenshot({fullPage: true, path: `${SHOTS}/shop-orders-consigned.png`});
 			assert.deepEqual(errors, []);
 			await context.close();
 		}

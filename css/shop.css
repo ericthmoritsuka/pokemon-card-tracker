@@ -380,6 +380,16 @@
 	color: var(--muted);
 }
 
+/* A consigned card in an order (js/shop-kits.js orderItemsNode): someone
+   else's, so its line is tinted and barred apart from his own cards. */
+.shop-order-consigned {
+	background: color-mix(in srgb, var(--yellow) 22%, transparent);
+	border-left: 4px solid var(--yellow);
+	border-radius: 4px;
+	margin: 2px 0;
+	padding-left: var(--space-2);
+}
+
 /* The card's picture over its line (js/shop-view.js peekNode): above the
    line, or below it near the top of the window. A long press shows it on a
    phone, so the line selects no text and opens no menu. */
