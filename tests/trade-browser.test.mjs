@@ -80,7 +80,7 @@ describe('Trade', () => {
 		assert.ok(true);
 	});
 
-	test('lists the spares by the Trade rule: per card and language, beyond the first, whatever the finish', async () => {
+	test('lists the spares by the Trade rule: per card, language, and finish, beyond the first (Eric, 2026-11-26)', async () => {
 		const {context, errors, page} = await phone();
 
 		await page.locator('.tile').first().waitFor(TIMEOUT);
@@ -89,15 +89,16 @@ describe('Trade', () => {
 		assert.match(await summary(page), /^6 copies · 5 cards$/);
 
 		// Sorted by name: Charizard ex keeps the copy added first, so the other
-		// copy is the spare; Charmander EN has three copies (two spares, Near Mint and
-		// Played, the kept copy being the first added), PT has two (one).
+		// copy is the spare; Charmander EN keeps one copy per finish (two spares,
+		// Near Mint with no finish set and the Played Reverse Holofoil), PT keeps
+		// one per finish too (one spare, a Holofoil).
 		await page.selectOption('#cards-sort', 'name');
 
 		const rows = (await spareNames(page)).map(plain);
 
 		assert.equal(rows.length, 5);
 		assert.match(rows[0], /^Charizard ex\|.*1 spare$/);
-		assert.match(rows[1], /^Charmander\|.*2 spares · Played · Near Mint$/);
+		assert.match(rows[1], /^Charmander\|.*2 spares · Near Mint · Played$/);
 		assert.match(rows[2], /^Charmander\|.*1 spare$/);
 		assert.match(rows[3], /^Pikachu\|.*1 spare$/);
 		assert.match(rows[4], /^Pikachu\|.*1 spare$/);
