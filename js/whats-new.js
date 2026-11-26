@@ -23,6 +23,16 @@ export const RELEASES = [
 	{
 		date: '2026-11-26',
 		items: [
+			'Filters take more than one choice: two sets, two languages, or Fire and Water at once. A card shows when it fits any of them.',
+			'Each choice gets its own chip above the list, so you can drop one set and keep the rest.',
+			'Check spares has a search, Filters, and a sort: Most free, Where, Set (oldest or newest), Name, or Pokédex.',
+			'Check spares narrows to one place, a binder, a tray, or loose copies, and shows All cards, With free copies, None free, or Favorites.',
+		],
+		version: 'v120',
+	},
+	{
+		date: '2026-11-26',
+		items: [
 			'Each card of an order in the Shop\'s Orders tab has a box: tick it off as you put the order together, so the right cards go out.',
 			'A kit\'s cards each have their own box, and a line under the cards counts what you have checked.',
 			'The ticks stay on this phone or computer until the order is delivered or cancelled.',
