@@ -332,7 +332,7 @@ describe('Shop consignment', () => {
 
 	test('an order names whose card it holds, and a Shop without the SQL says so', async () => {
 		const items = [
-			{bundle_id: null, bundle_name: null, card_id: 'tsa1-006', condition: 'Near Mint', kind: 'consigned', language: 'en', listing_id: 'cons-1', name: 'Charizard ex', number: '006', price_brl: 100, set_name: 'Test Alpha'},
+			{bundle_id: null, bundle_name: null, card_id: 'tsa1-006', condition: 'Near Mint', finish: 'Holo', kind: 'consigned', language: 'en', listing_id: 'cons-1', name: 'Charizard ex', number: '006', price_brl: 100, set_name: 'Test Alpha'},
 		];
 		const orders = [{code: 'HTR-0012', created_at: new Date().toISOString(), id: '00000000-0000-4000-8000-000000000012', items, name: 'Buyer', note: null, paid_at: null, phone: '81 99999-0000', receipt_at: null, receipt_path: null, reserved_until: new Date(Date.now() + 40 * 3600e3).toISOString(), status: 'pending', total: 100}];
 
@@ -341,7 +341,7 @@ describe('Shop consignment', () => {
 
 			await openShop(page);
 			await page.locator('#order-HTR-0012').waitFor(TIMEOUT);
-			assert.equal(plain((await page.locator('#order-HTR-0012 .shop-order-items > li').allTextContents())[0]), 'Charizard ex · #006 · Test Alpha · English · Near Mint · Consigned · Ana · R$ 100,00');
+			assert.equal(plain((await page.locator('#order-HTR-0012 .shop-order-items > li').allTextContents())[0]), 'Charizard ex · #006 · Holo · Test Alpha · English · Near Mint · Consigned · Ana · R$ 100,00');
 			assert.deepEqual(errors, []);
 			await context.close();
 		}
@@ -352,7 +352,7 @@ describe('Shop consignment', () => {
 			await openShop(page);
 			await page.locator('#shop-consign-problem').waitFor(TIMEOUT);
 			assert.equal(await text(page.locator('#shop-consign-problem')), 'Consignment is not set up yet: run supabase/store-consignment.sql in the Supabase SQL Editor.');
-			assert.equal(plain((await page.locator('#order-HTR-0012 .shop-order-items > li').allTextContents())[0]), 'Charizard ex · #006 · Test Alpha · English · Near Mint · Consigned · R$ 100,00');
+			assert.equal(plain((await page.locator('#order-HTR-0012 .shop-order-items > li').allTextContents())[0]), 'Charizard ex · #006 · Holo · Test Alpha · English · Near Mint · Consigned · R$ 100,00');
 			assert.deepEqual(errors, []);
 			await context.close();
 		}

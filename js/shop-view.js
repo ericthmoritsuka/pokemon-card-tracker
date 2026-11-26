@@ -1452,11 +1452,23 @@ export function shopView(root) {
 		}
 	}
 
-	// A card names its number and condition; a sealed product (step 4) its
-	// kind; a consigned card whose it is.
+	// A card names its number, finish, and condition; a sealed product
+	// (step 4) its kind; a consigned card whose it is. The finish (Eric,
+	// 2026-11-26: without it, which copy to pull is hard to tell) is the one
+	// the listing was published with, or, on a listing published without
+	// one, the copy's own as the Shop names it.
+	const itemFinish = (item) => {
+		if (item.finish) {
+			return item.finish;
+		}
+
+		const copy = ((orderDoc && orderDoc.cards) || []).find((entry) => entry && entry.id === item.listing_id);
+
+		return copy ? finishName(copy, {card_id: copy.card_id, catalog: copy.catalog || 'international'}) : null;
+	};
 	const itemLine = (item) => (item.kind === 'sealed'
 		? [item.name, item.set_name, item.language ? languageLabel(item.language) : null, 'Sealed'].filter(Boolean).join(' · ')
-		: [item.name, item.number ? `#${item.number}` : null, item.set_name, item.language ? languageLabel(item.language) : null, item.condition,
+		: [item.name, item.number ? `#${item.number}` : null, itemFinish(item), item.set_name, item.language ? languageLabel(item.language) : null, item.condition,
 			item.kind === 'consigned' ? ['Consigned', consignment.ownerOf(item.listing_id)].filter(Boolean).join(' · ') : null].filter(Boolean).join(' · '));
 
 	// The card's picture over its order line while the pointer rests on it

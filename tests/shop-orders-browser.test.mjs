@@ -239,6 +239,14 @@ describe('Shop orders', () => {
 		assert.equal(await text(order(page, 'HTR-0006').locator('.shop-order-state')), 'Paid · to hand over');
 		assert.equal(await order(page, 'HTR-0006').locator('button:has-text("Log the sale")').count(), 1);
 		assert.equal(await text(order(page, 'HTR-0007').locator('.shop-order-total')), 'Total R$ 5,00');
+
+		// Each card names its finish: the listing's, or on a listing
+		// published without one, the copy's (c-03 is a Reverse Holofoil;
+		// c-04 has none set, so its line names none).
+		assert.deepEqual((await order(page, 'HTR-0007').locator('.shop-order-items > li').allTextContents()).map(plain), [
+			'Charmander · #004 · Reverse Holofoil · Test Alpha · English · Near Mint · R$ 2,50',
+			'Charmander · #004 · Test Alpha · English · Near Mint · R$ 2,50',
+		]);
 		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-orders-list.png`});
 
 		// The receipt opens in a new tab through a signed link.
