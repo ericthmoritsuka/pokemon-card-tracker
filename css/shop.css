@@ -491,6 +491,36 @@
 	color: var(--muted, inherit);
 }
 
+/* Paying a consignor: the Pix copia e cola code's QR, white in either
+   theme so a bank app reads it. */
+.shop-pix,
+.shop-pix-problem {
+	flex-basis: 100%;
+}
+
+.shop-pix {
+	display: grid;
+	gap: var(--space-2);
+	justify-items: start;
+}
+
+.shop-pix p {
+	margin: 0;
+}
+
+.shop-pix-qr {
+	background: #fff;
+	border-radius: 8px;
+	padding: 4px;
+	width: min(220px, 70vw);
+}
+
+.shop-pix-qr svg {
+	display: block;
+	height: auto;
+	width: 100%;
+}
+
 .shop-order-kit ul {
 	margin: 0;
 	padding-left: 1.2em;

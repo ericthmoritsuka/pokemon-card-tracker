@@ -224,7 +224,21 @@ describe('Shop consignment', () => {
 
 		// Pay: the Pix key, then Mark paid for the due payouts.
 		await page.click(`#shop-consign-pay-${ANA}`);
-		assert.match(await text(ana.locator('.shop-kit-ask')), /^Send R\$ 85,00 by Pix to Ana \(ana@example\.test\), then mark it paid\.$/);
+		assert.match(await text(ana.locator('.shop-kit-ask')), /^Send R\$ 85,00 to Ana by Pix, then mark it paid\.$/);
+		assert.equal(await text(ana.locator('.shop-pix-key')), 'Email ana@example.test. Your bank app shows the key\'s holder: check it is Ana before paying.');
+
+		// The QR, drawn by the vendored library, and the copia e cola code.
+		await ana.locator('.shop-pix-qr svg').waitFor(TIMEOUT);
+		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-consignment-pay.png`});
+		await ana.locator('.shop-pix-copy').click();
+		await page.waitForFunction(() => navigator.clipboard.readText().then((value) => value.startsWith('000201')), null, TIMEOUT);
+
+		const code = await page.evaluate(() => navigator.clipboard.readText());
+
+		assert.ok(code.includes('0014br.gov.bcb.pix0116ana@example.test'), 'Ana\'s key');
+		assert.ok(code.includes('540585.00'), 'R$ 85,00');
+		assert.ok(code.includes('5903ANA'), 'Ana\'s name');
+		assert.equal(code, await ana.locator('.shop-pix').getAttribute('data-code'));
 		await page.click(`#shop-consign-paid-${ANA}`);
 		await page.waitForFunction((id) => !document.getElementById(`shop-consign-pay-${id}`) && /R\$\s85,00 paid/.test(document.querySelector(`#consignor-${id} .shop-consignor-balances`).textContent), ANA, TIMEOUT);
 		assert.deepEqual(store.calls.find(([name]) => name === 'mark_payouts_paid')[1], {ids: ['p-1'], note: null});

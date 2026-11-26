@@ -290,6 +290,8 @@ const SHELL = [
 	'js/kits.js',
 	'js/shop-consignment.js',
 	'js/consignment.js',
+	'js/pix.js',
+	'vendor/qrcode-generator-1.4.4.min.js',
 	'js/shop-owner.js',
 	'js/set-picker.js',
 	'js/store-publish.js',

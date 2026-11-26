@@ -20,6 +20,7 @@ import {h} from './dom.js';
 import {CARD_STATES, PAYOUT_STATES, consignedRecord, consignorParts, ownersByListing, parsePercent, split, statementText, termsFor, termsText} from './consignment.js';
 import {plural} from './format.js';
 import {parsePrice, priceForInput} from './moves.js';
+import {brCode, pixKey} from './pix.js';
 import {finishName, formatBrl} from './prices.js';
 import {CONDITIONS} from './scan/session.js';
 import {openDialogSheet} from './sheet.js';
@@ -85,6 +86,77 @@ function splitText(price, terms, who) {
 	const parts = split(price, terms.commission_pct, terms.min_commission_brl);
 
 	return `Buyer pays ${brl(parts.price)} · ${who || 'The owner'} gets ${brl(parts.payout)} · You keep ${brl(parts.commission)}`;
+}
+
+// The QR library (vendor/qrcode-generator-1.4.4.min.js, the one HOTARU's
+// Pix uses), read the first time a payment is shown. Resolves to its
+// qrcode function, or null when it could not be read (offline, say): the
+// copia e cola code still works without it.
+let qrLoading = null;
+
+function loadQr() {
+	if (window.qrcode) {
+		return Promise.resolve(window.qrcode);
+	}
+
+	if (!qrLoading) {
+		qrLoading = new Promise((resolve) => {
+			const script = document.createElement('script');
+
+			script.src = new URL('../vendor/qrcode-generator-1.4.4.min.js', import.meta.url).href;
+			script.onload = () => resolve(window.qrcode || null);
+			script.onerror = () => {
+				qrLoading = null;
+				resolve(null);
+			};
+			document.head.append(script);
+		});
+	}
+
+	return qrLoading;
+}
+
+// What paying a consignor shows: the Pix copia e cola code for the amount,
+// with a QR for paying from another phone, and the key as it was read.
+function pixPanel(person, amount, toast) {
+	const read = person.pix_key ? pixKey(person.pix_key) : {error: `No Pix key for ${person.name} yet: add one with Edit details.`};
+	let code = null;
+
+	if (!read.error) {
+		try {
+			code = brCode({amount, description: 'HOTARU repasse', key: read.key, name: person.name});
+		}
+		catch (err) {
+			read.error = err.message;
+		}
+	}
+
+	if (!code) {
+		return h('p', {class: 'status shop-pix-problem'}, read.error);
+	}
+
+	const qr = h('div', {'aria-label': `Pix QR code for ${brl(amount)} to ${person.name}`, class: 'shop-pix-qr', role: 'img'});
+
+	loadQr().then((qrcode) => {
+		if (!qrcode) {
+			qr.hidden = true;
+
+			return;
+		}
+
+		const made = qrcode(0, 'M');
+
+		made.addData(code);
+		made.make();
+		// An SVG the library makes from the code above, which holds only
+		// characters js/pix.js wrote.
+		qr.innerHTML = made.createSvgTag({margin: 2, scalable: true});
+	});
+
+	return h('div', {class: 'shop-pix', 'data-code': code},
+		qr,
+		h('p', {class: 'muted shop-pix-key'}, `${read.label}. Your bank app shows the key's holder: check it is ${person.name} before paying.`),
+		h('button', {class: 'small primary shop-pix-copy', onclick: async () => toast(await copyText(code) ? 'Pix code copied. Paste it in your bank app\'s Pix copia e cola.' : 'The Pix code could not be copied.'), type: 'button'}, 'Copy Pix code'));
 }
 
 async function copyText(text) {
@@ -222,8 +294,8 @@ export function consignmentSection({go, onLoad = () => {}, toast}) {
 		const paying = asking.get(person.id) === 'pay';
 		const actions = paying
 			? [
-				h('p', {class: 'shop-kit-ask'}, `Send ${brl(person.due_brl)} by Pix to ${person.name}${person.pix_key ? ` (${person.pix_key})` : ''}, then mark it paid.`),
-				person.pix_key ? h('button', {class: 'small', onclick: async () => toast(await copyText(person.pix_key) ? 'Pix key copied.' : 'The Pix key could not be copied.'), type: 'button'}, 'Copy Pix key') : null,
+				h('p', {class: 'shop-kit-ask'}, `Send ${brl(person.due_brl)} to ${person.name} by Pix, then mark it paid.`),
+				pixPanel(person, Number(person.due_brl), toast),
 				h('button', {class: 'small', disabled: busy, id: `shop-consign-paid-${person.id}`, onclick: () => act(person.id, async () => {
 					asking.delete(person.id);
 					await markPayoutsPaid(due.map((payout) => payout.id));
@@ -446,6 +518,14 @@ export function openConsignorSheet({existing = null, onSaved = () => {}, setting
 			return;
 		}
 
+		if (pix.value.trim() && pixKey(pix.value).error) {
+			error.textContent = pixKey(pix.value).error;
+			error.hidden = false;
+			pix.focus();
+
+			return;
+		}
+
 		saveButton.disabled = true;
 
 		try {
@@ -606,6 +686,10 @@ export async function openConsignSheet({card = null, existing = null, finishes =
 
 		if (consignor.value === NEW && !newName.value.trim()) {
 			return fail('Type the consignor\'s name.', newName);
+		}
+
+		if (consignor.value === NEW && newPix.value.trim() && pixKey(newPix.value).error) {
+			return fail(pixKey(newPix.value).error, newPix);
 		}
 
 		if (typed.error || typed.value === null) {

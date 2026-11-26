@@ -26,7 +26,7 @@ export const RELEASES = [
 			'Consign: sell someone else\'s card on HOTARU for a commission. Tap Consign on the card\'s page; it never enters your collection.',
 			'The commission comes out of the price: 15%, at least R$ 5,00 a card. Change it for the shop, for one person, or for one card.',
 			'The Shop\'s Consignment section lists each person\'s cards and what you owe them, and copies a statement to send on WhatsApp.',
-			'Once an order is paid and delivered, Pay shows what to send by Pix, and Mark paid records it.',
+			'Once an order is paid and delivered, Pay shows a Pix QR code and copia e cola for what you owe, from the person\'s Pix key. Mark paid records it.',
 		],
 		version: 'v117',
 	},
