@@ -54,10 +54,11 @@ function readOwn() {
 			show: SHOWS.some((option) => option.value === saved.show) ? saved.show : 'all',
 			sort: CHECK_SORTS.some((option) => option.value === saved.sort) ? saved.sort : 'free',
 			where: typeof saved.where === 'string' && saved.where ? saved.where : ANY,
+			whereLabel: typeof saved.whereLabel === 'string' ? saved.whereLabel : '',
 		};
 	}
 	catch {
-		return {show: 'all', sort: 'free', where: ANY};
+		return {show: 'all', sort: 'free', where: ANY, whereLabel: ''};
 	}
 }
 
@@ -134,6 +135,14 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		pick('where', whereSelect);
 		pick('show', showSelect);
 
+		// The place's name, kept for when no card there is left to check.
+		whereSelect.addEventListener('change', () => {
+			const picked = whereSelect.selectedOptions[0];
+
+			own.whereLabel = picked && own.where !== ANY ? picked.dataset.label || '' : '';
+			writeOwn(own);
+		});
+
 		const made = filterBar({
 			below: [h('div', {class: 'fb-row check-narrow'},
 				h('span', {class: 'select-wrap'}, whereSelect),
@@ -148,6 +157,7 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 			},
 			onClearAll: () => {
 				own.where = ANY;
+				own.whereLabel = '';
 				own.show = 'all';
 				writeOwn(own);
 				showSelect.value = own.show;
@@ -160,14 +170,15 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		made.drawWhere = () => {
 			const options = whereOptions(groups);
 
-			// A place chosen before stays chosen, at 0, until changed.
+			// A place chosen stays chosen, at 0, once every card there is
+			// checked, until another is picked.
 			if (own.where !== ANY && !options.some((one) => one.value === own.where)) {
-				options.push({count: 0, label: 'The place picked before', value: own.where});
+				options.push({count: 0, label: own.whereLabel || 'The place picked before', value: own.where});
 			}
 
 			whereSelect.replaceChildren(
 				h('option', {value: ANY}, 'Anywhere'),
-				...options.map((one) => h('option', {value: one.value}, `${one.label} · ${plural(one.count, 'copy', 'copies')}`))
+				...options.map((one) => h('option', {'data-label': one.label, value: one.value}, `${one.label} · ${plural(one.count, 'copy', 'copies')}`))
 			);
 			whereSelect.value = own.where;
 		};
