@@ -449,6 +449,36 @@ describe('filters and sorts', () => {
 
 		await pick('set', 'international|tsb2');
 		assert.deepEqual(await names(page), ['Pikachu', 'Sprigatito']);
+
+		// A second set at once (Eric, 2026-11-26): either set's cards, a chip
+		// each, and the select offers the sets not chosen yet.
+		await pick('set', 'ja|TSJ1');
+		assert.deepEqual(await names(page), ['Pikachu', 'Pikachu', 'Sprigatito']);
+		assert.equal(await page.locator('.fb-chip[data-filter="set"]').count(), 2);
+		assert.equal(plain(await page.locator('#cards-filters').textContent()), 'Filters · 2');
+		await openFilters(page);
+		const setOptions = await page.$$eval('#cards-f-set option', (list) => list.map((option) => option.value));
+		assert.equal(setOptions[0], '');
+		assert.ok(!setOptions.includes('international|tsb2') && !setOptions.includes('ja|TSJ1'), 'the chosen sets are not offered again');
+		assert.equal(await page.locator('#cards-f-set option').first().textContent(), 'Add another set');
+		assert.equal(await page.locator('#cards-sheet [data-filter="set"] .fb-picked-chip').count(), 2);
+		// Removing one in the sheet keeps the other, and the focus.
+		await page.click('#cards-sheet [data-filter="set"] .fb-picked-chip[data-value="ja|TSJ1"]');
+		assert.equal(await page.locator('#cards-sheet [data-filter="set"] .fb-picked-chip').count(), 1);
+		assert.ok(await page.evaluate(() => document.getElementById('cards-sheet').contains(document.activeElement)), 'the focus stays in the sheet');
+		await closeFilters(page);
+		assert.deepEqual(await names(page), ['Pikachu', 'Sprigatito']);
+		await pick('set', 'ja|TSJ1');
+		await page.click('.fb-chip[data-value="international|tsb2"]');
+		assert.deepEqual(await names(page), ['Pikachu'], 'a top chip removes its set alone');
+		await clear();
+
+		// Two energy types at once: each button turns its own on or off.
+		await pick('type', 'Fire');
+		await pick('type', 'Lightning');
+		assert.deepEqual(await names(page), ['Charizard ex', 'Charmander', 'Charmander', 'Pikachu', 'Pikachu']);
+		await pick('type', 'Fire');
+		assert.deepEqual(await names(page), ['Pikachu', 'Pikachu'], 'a second tap turns Fire off');
 		await clear();
 
 		await pick('rarity', 'Double rare');
@@ -520,7 +550,7 @@ describe('filters and sorts', () => {
 
 		const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('cardTracker.cardsChoice')));
 
-		assert.deepEqual({sort: saved.sort, type: saved.filters.type}, {sort: 'dex', type: 'Fire'});
+		assert.deepEqual({sort: saved.sort, type: saved.filters.type}, {sort: 'dex', type: ['Fire']}, 'a filter that takes several values is saved as a list');
 
 		// A broken saved choice falls back to the defaults.
 		await page.evaluate(() => localStorage.setItem('cardTracker.cardsChoice', '{not json'));
@@ -828,22 +858,28 @@ describe('layout', () => {
 				await page.selectOption('#cards-f-set', 'ja|TSJ1');
 				await page.click('#cards-sheet [data-filter="type"] [data-value="Fire"]');
 
-				// A Japanese set name longer than the select reads in full,
-				// in Japanese, on two lines; the select stays the labeled
-				// control and grows with it.
+				// A chosen Japanese set name longer than the sheet reads in
+				// full, in Japanese, in its chip under the select, which
+				// stays the labeled control and offers another set.
 				const set = await page.evaluate(() => {
 					const select = document.getElementById('cards-f-set');
-					const shown = select.parentElement.querySelector('.fb-select-text');
-					const style = getComputedStyle(shown);
-					const lines = Math.round((shown.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)) / parseFloat(style.lineHeight));
+					const chip = document.querySelector('#cards-sheet [data-filter="set"] .fb-picked-chip');
+					const name = chip.querySelector('span');
 
-					return {hidden: shown.getAttribute('aria-hidden'), label: select.labels[0].textContent, lang: shown.lang, lines, text: shown.textContent, tall: select.getBoundingClientRect().height};
+					return {
+						clipped: name.scrollWidth > name.clientWidth + 1,
+						first: select.selectedOptions[0].textContent,
+						label: select.labels[0].textContent,
+						lang: name.lang,
+						overflows: chip.getBoundingClientRect().right > document.documentElement.clientWidth,
+						tall: select.getBoundingClientRect().height,
+						text: name.textContent,
+					};
 				});
 
 				assert.equal(set.text, 'テスト強化拡張パック テストカード151 (1)');
-				assert.deepEqual([set.label, set.hidden, set.lang], ['Set', 'true', 'ja']);
-				assert.ok(set.lines <= 2, `the set name takes ${set.lines} lines`);
-				assert.ok(viewport.width > 360 || set.lines === 2, 'at 360 px it wraps rather than being cut');
+				assert.deepEqual([set.label, set.lang, set.first], ['Set', 'ja', 'Add another set']);
+				assert.ok(!set.clipped && !set.overflows, 'the set name wraps rather than being cut');
 				assert.ok(set.tall >= 48, `the select is ${set.tall} px tall`);
 				await page.screenshot({path: `${SHOTS}/my-cards-filters-${viewport.width}-${colorScheme}.png`});
 				await selectsFit(page, 'the filters sheet');

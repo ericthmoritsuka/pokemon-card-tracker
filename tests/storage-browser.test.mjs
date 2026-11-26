@@ -391,8 +391,10 @@ describe('Stored in on My Cards', () => {
 		await page.waitForFunction(() => /^2 of [\d,]+ copies · 2 cards$/.test(document.getElementById('cards-summary').textContent));
 		assert.deepEqual(await stored(page), {'c-1': 'Box A', 'c-2': 'Box A', 'c-3': null, 'c-4': null});
 
-		// A place filter counts only the copies stored there.
+		// A place filter counts only the copies stored there. Not set is
+		// still on, and places add up, so it comes off first.
 		await page.click('#cards-filters');
+		await page.click('#cards-sheet [data-filter="storage"] .fb-picked-chip[data-value="none"]');
 		await page.selectOption('#cards-f-storage', 'place:Box A');
 		await page.click('#cards-sheet .fb-show');
 		await page.waitForFunction(() => /^2 of [\d,]+ copies · 1 card$/.test(document.getElementById('cards-summary').textContent));
