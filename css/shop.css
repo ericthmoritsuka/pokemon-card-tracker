@@ -474,6 +474,23 @@
 	font-weight: 600;
 }
 
+/* Consignment (js/shop-consignment.js, plans/hotaru-consignment-plan.md):
+   other people's cards sold for a commission. It reuses the Kits styles;
+   the commission's two fields line up under the wider "R$ min". */
+.shop-consign .shop-kit-unit,
+#consign-sheet .shop-kit-unit,
+#consignor-sheet .shop-kit-unit {
+	min-width: 4.2em;
+}
+
+.shop-consigned + .shop-consigned {
+	margin-top: var(--space-1);
+}
+
+.shop-consigned-off .shop-consigned-line {
+	color: var(--muted, inherit);
+}
+
 .shop-order-kit ul {
 	margin: 0;
 	padding-left: 1.2em;

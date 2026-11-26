@@ -1883,6 +1883,34 @@ export function cardView(root, {lang, cardId}) {
 		}), type: 'button'}, 'Add a copy');
 	}
 
+	// Consign (plans/hotaru-consignment-plan.md): someone else's card of
+	// this print goes on HOTARU, never into the collection. The shop's owner
+	// only; the sheet is read when the button is tapped.
+	function consignButton(card, variants) {
+		if (shopOwnerKnown() !== true) {
+			return null;
+		}
+
+		return h('button', {class: 'small copy-consign', id: 'copy-consign', onclick: () => {
+			import('./shop-consignment.js')
+				.then((consign) => consign.openConsignSheet({
+					card: {
+						card_id: cardId,
+						catalog: catalogFor(lang),
+						language: lang,
+						name: mainName(shownNames(card)),
+						number: card.localId || null,
+						pictureBase: card.image || null,
+						rarity: card.rarity || null,
+						set_name: (card.set && card.set.name) || null,
+					},
+					finishes: finishChoices(variants),
+					toast,
+				}))
+				.catch((err) => toast(`Consign did not open. ${errorText(err)}`));
+		}, type: 'button'}, 'Consign');
+	}
+
 	// Tick the collections these copies are in (js/collections-view.js, read
 	// when the button is tapped, so card detail loads without it).
 	function collectButton(live, shownName) {
@@ -2015,7 +2043,8 @@ export function cardView(root, {lang, cardId}) {
 			copies.hidden = false;
 			copies.replaceChildren(h('div', {class: 'copies-head'},
 				h('h3', {id: 'copies-title'}, member ? `Not in ${memberLabel(member)}'s cards` : 'Not in your cards'),
-				readOnly ? null : addButton(card, variants)
+				readOnly ? null : addButton(card, variants),
+				readOnly ? null : consignButton(card, variants)
 			), ...cardNotes(recordsOfCard(cardRecords(), {card_id: cardId, catalog: catalogFor(lang)})), movesSlot);
 
 			return;
@@ -2124,7 +2153,8 @@ export function cardView(root, {lang, cardId}) {
 			h('div', {class: 'copies-head'},
 				titleBlock(h('h3', {id: 'copies-title'}, `${whose()} copies (${live.length})`), checkLink(live)),
 				favoriteControl(live),
-				readOnly ? null : addButton(card, variants)
+				readOnly ? null : addButton(card, variants),
+				readOnly ? null : consignButton(card, variants)
 			),
 			h('ul', {class: readOnly ? 'variants copy-rows' : 'variants copy-rows editable'}, [...groups.values()].map((group) =>
 				readOnly

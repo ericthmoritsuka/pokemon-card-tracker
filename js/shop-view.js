@@ -38,6 +38,7 @@ import {addPhotoButton, mainSlide, slideSrc} from './photos/index.js';
 import {euroRates, exchangeRates, extractPrices, finishFits, finishOf, formatBrl, savedEuroRates, savedRates} from './prices.js';
 import {PRICE_FILTERS, forSalePatches, groupCopy, groupMark, hasCards, listingRows, orderCheck, ownPicturePath, priceFilter, pricePatches, saleFields, shopGroups, shopKey, shopTotals, storePicturePath, suggestion, timeLeft, undoForSalePatches, undoPricePatches} from './shop.js';
 import {setPicker} from './set-picker.js';
+import {consignmentSection} from './shop-consignment.js';
 import {kitsSection, openKitSheet, orderItemsNode} from './shop-kits.js';
 import {checkShopOwner, onShopOwner, setAddAndSell, shopOwnerKnown} from './shop-owner.js';
 import {openDialogSheet} from './sheet.js';
@@ -155,6 +156,13 @@ export function shopView(root) {
 	// Kits (plans/hotaru-bundles-plan.md): several cards sold together,
 	// made from the ticked cards (js/shop-kits.js).
 	const kits = kitsSection({finishText: (group) => finishName(groupCopy(group), group), groups: () => groups, toast});
+	// Consignment (plans/hotaru-consignment-plan.md): other people's cards,
+	// sold for a commission, kept on the server only (js/shop-consignment.js).
+	const consignment = consignmentSection({go, onLoad: () => {
+		if (orders.length) {
+			drawOrders();
+		}
+	}, toast});
 
 	// HOTARU's sealed products are added on its own admin page, which signs
 	// in with this app's session (Eric, 2026-11-24). Shown once the server
@@ -181,6 +189,7 @@ export function shopView(root) {
 		sealedAdmin.hidden = owner !== true;
 		sellMore.hidden = owner !== true;
 		kits.setOwner(owner);
+		consignment.setOwner(owner);
 	};
 	const stopOwner = onShopOwner(drawOwner);
 
@@ -293,6 +302,7 @@ export function shopView(root) {
 		publishLine,
 		ordersBox,
 		kits.node,
+		consignment.node,
 		h('div', {class: 'shop-controls'}, search, filter, h('div', {class: 'shop-selects'}, setSelect.node, raritySelect, finishSelect)),
 		bulk,
 		bulkError,
@@ -1255,7 +1265,9 @@ export function shopView(root) {
 		}
 
 		try {
-			const [found, doc] = await Promise.all([openOrders(), loadDocument()]);
+			// Read with the orders: a paid or delivered order changes what
+			// consignors are owed, and an order names whose card it holds.
+			const [found, doc] = await Promise.all([openOrders(), loadDocument(), consignment.load().catch(() => null)]);
 
 			if (!alive) {
 				return;
@@ -1282,10 +1294,12 @@ export function shopView(root) {
 		}
 	}
 
-	// A card names its number and condition; a sealed product (step 4) its kind.
+	// A card names its number and condition; a sealed product (step 4) its
+	// kind; a consigned card whose it is.
 	const itemLine = (item) => (item.kind === 'sealed'
 		? [item.name, item.set_name, item.language ? languageLabel(item.language) : null, 'Sealed'].filter(Boolean).join(' · ')
-		: [item.name, item.number ? `#${item.number}` : null, item.set_name, item.language ? languageLabel(item.language) : null, item.condition].filter(Boolean).join(' · '));
+		: [item.name, item.number ? `#${item.number}` : null, item.set_name, item.language ? languageLabel(item.language) : null, item.condition,
+			item.kind === 'consigned' ? ['Consigned', consignment.ownerOf(item.listing_id)].filter(Boolean).join(' · ') : null].filter(Boolean).join(' · '));
 
 	function orderCard(order) {
 		const {logged, missing} = orderCheck(order, orderDoc);
@@ -1669,6 +1683,7 @@ export function shopView(root) {
 		alive = false;
 		stopOwner();
 		kits.stop();
+		consignment.stop();
 		window.removeEventListener('beforeunload', warnUnsaved);
 		document.removeEventListener('visibilitychange', ordersOnReturn);
 
