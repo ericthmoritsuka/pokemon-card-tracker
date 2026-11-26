@@ -1137,7 +1137,7 @@ describe('the app shell', () => {
 			return (await cache.keys()).map((request) => new URL(request.url).pathname);
 		}, `card-tracker-shell-${version}`);
 
-		for (const file of ['vendor/supabase-js.js', 'js/sync.js', 'js/auth.js', 'js/merge.js', 'js/account-views.js', 'js/shell.js', 'js/tile.js', 'js/card-swipe.js', 'js/scan/routes.js', 'js/scan/view.js', 'lab/vendor/tesseract/tesseract.esm.min.js', 'js/photos/index.js', 'css/scan.css', 'css/photos.css', 'js/shop-owner.js', 'js/shop-kits.js', 'js/kits.js', 'js/spare-check.js', 'js/spare-check-view.js', 'js/set-picker.js', 'vendor/fonts/poppins-latin-400-normal.woff2']) {
+		for (const file of ['vendor/supabase-js.js', 'js/sync.js', 'js/auth.js', 'js/merge.js', 'js/account-views.js', 'js/shell.js', 'js/tile.js', 'js/card-swipe.js', 'js/scan/routes.js', 'js/scan/view.js', 'lab/vendor/tesseract/tesseract.esm.min.js', 'js/photos/index.js', 'css/scan.css', 'css/photos.css', 'js/shop-owner.js', 'js/shop-kits.js', 'js/kits.js', 'js/shop-consignment.js', 'js/consignment.js', 'js/spare-check.js', 'js/spare-check-view.js', 'js/set-picker.js', 'vendor/fonts/poppins-latin-400-normal.woff2']) {
 			assert.ok(cached.includes(`${BASE}${file}`), `${file} is precached`);
 		}
 

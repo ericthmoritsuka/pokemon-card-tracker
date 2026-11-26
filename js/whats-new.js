@@ -21,6 +21,16 @@ import {toast} from './shell.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-26',
+		items: [
+			'Consign: sell someone else\'s card on HOTARU for a commission. Tap Consign on the card\'s page; it never enters your collection.',
+			'The commission comes out of the price: 15%, at least R$ 5,00 a card. Change it for the shop, for one person, or for one card.',
+			'The Shop\'s Consignment section lists each person\'s cards and what you owe them, and copies a statement to send on WhatsApp.',
+			'Once an order is paid and delivered, Pay shows what to send by Pix, and Mark paid records it.',
+		],
+		version: 'v117',
+	},
+	{
 		date: '2026-11-25',
 		items: [
 			'A card you own more than once shows how many copies are free beside the count: ×3 | 1 is three copies, one free to trade or sell.',
