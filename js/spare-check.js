@@ -222,21 +222,55 @@ export function whereOptions(groups) {
 		.map(({count, label, value}) => ({count, label, value}));
 }
 
-// Show: every group, the ones with a free copy, the ones with none, or the
-// favorite cards, whose copies all stay (they are never spares).
+// Show: every group, the ones with a free copy, the ones with none, the
+// favorite cards, whose copies all stay (they are never spares), or the
+// cards marked Checked, which every other choice leaves out.
 export const SHOWS = [
 	{label: 'All cards', value: 'all'},
 	{label: 'With free copies', value: 'free'},
 	{label: 'None free', value: 'nofree'},
 	{label: 'Favorites', value: 'favorite'},
+	{label: 'Checked', value: 'checked'},
 ];
 
 const showMatches = {
 	all: () => true,
+	checked: () => true,
 	favorite: (group) => group.favorite === true,
 	free: (group) => group.free > 0,
 	nofree: (group) => group.free === 0,
 };
+
+// ------------------------------------------------------------- Checked
+//
+// Eric, 2026-11-26: a card whose copies are all where the list says leaves
+// the list once he marks it Checked, so the next card comes up. The mark
+// is only a note on this phone, {group key: signature}: it changes no copy,
+// so a favorite stays a favorite and nothing turns free or for sale. The
+// signature is the card's copy IDs, so a card comes back when a copy is
+// added or goes (the list it was checked against no longer holds).
+
+export const checkedSignature = (group) => group.rows.map((row) => String(row.entry.id)).sort().join(',');
+
+export const isChecked = (group, checked) => Boolean(checked) && Object.hasOwn(checked, group.key) && checked[group.key] === checkedSignature(group);
+
+// The marks that still hold for the groups of a whole list, so a mark on
+// a card whose copies changed is forgotten. Only for the whole list: one
+// card's check has the groups of that card alone.
+export function keepChecked(groups, checked) {
+	const kept = {};
+
+	for (const group of groups) {
+		if (isChecked(group, checked)) {
+			kept[group.key] = checked[group.key];
+		}
+	}
+
+	return kept;
+}
+
+// The groups Checked or not, as Show picks: the Where choices count these.
+export const checkedPool = (groups, {checked = null, show = 'all'} = {}) => groups.filter((group) => isChecked(group, checked) === (show === 'checked'));
 
 // The sorts, the bar's (js/filter-bar.js sortItems) and two of Check
 // spares' own: the most free copies first, as the screen opened before
@@ -284,8 +318,11 @@ function comparePlaces(a, b) {
 // as the bar's search and filters left them (the view applies those, so
 // this module needs no page). sortItems: the bar's sort
 // (js/filter-bar.js), for the sorts that are not Check spares' own.
-export function narrowChecks(items, {show = 'all', sort = 'free', sortItems = null, where = ANY} = {}) {
+// checked: the marks (see Checked above); a card marked Checked shows
+// under Show: Checked only.
+export function narrowChecks(items, {checked = null, show = 'all', sort = 'free', sortItems = null, where = ANY} = {}) {
 	const kept = items
+		.filter((item) => isChecked(item.group, checked) === (show === 'checked'))
 		.filter((item) => (showMatches[show] || showMatches.all)(item.group))
 		.filter((item) => where === ANY || item.group.rows.some((row) => rowWheres(row).includes(where)));
 
