@@ -363,7 +363,7 @@ describe('Shop kits', () => {
 	test('an order lists a kit\'s cards under the kit, and a Shop without the kits SQL says so', async () => {
 		const items = [
 			{bundle_id: null, bundle_name: null, card_id: 'tsb2-025', condition: null, kind: 'single', language: 'en', listing_id: 'c-10', name: 'Pikachu', number: '025', price_brl: 5, set_name: 'Test Alpha'},
-			{bundle_id: 'k3', bundle_name: 'Duo', card_id: 'tsa1-004', condition: 'Near Mint', kind: 'single', language: 'en', listing_id: 'c-04', name: 'Charmander', number: '004', price_brl: 4.75, set_name: 'Test Alpha'},
+			{bundle_id: 'k3', bundle_name: 'Duo', card_id: 'tsa1-004', condition: 'Near Mint', finish: 'Reverse Holo', kind: 'single', language: 'en', listing_id: 'c-04', name: 'Charmander', number: '004', price_brl: 4.75, set_name: 'Test Alpha'},
 			{bundle_id: 'k3', bundle_name: 'Duo', card_id: 'tsa1-006', condition: null, kind: 'single', language: 'en', listing_id: 'c-08', name: 'Charizard ex', number: '006', price_brl: 4.75, set_name: 'Test Alpha'},
 		];
 		const orders = [{code: 'HTR-0009', created_at: new Date().toISOString(), id: '00000000-0000-4000-8000-000000000009', items, name: 'Ana', note: null, paid_at: null, phone: '81 99999-0000', receipt_at: null, receipt_path: null, reserved_until: new Date(Date.now() + 40 * 3600e3).toISOString(), status: 'pending', total: 14.5}];
@@ -379,6 +379,8 @@ describe('Shop kits', () => {
 		assert.equal(plain(lines[0]), 'Pikachu · #025 · Test Alpha · English · R$ 5,00');
 		assert.equal(await text(page.locator('#order-HTR-0009 .shop-order-kit-name')), 'Kit Duo · R$ 9,50');
 		assert.equal(await page.locator('#order-HTR-0009 .shop-order-kit li').count(), 2);
+		// A kit's cards name their finish too, as they are picked one by one.
+		assert.equal(plain((await page.locator('#order-HTR-0009 .shop-order-kit li').allTextContents())[0]), 'Charmander · #004 · Reverse Holo · Test Alpha · English · Near Mint');
 
 		// The checklist ticks the single and each of the kit's cards, not
 		// the kit's name.
