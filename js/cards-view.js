@@ -38,7 +38,7 @@ import {cardInfoList, isLive, listCards, listPlaces, loadDocument, onChange, sou
 import {openStoreSheet} from './copy-sheet.js';
 import {BASE, errorText, fromHistory, h, rememberInHistory} from './dom.js';
 import {whenMemberName} from './family.js';
-import {activeFilters, applyFilters, FILTERS, filterBar, MY_CARDS_CHOICE, searchTextOf, sortItems, storageOf, storedEntries} from './filter-bar.js';
+import {activeFilters, applyFilters, FILTERS, filterBar, filterOn, MY_CARDS_CHOICE, searchTextOf, sortItems, storageOf, storedEntries} from './filter-bar.js';
 import {flagBadge} from './flags.js';
 import {formatCount, freeText, plural} from './format.js';
 import {languageChip, languageLabel} from './languages.js';
@@ -1587,7 +1587,7 @@ export function cardsScreen(root, {
 		const renamed = groups.some((group) => before.get(group.key) !== group.name);
 		const {filters, sort} = bar.state;
 
-		if (renamed || sort === 'dex' || filters.region || filters.type || filters.category || filters.rarity) {
+		if (renamed || sort === 'dex' || ['region', 'type', 'category', 'rarity'].some((kind) => filterOn(filters[kind]))) {
 			draw();
 		}
 	}
