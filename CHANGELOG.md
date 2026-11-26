@@ -15,6 +15,29 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-11-26
+
+- **v117:** consign other people's cards on HOTARU, and pay them by Pix. `217fe81`, `3025fc9`, `5ccebbe`, `3daad7a`
+  - Added (Eric: "pegar algumas cartas de outras pessoas e vender e pegar uma comissao"; plan
+    `plans/hotaru-consignment-plan.md`): Consign beside Add a copy on a card page, for the shop's owner, puts someone
+    else's copy of that print on HOTARU at once, as a `store_listings` row of kind `consigned` that is never a copy in
+    the collection, so Publish, the star withdraw, kits, and Payment received's sale in Trades leave it alone. The
+    sheet picks or adds the consignor, the finish, the condition, and the price the buyer pays, and shows the split
+    live ("Buyer pays R$ 100,00 · Ana gets R$ 85,00 · You keep R$ 15,00").
+  - Added: the commission comes out of the price, 15% with a R$ 5,00 minimum by default (Eric's choice), set for the
+    shop, for one consignor, or for one card; a card keeps the terms it was consigned with
+    (`js/consignment.js`, the same centavo rounding as `private.commission` in `supabase/store-consignment.sql`).
+  - Added: the Shop's Consignment section lists each consignor with their cards, balances waiting for delivery, due,
+    and paid, Return to owner and Put back on sale, and Copy statement, a Portuguese text for WhatsApp. Marking an
+    order paid creates one payout per consigned card; it is due once the order is delivered. Pay shows a Pix QR code
+    and copia e cola for what is due, built from the consignor's Pix key (`js/pix.js`, HOTARU's BR Code builder; the
+    key is read as typed: phone with or without +55, CPF checked by its digits, CNPJ, email, or random key), then
+    Mark paid records it. An order names a consigned card's owner ("Consigned · Ana").
+  - Server: `supabase/store-consignment.sql`, run by Eric the same day; checked as anon on the live project. HOTARU
+    shows consigned cards like any other through its pull request #24.
+  - Suite before release: 169 files, 2,472 pass, 4 fail, all timing under parallel load (scan-holder, scan-retry,
+    scan-turn, sets-card-search), each passing alone. The Shop and card page files pass on `3daad7a`.
+
 ### 2026-11-25
 
 - **v116:** free copies beside the count, and Check spares. `b7d2074`, `58c6783`, `80be267`, `7058ebc`, `abad586`, `864d829`
