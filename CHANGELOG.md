@@ -17,6 +17,28 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-26
 
+- **v118:** the Shop in three tabs, an orders filter, and alerts for new orders. `a7242f1`, `e75b936`
+  - Changed (Eric: "dentro de shop ... uma sessao para precificar as cartas, uma para kits e uma com pedidos"; orders
+    and kits in one column would get confusing as both grow): the Shop is three tabs, Prices (the spares list, the
+    ticked cards' bar, Sell a card I own, Add and sell), Kits, and Orders, with Consignment under Orders since it is
+    people and money owed. The tab is kept per browser tab (`shopTab`, `js/shop-owner.js`); the header's bag with
+    orders open, `?tab=orders`, and a notification open Orders. Orders and Kits show their counts on the tab. The Save
+    bar stays under every tab.
+  - Added (Eric: tell the orders ready to put together and hand over from those still waiting for the Pix): All,
+    Unpaid, and Ready on Orders, with counts, kept per browser tab. Ready is paid and not delivered.
+  - Added (Eric: a sale should announce itself; a sound in the tracker or a Chrome notification is enough, no
+    Telegram): the header reads the open orders every minute (was five), and `js/order-alerts.js` compares the codes
+    and receipts with those seen on this device. A new order or receipt shows a toast with Open; with Turn on alerts
+    (Orders tab, a tap because Chrome asks only from one) it also plays a two-note chime made with Web Audio and shows
+    a Chrome notification through the service worker (`notificationclick` in `sw.js` focuses the app on Orders). With
+    alerts on, the minute's read goes on in a hidden tab. The first read on a device only remembers. A new order also
+    runs Publish, so its cards show Reserved by an order at once (from checkout-stock-reservation-timing's note).
+  - Not covered: a closed app or a phone in the background hears nothing until the app is opened; that needs Web Push
+    from the server, which Eric did not want.
+  - Suite before release: 170 files, 2,484 pass, 3 fail, all timing under parallel load (add-to-binder, favorites,
+    photos-viewer), each passing alone (net 2,487/0). Rebased on v117 `15707f2`; `tests/shop-consignment-browser`
+    opens the Orders tab first.
+
 - **v117:** consign other people's cards on HOTARU, and pay them by Pix. `217fe81`, `3025fc9`, `5ccebbe`, `3daad7a`
   - Added (Eric: "pegar algumas cartas de outras pessoas e vender e pegar uma comissao"; plan
     `plans/hotaru-consignment-plan.md`): Consign beside Add a copy on a card page, for the shop's owner, puts someone
