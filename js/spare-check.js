@@ -8,8 +8,8 @@
 //
 // The rules are the ones already in force, read here and never restated:
 // a copy in a pocket is held (js/binders.js heldCopies), a favorite card
-// keeps every copy (js/wishlist.js favoriteCards), one copy per card and
-// language is kept, and the rest are spares (spareEntries); a spare taken
+// keeps every copy (js/wishlist.js favoriteCards), one copy per card,
+// language, and finish is kept, and the rest are spares (spareEntries); a spare taken
 // off sale (for_sale false) stays his, and a copy marked For sale is offered
 // wherever it is (js/shop.js freeCopyIds). A copy in a binder's tray is not
 // in a pocket, so it is loose for this rule (Eric, 2026-11-24).
@@ -31,7 +31,7 @@ export const REASONS = {
 	offSale: {free: false, label: 'Not for sale', text: 'A spare you took off sale, so it stays yours.'},
 	pocket: {free: false, label: 'In a pocket', text: 'In a binder pocket, so it is not a spare.'},
 	favorite: {free: false, label: 'Favorite', text: 'A favorite card: no copy is a spare.'},
-	kept: {free: false, label: 'Kept', text: 'The one copy kept in this language.'},
+	kept: {free: false, label: 'Kept', text: 'The one copy kept in this finish and language.'},
 };
 
 // "Hoenn, page 3, pocket 4", "Tray of Hoenn", or "Loose".

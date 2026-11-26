@@ -320,15 +320,27 @@ export function favoriteCards(cards) {
 // the copy's for_sale (js/shop.js, plans/hotaru-for-sale-plan.md).
 export const markedForSale = (entry) => Boolean(entry) && entry.for_sale === true;
 
+// A copy's finish as it is stored, for telling finishes apart: its variant
+// ID, else the monprice word an unmatched import or a hand-made card keeps,
+// else '' for a copy whose finish was never set (js/shop.js finishKey, the
+// Shop's per-finish rows, reads it the same way).
+export function copyFinishKey(entry) {
+	if (entry && entry.variant_id) {
+		return `v:${entry.variant_id}`;
+	}
+
+	return entry && entry.finish_raw ? `raw:${entry.finish_raw}` : '';
+}
+
 // How many spares of an item the cards hold. A spare is every copy beyond
-// the first of the same card in the same language, whatever its variant
-// (DESIGN.md section 3, Trade), never a copy of a favorite card, and never
-// a copy in a binder (held, above).
-// So in each language the item accepts, one copy is kept and the rest are
-// spares; when the item names a finish, only copies in that finish count,
-// and the copy kept is a different one where there is one (one normal and
-// one reverse holo in PT: the reverse holo can go). The count is
-// spareCopiesFor's, below.
+// the first of the same card in the same language AND the same finish
+// (Eric, 2026-11-26: "a carta pode ter repetidas no mesmo finish"; three
+// normals and one reverse holo are two spare normals, and the reverse holo
+// stays: it is not a duplicate. This replaces the 2026-10-01 rule, which
+// counted a second copy in any finish as a spare and put his only reverse
+// holos on HOTARU), never a copy of a favorite card, and never a copy in a
+// binder (held, above). When the item names a finish, only copies in that
+// finish count. The count is spareCopiesFor's, below.
 export const sparesFor = (item, cards, {forSale = markedForSale, held = NONE_HELD} = {}) => spareCopiesFor(item, cards, {forSale, held}).length;
 
 // Which copy a person keeps: a favorite first, then the one added first.
@@ -336,13 +348,24 @@ const keeperOrder = (a, b) => Number(b.is_favorite === true) - Number(a.is_favor
 	|| String(a.created_at).localeCompare(String(b.created_at))
 	|| String(a.id).localeCompare(String(b.id));
 
+// One finish of one card in one language: the copies of which one is kept.
+const finishGroupKey = (entry) => `${entryCatalog(entry)}|${entry.card_id}|${entry.language}|${copyFinishKey(entry)}`;
+
+// The spares of one finish group: the copies in a binder (held) are kept,
+// and when none is, the keeper is (a favorite, then the one added first);
+// every other copy is a spare.
+function groupSpares(group, held) {
+	const loose = [...group].sort(keeperOrder).filter((entry) => !held.has(entry.id));
+
+	return loose.length < group.length ? loose : loose.slice(1);
+}
+
 // The live copies that are spares (the Trade view, js/trade-view.js, the
 // Shop, js/shop.js, and the copies a trade takes first: the trades log's
 // cards out picker and the scanner's Trade or sale mode). A favorite card
 // has none but the copies marked For sale (favoriteCards and markedForSale,
-// above). In each other card and language, the
-// copies in a binder (held) are kept, and when none is, the keeper is (the
-// one added first); every other copy is a spare, the same count sparesFor
+// above). In each other card, language, and finish, one copy is kept
+// (groupSpares) and every other copy is a spare, the same count sparesFor
 // gives.
 export function spareEntries(cards, {forSale = markedForSale, held = NONE_HELD} = {}) {
 	const favorites = favoriteCards(cards);
@@ -358,7 +381,7 @@ export function spareEntries(cards, {forSale = markedForSale, held = NONE_HELD} 
 			continue;
 		}
 
-		const key = `${entryCatalog(entry)}|${entry.card_id}|${entry.language}`;
+		const key = finishGroupKey(entry);
 
 		groups.set(key, [...(groups.get(key) || []), entry]);
 	}
@@ -366,9 +389,7 @@ export function spareEntries(cards, {forSale = markedForSale, held = NONE_HELD} 
 	const spares = [];
 
 	for (const group of groups.values()) {
-		const loose = group.sort(keeperOrder).filter((entry) => !held.has(entry.id));
-
-		spares.push(...(loose.length < group.length ? loose : loose.slice(1)));
+		spares.push(...groupSpares(group, held));
 	}
 
 	return [...spares, ...marked];
@@ -377,44 +398,27 @@ export function spareEntries(cards, {forSale = markedForSale, held = NONE_HELD} 
 // The spare copies that fit an item: as many as sparesFor counts, and the
 // ones a trade would give. A favorite card offers only its copies marked
 // For sale that fit (favoriteCards and markedForSale, above), whatever
-// language the item names. In each language the item
-// accepts, the copies in
-// a binder (held) are kept; when none is, one copy is kept, a copy the item
-// does not take where there is one (a normal kept, a wished reverse holo
-// offered), else the keeper My Cards keeps (a favorite, then the one added
-// first); the copies offered are the rest that fit, best kept last, so the
-// first offered is the one to give.
+// language the item names. Otherwise each language and finish the item
+// accepts keeps one copy (groupSpares) and offers the rest, best kept last,
+// so the first offered is the one to give.
 export function spareCopiesFor(item, cards, {forSale = markedForSale, held = NONE_HELD} = {}) {
 	if (favoriteCards(cards).has(favoriteKey(item))) {
 		return (cards || []).filter((entry) => forSale(entry) && copyFits(item, entry));
 	}
 
-	const byLanguage = new Map();
+	const groups = new Map();
 
 	for (const entry of cards || []) {
-		if (!isLive(entry) || entry.card_id !== item.card_id || entryCatalog(entry) !== entryCatalog(item)) {
+		if (!isLive(entry) || !copyFits(item, entry)) {
 			continue;
 		}
 
-		if (item.language && entry.language !== item.language) {
-			continue;
-		}
+		const key = finishGroupKey(entry);
 
-		byLanguage.set(entry.language, [...(byLanguage.get(entry.language) || []), entry]);
+		groups.set(key, [...(groups.get(key) || []), entry]);
 	}
 
-	const offered = [];
-
-	for (const group of byLanguage.values()) {
-		const sorted = [...group].sort(keeperOrder);
-		const fits = (entry) => !item.variant_id || entry.variant_id === item.variant_id;
-		const inBinders = sorted.filter((entry) => held.has(entry.id));
-		const kept = inBinders.length ? inBinders : [sorted.find((entry) => !fits(entry)) || sorted[0]];
-
-		offered.push(...sorted.filter((entry) => !kept.includes(entry) && fits(entry)).reverse());
-	}
-
-	return offered;
+	return [...groups.values()].flatMap((group) => groupSpares(group, held).reverse());
 }
 
 // Trade ideas with a family member (Eric, 2026-11-23; deferred since

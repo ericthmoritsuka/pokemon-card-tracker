@@ -71,15 +71,14 @@ describe('shopGroups with hand-made copies', () => {
 		assert.equal(shopGroups([hand('a', {set_code: 'MEP', number_local: 'MEP 012'}), copy('bb', {card_id: 'mep-012'})]).length, 1);
 	});
 
-	test('a twin\'s spares are split by finish like any card\'s, and the price lands on the real copies', () => {
-		const cards = [copy('bb', {card_id: 'me04-030', variant_id: 'n1'}), hand('a'), hand('ccc', {finish_raw: 'REVERSE_HOLOFOIL'}), hand('dddd', {finish_raw: 'REVERSE_HOLOFOIL'})];
+	test('a twin\'s spares are counted per finish like any card\'s, and the price lands on the real copies', () => {
+		const cards = [copy('bb', {card_id: 'me04-030', variant_id: 'n1'}), hand('a'), hand('ccc', {finish_raw: 'REVERSE_HOLOFOIL'}), hand('dddd', {finish_raw: 'REVERSE_HOLOFOIL'}), copy('eeeee', {card_id: 'me04-030', finish_raw: 'REVERSE_HOLOFOIL'})];
 		const groups = new Map(shopGroups(cards, {codeOf}).map((group) => [group.finish_key, group]));
 
-		assert.deepEqual([...groups.keys()].sort(), ['raw:REVERSE_HOLOFOIL', 'v:n1'], 'the hand-made copy added first is kept; the scanned one is a spare');
-		assert.deepEqual(groups.get('v:n1').spares.map((entry) => entry.id), ['bb']);
-		assert.ok([...groups.values()].every((group) => group.card_id === 'me04-030'));
-		assert.deepEqual(groups.get('raw:REVERSE_HOLOFOIL').spares.map((entry) => entry.id).sort(), ['ccc', 'dddd']);
-		assert.deepEqual(pricePatches([groups.get('raw:REVERSE_HOLOFOIL')], 4).map(({id}) => id).sort(), ['ccc', 'dddd']);
+		assert.deepEqual([...groups.keys()], ['raw:REVERSE_HOLOFOIL'], 'the lone scanned normal and the lone unset hand-made copy are each kept');
+		assert.equal(groups.get('raw:REVERSE_HOLOFOIL').card_id, 'me04-030');
+		assert.deepEqual(groups.get('raw:REVERSE_HOLOFOIL').spares.map((entry) => entry.id).sort(), ['dddd', 'eeeee'], 'three reverse copies, hand-made and scanned, keep one');
+		assert.deepEqual(pricePatches([groups.get('raw:REVERSE_HOLOFOIL')], 4).map(({id}) => id).sort(), ['ccc', 'dddd', 'eeeee']);
 	});
 
 	test('another number, set, or language stays apart', () => {
@@ -160,21 +159,33 @@ describe('one price per finish (Eric, 2026-11-24)', () => {
 		assert.equal(shopKey(reverse('a')), 'international|sv10-001|pt|v:r1');
 	});
 
-	test('the spares of one card and language are split by finish, each finish with its own copies', () => {
+	test('each finish of one card and language keeps one copy, and the rest are its spares (Eric, 2026-11-26)', () => {
 		const cards = [normal('a'), normal('bb'), reverse('ccc'), reverse('dddd'), reverse('eeeee')];
 		const groups = byFinish(shopGroups(cards));
 
 		assert.deepEqual([...groups.keys()].sort(), ['v:n1', 'v:r1']);
 		assert.deepEqual(groups.get('v:n1').copies.map((entry) => entry.id).sort(), ['a', 'bb'], 'the keeper is among its finish\'s copies');
-		assert.equal(groups.get('v:n1').spares.length, 1, 'five copies, one kept: four spares, one of them normal');
-		assert.deepEqual(groups.get('v:r1').spares.map((entry) => entry.id).sort(), ['ccc', 'dddd', 'eeeee']);
+		assert.deepEqual(groups.get('v:n1').spares.map((entry) => entry.id), ['bb']);
+		assert.deepEqual(groups.get('v:r1').spares.map((entry) => entry.id).sort(), ['dddd', 'eeeee'], 'the first reverse holo stays home');
 		assert.deepEqual(groups.get('v:r1').copies.map((entry) => entry.id).sort(), ['ccc', 'dddd', 'eeeee']);
 	});
 
-	test('a finish whose only copy is the one kept has no row', () => {
-		const groups = shopGroups([normal('a'), reverse('bb'), reverse('ccc')]);
+	test('a finish with one copy has no row: three normals and one reverse holo offer two normals (Eric, 2026-11-26)', () => {
+		const groups = shopGroups([normal('a'), normal('bb'), normal('ccc'), reverse('dddd', {sale_price: 8})]);
 
-		assert.deepEqual(groups.map((group) => group.finish_key), ['v:r1'], 'the oldest copy, the normal, is kept');
+		assert.deepEqual(groups.map((group) => group.finish_key), ['v:n1']);
+		assert.deepEqual(groups[0].spares.map((entry) => entry.id).sort(), ['bb', 'ccc']);
+		assert.deepEqual(shopGroups([reverse('a'), normal('bb')]), [], 'whichever was added first, a lone finish stays home');
+	});
+
+	test('a lone reverse holo the one-off SQL withdrew stays withdrawn: the next publish leaves it out', () => {
+		// supabase/oneoff/withdraw-lone-finish.sql took dddd off HOTARU; store_sync
+		// withdraws every single not in the rows it is sent, so leaving it out
+		// keeps it withdrawn.
+		const cards = [normal('a', {sale_price: 1}), normal('bb', {sale_price: 1}), normal('ccc', {sale_price: 1}), reverse('dddd', {sale_price: 8})];
+		const rows = listingRows(shopGroups(cards));
+
+		assert.deepEqual(rows.map((row) => row.id).sort(), ['bb', 'ccc']);
 	});
 
 	test('a price typed on one finish goes on that finish\'s copies only', () => {
@@ -197,7 +208,7 @@ describe('one price per finish (Eric, 2026-11-24)', () => {
 		const cards = [normal('a', {sale_price: 3}), normal('bb', {sale_price: 3}), reverse('ccc', {sale_price: 3}), reverse('dddd', {sale_price: 3}), copy('eeeee', {sale_price: 3})];
 		const groups = shopGroups(cards);
 
-		assert.equal(groups.length, 3, 'normal, reverse, and a copy with no finish set');
+		assert.equal(groups.length, 2, 'normal and reverse; the lone copy with no finish set is kept');
 		assert.ok(groups.every((group) => group.price === 3), 'every finish keeps the saved price');
 		assert.deepEqual(groups.flatMap((group) => pricePatches([group], 3)), [], 'nothing to write');
 
@@ -205,14 +216,15 @@ describe('one price per finish (Eric, 2026-11-24)', () => {
 		const spares = groups.flatMap((group) => group.spares.map((entry) => entry.id));
 
 		assert.deepEqual(rows.map((row) => row.id).sort(), spares.sort(), 'every spare is still published');
-		assert.equal(rows.length, 4, 'five copies, one kept');
+		assert.deepEqual(rows.map((row) => row.id).sort(), ['bb', 'dddd'], 'one kept per finish');
 		assert.ok(rows.every((row) => row.price_brl === 3));
 	});
 
 	test('a copy with no finish set is a row of its own', () => {
 		const groups = byFinish(shopGroups([normal('a'), copy('bb'), copy('ccc')]));
 
-		assert.deepEqual(groups.get('').spares.map((entry) => entry.id).sort(), ['bb', 'ccc']);
+		assert.deepEqual(groups.get('').spares.map((entry) => entry.id), ['ccc']);
+		assert.equal(groups.has('v:n1'), false, 'the lone normal is kept');
 	});
 
 	test('each finish is published at its own price, with its finish', () => {
@@ -222,7 +234,6 @@ describe('one price per finish (Eric, 2026-11-24)', () => {
 
 		assert.deepEqual(rows.map((row) => [row.id, row.finish, row.price_brl]).sort(), [
 			['bb', 'Normal', 1],
-			['ccc', 'Reverse Holo', 5],
 			['dddd', 'Reverse Holo', 5],
 		]);
 	});

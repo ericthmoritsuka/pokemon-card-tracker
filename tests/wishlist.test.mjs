@@ -7,6 +7,7 @@ import test, {describe} from 'node:test';
 
 import {mergeDocuments, nextStamp, sameContent} from '../js/merge.js';
 import {
+	copyFinishKey,
 	copyFits,
 	deletedWish,
 	displayLanguage,
@@ -141,13 +142,34 @@ describe('spares', () => {
 		assert.equal(sparesFor(wish('w', 'me01-001', {language: 'en'}), cards), 2);
 	});
 
-	test('a named finish counts only copies in it, keeping another copy when there is one', () => {
+	test('a named finish counts only spares in it: each finish keeps one copy (Eric, 2026-11-26)', () => {
 		const item = wish('w', 'sv08.5-003', {language: 'pt', variantId: REVERSE});
 
-		assert.equal(sparesFor(item, [copy('a', 'sv08.5-003', {language: 'pt', variant_id: NORMAL}), copy('b', 'sv08.5-003', {language: 'pt', variant_id: REVERSE})]), 1);
+		assert.equal(sparesFor(item, [copy('a', 'sv08.5-003', {language: 'pt', variant_id: NORMAL}), copy('b', 'sv08.5-003', {language: 'pt', variant_id: REVERSE})]), 0, 'a lone reverse holo is kept beside a normal');
 		assert.equal(sparesFor(item, [copy('a', 'sv08.5-003', {language: 'pt', variant_id: NORMAL}), copy('b', 'sv08.5-003', {language: 'pt', variant_id: NORMAL})]), 0);
 		assert.equal(sparesFor(item, [copy('a', 'sv08.5-003', {language: 'pt', variant_id: REVERSE}), copy('b', 'sv08.5-003', {language: 'pt', variant_id: REVERSE})]), 1);
 		assert.equal(sparesFor(item, [copy('a', 'sv08.5-003', {language: 'pt', variant_id: REVERSE})]), 0, 'the only copy is a keeper');
+	});
+
+	test('three normals and one reverse holo are two spare normals; the reverse holo is not a duplicate (Eric, 2026-11-26)', () => {
+		const pinsir = (id, variant, day) => copy(id, 'sv08.5-003', {created_at: at(day), language: 'pt', variant_id: variant});
+		const reverseFirst = [pinsir('r', REVERSE, 1), pinsir('a', NORMAL, 2), pinsir('b', NORMAL, 3), pinsir('c', NORMAL, 4)];
+		const reverseLast = [pinsir('a', NORMAL, 1), pinsir('b', NORMAL, 2), pinsir('c', NORMAL, 3), pinsir('r', REVERSE, 4)];
+
+		for (const cards of [reverseFirst, reverseLast]) {
+			assert.deepEqual(spareEntries(cards).map((entry) => entry.id).sort(), ['b', 'c']);
+			assert.equal(sparesFor(wish('w', 'sv08.5-003', {language: 'pt'}), cards), 2);
+			assert.deepEqual(spareCopiesFor(wish('w', 'sv08.5-003'), cards).map((entry) => entry.id), ['c', 'b'], 'the last added is offered first');
+		}
+	});
+
+	test('a copy whose finish was never set keeps one of its own', () => {
+		const cards = [copy('a', 'sv08.5-003', {language: 'pt', variant_id: NORMAL}), copy('b', 'sv08.5-003', {language: 'pt'}), copy('c', 'sv08.5-003', {finish_raw: 'Reverse Holo', language: 'pt'})];
+
+		assert.deepEqual(spareEntries(cards), []);
+		assert.equal(copyFinishKey(cards[0]), `v:${NORMAL}`);
+		assert.equal(copyFinishKey(cards[1]), '');
+		assert.equal(copyFinishKey(cards[2]), 'raw:Reverse Holo');
 	});
 });
 
@@ -260,9 +282,9 @@ describe('trade ideas (Eric, 2026-11-23)', () => {
 			assert.equal(spareCopiesFor(item, cards).length, sparesFor(item, cards), JSON.stringify(cards.map((entry) => [entry.id, entry.language, entry.variant_id])));
 		}
 
-		// A wished reverse holo with a normal beside it: the reverse holo is
-		// offered and the normal kept, as sparesFor counts it.
-		assert.deepEqual(spareCopiesFor(wish('w', 'sv08.5-003', {language: 'pt', variantId: REVERSE}), [pinsir('a', NORMAL), pinsir('b', REVERSE)]).map((entry) => entry.id), ['b']);
+		// A wished reverse holo with a normal beside it: both are kept, since
+		// neither has a twin in its finish (Eric, 2026-11-26).
+		assert.deepEqual(spareCopiesFor(wish('w', 'sv08.5-003', {language: 'pt', variantId: REVERSE}), [pinsir('a', NORMAL), pinsir('b', REVERSE)]), []);
 
 		// A favorite card offers nothing, not even the copy without the star.
 		assert.deepEqual(spareCopiesFor(wish('w', 'sv08.5-003', {language: 'pt'}), [pinsir('a', NORMAL), pinsir('b', NORMAL, {is_favorite: true})]), []);
