@@ -23,6 +23,17 @@ export const RELEASES = [
 	{
 		date: '2026-11-26',
 		items: [
+			'Orders has four filters: Unpaid, Separating, Ready, and Delivered. All is gone, since the four cover every order.',
+			'A paid order is Separating until you tick every card, then Ready to hand over. No extra button.',
+			'Ticks are saved online, so the phone and the computer show the same ones. A tick made offline goes up when you are back.',
+			'Delivered shows the orders handed over in the last 30 days.',
+			'Delete a consigned card or a consignor added by mistake.',
+		],
+		version: 'v123',
+	},
+	{
+		date: '2026-11-26',
+		items: [
 			'A copy is a spare only when you have another copy in the same finish. Three normals and one reverse holo are two spare normals, and the reverse holo stays yours.',
 			'This counts everywhere a spare does: Trade, Check spares, the ×N | M on a tile, and the Shop.',
 			'The next time you open the Shop, HOTARU drops any card that was your only copy in its finish.',
