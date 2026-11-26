@@ -29,7 +29,7 @@ import {setIdOfCard} from './catalog.js';
 import {isLive} from './collection.js';
 import {isCustom, sameNumber} from './custom-card.js';
 import {extractPrices, fallbackPrice, finishOf, isAsianPrint, usdToBrl, eurToBrl} from './prices.js';
-import {spareEntries} from './wishlist.js';
+import {copyFinishKey, spareEntries} from './wishlist.js';
 
 // A suggestion is rounded up to the next R$ 0,50 (Eric, 2026-11-24).
 export const SALE_STEP = 0.5;
@@ -52,17 +52,11 @@ export function roundUpToStep(brl, step = SALE_STEP) {
 	return Math.max(step, Math.ceil(brl / step - 1e-9) * step);
 }
 
-// A copy's finish as it is stored, for telling finishes apart without the
-// card's record: its variant ID, else the monprice word an unmatched import
-// or a hand-made card keeps, else '' for a copy whose finish was never set
-// (js/copy-sheet.js finishValue reads the same two fields).
-export function finishKey(entry) {
-	if (entry && entry.variant_id) {
-		return `v:${entry.variant_id}`;
-	}
-
-	return entry && entry.finish_raw ? `raw:${entry.finish_raw}` : '';
-}
+// A copy's finish as it is stored (js/wishlist.js copyFinishKey): its
+// variant ID, else the monprice word, else '' when it was never set. The
+// spare rule keeps one copy per finish with the same key, so a Shop row and
+// the copy kept always agree.
+export const finishKey = copyFinishKey;
 
 // The Shop group a copy belongs to: its card and language, as a Spares tile
 // (js/bulk-edit.js tileKey), and its finish.
@@ -70,9 +64,10 @@ export const shopKey = (entry) => `${tileKey(entry)}|${finishKey(entry)}`;
 
 // The groups that have spares, in no particular order. cards are the
 // person's copies, live or not; held, the copies in their binders
-// (js/wishlist.js spareEntries), which are never for sale. Which copies are
-// spares is still decided per card and language, so the copy kept may be
-// of any finish; the spares are then split by finish, one price each.
+// (js/wishlist.js spareEntries), which are never for sale. Spares are
+// decided per card, language, and finish (Eric, 2026-11-26), so a finish
+// with one copy has no row: a lone reverse holo beside three normals stays
+// home, and only the two spare normals are offered.
 //
 // A hand-made copy of a card the catalog lists too counts as a copy of that
 // catalog card (catalogTwins), so a CRI card added by hand before TCGdex

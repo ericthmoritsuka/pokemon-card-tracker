@@ -146,8 +146,11 @@ in three collections counts once.
 A single scan of a card already owned asks "You have 1 (PT, holo). Add another?" before saving.
 Trade is a query, not a stored collection, so it stays correct after a card is traded away
 without anyone remembering to update it. A spare is every copy beyond the first of the same card
-in the same language: a PT and an EN copy are both keepers, while a second PT copy is a spare
-whatever its variant. *(Decided by Eric, 2026-10-01.)* In Eric's export that is 276 spares across 165 cards.
+in the same language and the same finish: a PT and an EN copy are both keepers, and so are a
+normal and a reverse holo, while a second PT reverse holo is a spare. Three normals and one reverse
+holo are two spare normals. *(Eric, 2026-11-26, replacing the 2026-10-01 rule that counted a second
+copy in any finish as a spare, which put his only reverse holos on HOTARU and lost him two.)* The
+finish is the copy's variant ID, else its monprice word, else unset (`copyFinishKey`, `js/wishlist.js`).
 A copy in a hand-made binder's pocket is never a spare, and it is the copy kept: three Salamences,
 one in the 30 anos binder, one in Hoenn, and one loose, are one spare, and the Shop offers only the
 loose one to HOTARU. *(Eric, 2026-11-24.)* In a binder made from a list, a pocket shows every copy
