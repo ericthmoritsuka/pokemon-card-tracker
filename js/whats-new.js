@@ -23,6 +23,16 @@ export const RELEASES = [
 	{
 		date: '2026-11-26',
 		items: [
+			'The Shop has three tabs: Prices to price your cards, Kits, and Orders, where Consignment now sits.',
+			'Orders filters All, Unpaid, and Ready: Ready is paid and waiting to be put together and handed over.',
+			'A new order or a Pix receipt shows a message in the app. Turn on alerts in Orders to also hear a chime and get a Chrome notification.',
+			'Alerts come while the Card Tracker is open, even in a tab behind others. With the app closed, the order waits for you in Orders.',
+		],
+		version: 'v118',
+	},
+	{
+		date: '2026-11-26',
+		items: [
 			'Consign: sell someone else\'s card on HOTARU for a commission. Tap Consign on the card\'s page; it never enters your collection.',
 			'The commission comes out of the price: 15%, at least R$ 5,00 a card. Change it for the shop, for one person, or for one card.',
 			'The Shop\'s Consignment section lists each person\'s cards and what you owe them, and copies a statement to send on WhatsApp.',
