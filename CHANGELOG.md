@@ -17,6 +17,24 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-26
 
+- **v121:** a Consign tab, order pictures and finishes, and a steady favorite star. `b6a21e2`, `9ed3472`, `d4cc632`,
+  `733dbf5`, `6d3acfd`, `bbce1d6`, `5677b3c`, `a155acd`, `db241dc`, `bec20b5`
+  - Added: Consign has its own Shop tab beside Prices, Kits, and Orders. Consign a card goes to your cards, opens the
+    Consign sheet on the card picked, and comes back to the Consign tab. Each consigned card shows what you keep, and
+    a consignor with no cards for sale and nothing owed can be removed and restored, their history kept.
+  - Added: each card line in an order shows its finish (singles, kit cards, and consigned cards), a consigned card's
+    line is set apart with a yellow tint and bar, and holding a line, hovering it, or focusing its box shows the card's
+    large picture: the copy's own, or for a consigned card the catalog print in the order's language, read from
+    TCGdex when the phone lacks it.
+  - Fixed (Eric: "quando eu tenho mais de uma carta da mesma, a estrela do favorito aparece mais a direita. deve esr
+    um bug."): the copies heading spread its items, so the star floated mid-row with one copy and sat against Add with
+    two or more, where the Check link's title block took the free space. The star now follows the heading, and a
+    Consign button that arrives late wraps to its own line instead of moving it.
+  - Fixed: the trade sheet no longer prints "null" under a trade's note.
+  - Tests: shop-orders expected three Shop tabs, and shop-consignment read the terms line while its form was still up;
+    both fixed. A new test covers a consigned card's picture in an order, including the read from TCGdex.
+  - Suite before release: 170 files, 2,509 pass, 0 fail on the last run of each file. The first pass at four files at
+    a time failed one test and timed out two files, all scanner files; each passed on a rerun alone.
 - **v120:** several values per filter, and search, filters, and sort on Check spares. `b4a31d3`, `b55d26a`,
   `7839ee4`, `8b676cf`, `aacc010`, `9f2ef8f`, `be99d4c`, `0ac904a`
   - Changed (Eric: "eu deveria poder selecionar mais de um elemento para o filtro. por exemplo, mais de um set ao
