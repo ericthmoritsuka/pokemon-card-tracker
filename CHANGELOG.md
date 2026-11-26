@@ -17,6 +17,23 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-26
 
+- **v122:** a spare is a second copy in the same finish, and a Checked button on Check spares. `f36c4b9`, `8ce5934`,
+  `3cac3ed`, `13b7cdb`, `76903f9`, `8de84a2`, `62c5fea`, `3058921`, `6038f3f`
+  - Fixed (Eric: "as rev holo ou com outros finish so aparecem na lista de venda se elas tiverem repetidas... se eu
+    tiver 3 cartas normais e uma rev holo, a reverse nao entra na loja"): spares were counted per card and language
+    in any finish, so the copy added first was kept and a lone reverse holo or holo beside it went on HOTARU. Two
+    sold before it was caught. Now each card, language, and finish keeps one copy (a copy in a binder first, else the
+    one added first), in Trade, Check spares, the tile's ×N | M, trade ideas, and the Shop. The finish is the copy's
+    variant, else its imported word, else unset; an unset copy is its own finish (Eric chose the safe side).
+  - Fixed: the same evening, `supabase/oneoff/withdraw-lone-finish.sql` (run once by Eric) withdrew the 56 HOTARU
+    listings that were the only copy of their finish on sale. The first Shop open on v122 publishes by the new rule,
+    so those stay withdrawn, and a copy in a binder hands its listing to a loose copy of the same finish.
+  - Added: Check spares has a Checked button. The card leaves the list and the next one comes up; Show: Checked lists
+    them, and a card comes back by itself when its copies change. Marks are kept on the phone only.
+  - Tests: the Trade fixtures gained a second reverse holo and a second PT holo, so the old spares stay spares by the
+    new rule. New tests cover three normals and one reverse holo, a withdrawn normal, the binder copy as keeper, and
+    a lone reverse holo kept, not free, under one Checked mark.
+  - Suite before release: 170 files, 2,519 pass, 0 fail, four files at a time.
 - **v121:** a Consign tab, order pictures and finishes, and a steady favorite star. `b6a21e2`, `9ed3472`, `d4cc632`,
   `733dbf5`, `6d3acfd`, `bbce1d6`, `5677b3c`, `a155acd`, `db241dc`, `bec20b5`
   - Added: Consign has its own Shop tab beside Prices, Kits, and Orders. Consign a card goes to your cards, opens the
