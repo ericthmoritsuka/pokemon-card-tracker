@@ -629,7 +629,7 @@ describe('Shop publishing', () => {
 		await page.click('#favorite-toggle');
 		await page.waitForFunction(() => [...document.querySelectorAll('.toast-text')].some((node) => /taken off HOTARU/.test(node.textContent)), null, TIMEOUT);
 		assert.equal(plain(await page.locator('.toast-text', {hasText: 'HOTARU'}).last().textContent()), 'Starred and taken off HOTARU (2 copies). Kit Trio left HOTARU too.');
-		assert.deepEqual(asked, [['c-02', 'c-03', 'c-04']], 'the Charmander EN copies, which carry the sale price; PT has none');
+		assert.deepEqual(asked, [['c-02', 'c-03', 'c-04', 'c-20']], 'the Charmander EN copies, which carry the sale price (c-20 is the reverse holo kept); PT has none');
 		assert.deepEqual([...store.listings.values()].map((row) => row.status), ['withdrawn', 'withdrawn']);
 
 		// Before the SQL is run: the Shop's next publish is the safety net.

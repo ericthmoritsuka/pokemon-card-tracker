@@ -72,9 +72,10 @@ const POCKET = {id: 'A1-001', image: 'https://assets.tcgdex.net/en/tcgp/A1/001',
 
 const entry = (id, fields) => ({catalog: 'international', created_at: AT, deleted_at: null, id, language: 'pt', language_source: 'import', updated_at: AT, variant_id: null, ...fields});
 
-// The viewer's cards: two Portuguese Ivysaur (one spare) and one Venusaur.
+// The viewer's cards: two Portuguese Ivysaur, both reverse holo (one spare,
+// since spares are counted per finish), and one Venusaur.
 const CARDS = [
-	entry('c1', {card_id: 'tst1-002'}),
+	entry('c1', {card_id: 'tst1-002', variant_id: 'v-reverse-2'}),
 	entry('c2', {card_id: 'tst1-002', variant_id: 'v-reverse-2'}),
 	entry('c3', {card_id: 'tst1-003'}),
 ];

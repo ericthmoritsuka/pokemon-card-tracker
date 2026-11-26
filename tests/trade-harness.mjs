@@ -78,11 +78,14 @@ export const copy = (id, cardId, fields = {}) => ({
 	...fields,
 });
 
-// Spares: Charmander EN 2 (three copies) and PT 1 (two copies), Charizard
-// ex EN 1 (two copies, the first added kept), Pikachu EN 1 (two
+// Spares are counted per finish (Eric, 2026-11-26): Charmander EN 2 (two
+// copies with no finish set, one spare; two Reverse Holofoil, c-20 added
+// first and kept, so c-03 is the spare) and PT 1 (one with no finish set,
+// kept; two Holofoil, c-21 added first and kept, so c-06 is the spare),
+// Charizard ex EN 1 (two copies, the first added kept), Pikachu EN 1 (two
 // copies), Pikachu JA 1 (two copies). Nothing from Bulbasaur (one copy),
 // Test Ball (one PT copy), or Sprigatito (two copies, one deleted).
-// 15 copies, 6 spares in 5 tiles.
+// 17 copies, 6 spares in 5 tiles.
 export const SPARE_COPIES = [
 	copy('c-01', 'tsa1-001'),
 	copy('c-02', 'tsa1-004', {condition: 'Near Mint'}),
@@ -99,6 +102,8 @@ export const SPARE_COPIES = [
 	copy('c-13', 'tsa1-150', {language: 'pt'}),
 	copy('c-14', 'tsb2-090'),
 	copy('c-15', 'tsb2-090', {deleted_at: at(16)}),
+	copy('c-20', 'tsa1-004', {condition: 'Near Mint', created_at: at(2), finish_raw: 'Reverse Holofoil'}),
+	copy('c-21', 'tsa1-004', {created_at: at(5), finish_raw: 'Holofoil', language: 'pt'}),
 ];
 
 // A signed-in owner with an empty collection, in a family with Member A,
