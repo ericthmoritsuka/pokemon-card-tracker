@@ -288,6 +288,36 @@ describe('Checked', () => {
 		assert.deepEqual(keepChecked(spareCheck(more), checked), {});
 		assert.deepEqual(keepChecked(groups, checked), {[scraggy.key]: 's1,s2'});
 	});
+
+	// Spares are decided per finish (2026-11-26), but a card and language is
+	// one block here, so one mark covers its copies in every finish: three
+	// normals and a reverse holo are checked together, and a second reverse
+	// holo brings the card back.
+	test('one mark covers a card\'s copies in every finish', () => {
+		const finishes = () => ({
+			binders: [],
+			cards: [
+				card('n1', {card_id: 'ralts'}), card('n2', {card_id: 'ralts'}), card('n3', {card_id: 'ralts'}),
+				card('r1', {card_id: 'ralts', finish_raw: 'Reverse Holofoil'}),
+			],
+		});
+		const [ralts] = spareCheck(finishes());
+		const checked = {[ralts.key]: checkedSignature(ralts)};
+
+		assert.equal(spareCheck(finishes()).length, 1, 'one block for the card');
+		assert.equal(ralts.copies, 4);
+		assert.equal(checkedSignature(ralts), 'n1,n2,n3,r1');
+		assert.deepEqual(narrowChecks([{group: ralts}], {checked}), []);
+
+		const more = finishes();
+
+		more.cards.push(card('r2', {card_id: 'ralts', finish_raw: 'Reverse Holofoil'}));
+
+		const grown = spareCheck(more);
+
+		assert.deepEqual(grown.map((group) => isChecked(group, checked)), [false]);
+		assert.deepEqual(keepChecked(grown, checked), {});
+	});
 });
 
 describe('placesOf', () => {
