@@ -54,9 +54,9 @@ const ANA = '0a000000-0000-4000-8000-00000000000a';
 function startingData() {
 	return {
 		cards: [
-			{card_id: 'tsa1-006', catalog: 'international', commission_pct: 15, condition: 'Near Mint', consignor_id: ANA, finish: 'Holo', id: 'cons-1', language: 'en', min_commission_brl: 5, name: 'Charizard ex', number: '006', payout_brl: 85, price_brl: 100, received_at: '2026-11-20T12:00:00Z', returned_at: null, set_name: 'Test Alpha', status: 'sold'},
-			{card_id: 'tsb2-025', catalog: 'international', commission_pct: 15, condition: null, consignor_id: ANA, finish: null, id: 'cons-2', language: 'en', min_commission_brl: 5, name: 'Pikachu', number: '025', payout_brl: 15, price_brl: 20, received_at: '2026-11-21T12:00:00Z', returned_at: null, set_name: 'Test Alpha', status: 'available'},
-			{card_id: 'tsa1-001', catalog: 'international', commission_pct: 15, condition: null, consignor_id: ANA, finish: null, id: 'cons-3', language: 'en', min_commission_brl: 5, name: 'Mew', number: '001', payout_brl: 25, price_brl: 30, received_at: '2026-11-19T12:00:00Z', returned_at: '2026-11-22T12:00:00Z', set_name: 'Test Alpha', status: 'withdrawn'},
+			{card_id: 'tsa1-006', catalog: 'international', commission_pct: 15, condition: 'Near Mint', consignor_id: ANA, finish: 'Holo', commission_brl: 15, id: 'cons-1', language: 'en', min_commission_brl: 5, name: 'Charizard ex', number: '006', payout_brl: 85, price_brl: 100, received_at: '2026-11-20T12:00:00Z', returned_at: null, set_name: 'Test Alpha', status: 'sold'},
+			{card_id: 'tsb2-025', catalog: 'international', commission_pct: 15, condition: null, consignor_id: ANA, finish: null, commission_brl: 5, id: 'cons-2', language: 'en', min_commission_brl: 5, name: 'Pikachu', number: '025', payout_brl: 15, price_brl: 20, received_at: '2026-11-21T12:00:00Z', returned_at: null, set_name: 'Test Alpha', status: 'available'},
+			{card_id: 'tsa1-001', catalog: 'international', commission_pct: 15, condition: null, consignor_id: ANA, finish: null, commission_brl: 5, id: 'cons-3', language: 'en', min_commission_brl: 5, name: 'Mew', number: '001', payout_brl: 25, price_brl: 30, received_at: '2026-11-19T12:00:00Z', returned_at: '2026-11-22T12:00:00Z', set_name: 'Test Alpha', status: 'withdrawn'},
 		],
 		consignors: [{active: true, commission_pct: null, due_brl: 85, for_sale: 1, id: ANA, min_commission_brl: null, name: 'Ana', note: null, paid_brl: 0, phone: '81 90000-0000', pix_key: 'ana@example.test', reserved: 0, returned: 1, sold: 1, waiting_brl: 0}],
 		payouts: [{commission_brl: 15, consignor_id: ANA, created_at: '2026-11-25T12:00:00Z', delivered_at: '2026-11-25T18:00:00Z', id: 'p-1', listing_id: 'cons-1', name: 'Charizard ex', order_code: 'HTR-0012', paid_at: null, paid_note: null, payout_brl: 85, sale_brl: 100, state: 'due'}],
@@ -88,6 +88,14 @@ async function attachConsignment(page, {data = startingData(), orders = [], setU
 		}
 
 		if (name === 'save_consignor') {
+			const known = data.consignors.find((one) => one.id === args.consignor.id);
+
+			if (known) {
+				Object.assign(known, args.consignor);
+
+				return reply(route, known);
+			}
+
 			const person = {active: true, commission_pct: null, due_brl: 0, for_sale: 0, min_commission_brl: null, paid_brl: 0, reserved: 0, returned: 0, sold: 0, waiting_brl: 0, ...args.consignor, id: args.consignor.id || randomUUID()};
 
 			data.consignors.push(person);
@@ -184,13 +192,21 @@ async function ownerPhone(options) {
 
 async function openShop(page) {
 	await page.goto(`${server.origin}${BASE}shop`);
-	await page.locator('.shop-row').first().waitFor(TIMEOUT);
-	// Consignment is on the Orders tab (Prices | Kits | Orders, v118).
-	await page.click('#shop-tab-orders');
+	await page.locator('.shop-row').first().waitFor({state: 'attached', timeout: TIMEOUT.timeout});
+	// Consignment has a tab of its own (Prices | Kits | Orders | Consign).
+	await page.click('#shop-tab-consign');
 	await page.locator('#shop-consign').waitFor(TIMEOUT);
 }
 
 const text = async (locator) => plain(await locator.textContent());
+
+// The four tabs share one row at phone width (Eric's phone, 390 px).
+async function tabsInOneRow(page) {
+	const tops = await page.locator('#shop-tabs [role="tab"]').evaluateAll((tabs) => tabs.map((tab) => Math.round(tab.getBoundingClientRect().top)));
+
+	assert.equal(tops.length, 4);
+	assert.equal(new Set(tops).size, 1, `tabs on more than one row: ${tops.join(', ')}`);
+}
 
 describe('Shop consignment', () => {
 	test('the section shows a consignor\'s cards and balances, pays what is due, copies the statement, and returns a card', async () => {
@@ -208,11 +224,13 @@ describe('Shop consignment', () => {
 		const lines = (await ana.locator('.shop-consigned-line').allTextContents()).map(plain);
 
 		assert.deepEqual(lines, [
-			'Charizard ex #006 · Test Alpha · Holo · Near Mint · R$ 100,00 · Ana gets R$ 85,00 · Due',
-			'Pikachu #025 · Test Alpha · R$ 20,00 · Ana gets R$ 15,00 · For sale',
-			'Mew #001 · Test Alpha · R$ 30,00 · Ana gets R$ 25,00 · Returned',
+			'Charizard ex #006 · Test Alpha · Holo · Near Mint · R$ 100,00 · Ana gets R$ 85,00 · you kept R$ 15,00 · Due',
+			'Pikachu #025 · Test Alpha · R$ 20,00 · Ana gets R$ 15,00 · you keep R$ 5,00 · For sale',
+			'Mew #001 · Test Alpha · R$ 30,00 · Ana gets R$ 25,00 · you keep R$ 5,00 · Returned',
 		]);
 		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-consignment-section.png`});
+		await tabsInOneRow(page);
+		assert.doesNotMatch(await page.locator('#shop-consign').textContent(), /\bnull\b|undefined|NaN/);
 
 		// The statement, as it pastes in WhatsApp.
 		await page.click(`#shop-consign-statement-${ANA}`);
@@ -266,8 +284,9 @@ describe('Shop consignment', () => {
 	test('Consign on a card page puts someone else\'s card on HOTARU with the split shown', async () => {
 		const {context, errors, page, store} = await ownerPhone();
 
-		// The Shop's answer tells the app this is the owner.
-		await openShop(page);
+		// A phone that never kept the owner answer still shows Consign, once
+		// the server says so.
+		await page.evaluate(() => localStorage.removeItem('cardTracker.shopOwner'));
 		await page.goto(`${server.origin}${BASE}cards/en/tsa1-004`);
 		await page.locator('#copy-consign').waitFor(TIMEOUT);
 		await page.click('#copy-consign');
@@ -299,6 +318,62 @@ describe('Shop consignment', () => {
 		assert.equal(saved.commission_pct, 15);
 		assert.equal(saved.min_commission_brl, 5);
 		assert.equal('id' in saved, false, 'a new card');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('Consign a card goes to the cards, opens the sheet on the card picked, and comes back to the Consign tab', async () => {
+		const {context, errors, page, store} = await ownerPhone();
+
+		await openShop(page);
+		await page.click('#shop-consign-card');
+		await page.waitForURL(/\/sets/, TIMEOUT);
+		await page.goto(`${server.origin}${BASE}cards/en/tsa1-004`);
+		await page.locator('#consign-sheet').waitFor(TIMEOUT);
+		await page.fill('#consign-price', '20');
+		await page.click('#consign-save');
+		await page.waitForURL(/\/shop$/, TIMEOUT);
+		await page.locator('#shop-panel-consign:not([hidden]) #shop-consign').waitFor(TIMEOUT);
+		assert.equal(await page.locator('#shop-tab-consign').getAttribute('aria-selected'), 'true');
+		assert.equal(store.calls.filter(([name]) => name === 'save_consigned').length, 1);
+
+		// Picked once: the next card page waits for the button again.
+		await page.goto(`${server.origin}${BASE}cards/en/tsa1-004`);
+		await page.locator('#copy-consign').waitFor(TIMEOUT);
+		assert.equal(await page.locator('#consign-sheet').count(), 0);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a consignor with nothing pending can be removed, and restored', async () => {
+		const {context, errors, page, store} = await ownerPhone();
+		const ana = page.locator(`#consignor-${ANA}`);
+
+		await openShop(page);
+
+		// Ana still has a card for sale and R$ 85,00 owed.
+		await page.click(`#shop-consign-remove-${ANA}`);
+		await page.waitForFunction(() => /still has cards for sale/.test(document.body.textContent), null, TIMEOUT);
+		assert.equal(store.calls.filter(([name]) => name === 'save_consignor').length, 0);
+
+		// Once nothing is pending, Remove asks, then hides her.
+		Object.assign(store.data.consignors[0], {due_brl: 0, for_sale: 0, paid_brl: 85});
+		store.data.cards[1].status = 'withdrawn';
+		store.data.cards[1].returned_at = '2026-11-26T12:00:00Z';
+		await page.reload();
+		await openShop(page);
+		await page.click(`#shop-consign-remove-${ANA}`);
+		assert.match(await text(ana.locator('.shop-kit-ask')), /^Remove Ana\?/);
+		await page.click(`#shop-consign-remove-yes-${ANA}`);
+		await page.locator('#shop-consign-removed').waitFor(TIMEOUT);
+		assert.equal(await page.locator(`#consignor-${ANA}`).count(), 0);
+		assert.equal(store.calls.find(([name]) => name === 'save_consignor')[1].consignor.active, false);
+		assert.equal(await text(page.locator('#shop-consign-removed')), 'Show removed consignors (1)');
+
+		await page.click('#shop-consign-removed');
+		await page.click(`#shop-consign-restore-${ANA}`);
+		await page.locator(`#shop-consign-remove-${ANA}`).waitFor(TIMEOUT);
+		assert.equal(store.calls.filter(([name]) => name === 'save_consignor').pop()[1].consignor.active, true);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
@@ -340,7 +415,10 @@ describe('Shop consignment', () => {
 			const {context, errors, page} = await ownerPhone({orders});
 
 			await openShop(page);
+			await page.click('#shop-tab-orders');
 			await page.locator('#order-HTR-0012').waitFor(TIMEOUT);
+			assert.equal(await text(page.locator('#shop-tab-orders')), 'Orders (1)');
+			await tabsInOneRow(page);
 			assert.equal(plain((await page.locator('#order-HTR-0012 .shop-order-items > li').allTextContents())[0]), 'Charizard ex · #006 · Test Alpha · English · Near Mint · Consigned · Ana · R$ 100,00');
 			assert.deepEqual(errors, []);
 			await context.close();

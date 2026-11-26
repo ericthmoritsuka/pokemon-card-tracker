@@ -43,7 +43,7 @@ import {lensMember, toast} from './shell.js';
 import {memberCards, memberDocumentKept, memberRecords, whenMemberName} from './family.js';
 import {addToWishlist, listWishlist, markedForSale, sparesFor} from './wishlist.js';
 import {listingByCopy, salePrice, shopGroups, shopKey} from './shop.js';
-import {checkShopOwner, shopOwnerKnown} from './shop-owner.js';
+import {checkShopOwner, setConsignPick, setShopTab, shopOwnerKnown, wantsConsignPick} from './shop-owner.js';
 import {kitNamesText} from './kits.js';
 import {kitNamesFor, withdrawListings, withdrawNoticeText} from './store-publish.js';
 import {isCustomId} from './custom-card.js';
@@ -1885,30 +1885,64 @@ export function cardView(root, {lang, cardId}) {
 
 	// Consign (plans/hotaru-consignment-plan.md): someone else's card of
 	// this print goes on HOTARU, never into the collection. The shop's owner
-	// only; the sheet is read when the button is tapped.
+	// only; the sheet is read when it opens. Picked from the Shop's Consign
+	// tab (js/shop-owner.js wantsConsignPick), the sheet opens by itself once
+	// a page, and saving it goes back to that tab (Eric, 2026-11-26).
+	let consignOpened = false;
+
+	function openConsign(card, variants) {
+		import('./shop-consignment.js')
+			.then((consign) => consign.openConsignSheet({
+				card: {
+					card_id: cardId,
+					catalog: catalogFor(lang),
+					language: lang,
+					name: mainName(shownNames(card)),
+					number: card.localId || null,
+					pictureBase: card.image || null,
+					rarity: card.rarity || null,
+					set_name: (card.set && card.set.name) || null,
+				},
+				finishes: finishChoices(variants),
+				onSaved: () => {
+					if (wantsConsignPick()) {
+						setConsignPick(false);
+						setShopTab('consign');
+						go('shop');
+					}
+				},
+				toast,
+			}))
+			.catch((err) => toast(`Consign did not open. ${errorText(err)}`));
+	}
+
+	// The button waits in an empty slot until the phone knows this is the
+	// shop's owner: at once from the answer kept on the phone, or once the
+	// server says so, as on a phone that never opened the Shop.
 	function consignButton(card, variants) {
-		if (shopOwnerKnown() !== true) {
-			return null;
+		const slot = h('span', {class: 'copy-consign-slot', style: 'display: contents'});
+		const show = (owner) => {
+			if (owner !== true || !alive || slot.firstChild) {
+				return;
+			}
+
+			slot.append(h('button', {class: 'small copy-consign', id: 'copy-consign', onclick: () => openConsign(card, variants), type: 'button'}, 'Consign'));
+
+			if (wantsConsignPick() && !consignOpened) {
+				consignOpened = true;
+				openConsign(card, variants);
+			}
+		};
+		const known = shopOwnerKnown();
+
+		if (known === true) {
+			queueMicrotask(() => show(true));
+		}
+		else if (known === null) {
+			checkShopOwner().then(show).catch(() => {});
 		}
 
-		return h('button', {class: 'small copy-consign', id: 'copy-consign', onclick: () => {
-			import('./shop-consignment.js')
-				.then((consign) => consign.openConsignSheet({
-					card: {
-						card_id: cardId,
-						catalog: catalogFor(lang),
-						language: lang,
-						name: mainName(shownNames(card)),
-						number: card.localId || null,
-						pictureBase: card.image || null,
-						rarity: card.rarity || null,
-						set_name: (card.set && card.set.name) || null,
-					},
-					finishes: finishChoices(variants),
-					toast,
-				}))
-				.catch((err) => toast(`Consign did not open. ${errorText(err)}`));
-		}, type: 'button'}, 'Consign');
+		return slot;
 	}
 
 	// Tick the collections these copies are in (js/collections-view.js, read
