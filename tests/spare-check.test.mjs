@@ -307,6 +307,13 @@ describe('Checked', () => {
 		assert.equal(spareCheck(finishes()).length, 1, 'one block for the card');
 		assert.equal(ralts.copies, 4);
 		assert.equal(checkedSignature(ralts), 'n1,n2,n3,r1');
+
+		// The lone reverse holo is kept, not free: two normals are free.
+		const rows = new Map(ralts.rows.map((row) => [row.entry.id, row]));
+
+		assert.equal(rows.get('r1').free, false);
+		assert.equal(rows.get('r1').reason, 'kept');
+		assert.deepEqual(ralts.rows.filter((row) => row.free).map((row) => row.entry.id).sort(), ['n2', 'n3']);
 		assert.deepEqual(narrowChecks([{group: ralts}], {checked}), []);
 
 		const more = finishes();
