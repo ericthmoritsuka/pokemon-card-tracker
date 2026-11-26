@@ -260,14 +260,14 @@ describe('Shop consignment', () => {
 		assert.ok(code.includes('5903ANA'), 'Ana\'s name');
 		assert.equal(code, await ana.locator('.shop-pix').getAttribute('data-code'));
 		await page.click(`#shop-consign-paid-${ANA}`);
-		await page.waitForFunction((id) => !document.getElementById(`shop-consign-pay-${id}`) && /R\$\s85,00 paid/.test(document.querySelector(`#consignor-${id} .shop-consignor-balances`).textContent), ANA, TIMEOUT);
+		await page.waitForFunction((id) => !document.getElementById(`shop-consign-pay-${id}`) && /R\$\s85,00 paid/.test(document.querySelector(`#consignor-${id} .shop-consignor-balances`)?.textContent || ''), ANA, TIMEOUT);
 		assert.deepEqual(store.calls.find(([name]) => name === 'mark_payouts_paid')[1], {ids: ['p-1'], note: null});
 
 		// Return to owner asks first.
 		await ana.locator('.shop-consigned[data-id="cons-2"] .shop-consigned-return').click();
 		assert.match(await text(ana.locator('.shop-consigned[data-id="cons-2"] .shop-kit-ask')), /^Give Pikachu back to Ana\? It leaves HOTARU\.$/);
 		await ana.locator('.shop-consigned[data-id="cons-2"] button:has-text("Return")').click();
-		await page.waitForFunction(() => /Returned$/.test(document.querySelector('.shop-consigned[data-id="cons-2"] .shop-consigned-line').textContent.trim()), null, TIMEOUT);
+		await page.waitForFunction(() => /Returned$/.test((document.querySelector('.shop-consigned[data-id="cons-2"] .shop-consigned-line')?.textContent || '').trim()), null, TIMEOUT);
 		assert.deepEqual(store.calls.find(([name]) => name === 'return_consigned')[1], {listing_id: 'cons-2'});
 		assert.equal(await ana.locator('.shop-consigned[data-id="cons-2"] .shop-consigned-relist').count(), 1, 'a returned card can go back on sale');
 
@@ -275,7 +275,9 @@ describe('Shop consignment', () => {
 		await page.click('#shop-consign-terms-edit');
 		await page.fill('#shop-consign-pct', '20');
 		await page.click('#shop-consign-terms-save');
-		await page.waitForFunction(() => /20%/.test(document.getElementById('shop-consign-terms').textContent), null, TIMEOUT);
+		// The form shows until the save answers, so the terms line can be
+		// missing for a moment; that is "not yet", not a failure.
+		await page.waitForFunction(() => /20%/.test(document.getElementById('shop-consign-terms')?.textContent || ''), null, TIMEOUT);
 		assert.deepEqual(store.calls.find(([name]) => name === 'save_store_settings')[1], {settings: {commission_pct: 20, min_commission_brl: 5}});
 		assert.deepEqual(errors, []);
 		await context.close();

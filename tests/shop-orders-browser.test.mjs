@@ -524,7 +524,7 @@ describe('Shop orders', () => {
 		let {context, errors, page} = await ownerPhone({orders: []});
 
 		await openShop(page, {tab: null});
-		assert.deepEqual(await page.locator('#shop-tabs [role="tab"]').allTextContents(), ['Prices', 'Kits', 'Orders']);
+		assert.deepEqual(await page.locator('#shop-tabs [role="tab"]').allTextContents(), ['Prices', 'Kits', 'Orders', 'Consign']);
 		assert.equal(await page.getAttribute('#shop-tab-prices', 'aria-selected'), 'true');
 		assert.ok(await page.locator('#shop-panel-orders').isHidden());
 		assert.ok(await page.locator('#shop-panel-kits').isHidden());
