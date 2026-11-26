@@ -23,6 +23,17 @@ export const RELEASES = [
 	{
 		date: '2026-11-26',
 		items: [
+			'Consign has its own tab in the Shop, beside Prices, Kits, and Orders.',
+			'Consign a card takes you to your cards: open one and its Consign sheet opens by itself, and saving brings you back to the Consign tab.',
+			'Each consigned card shows what you keep beside its price.',
+			'A consignor with no cards for sale and nothing owed can be removed, and restored later. Their history stays.',
+			'The favorite star on a card page stays right beside Your copies, with one copy or several.',
+		],
+		version: 'v121',
+	},
+	{
+		date: '2026-11-26',
+		items: [
 			'Each card of an order in the Shop\'s Orders tab has a box: tick it off as you put the order together, so the right cards go out.',
 			'A kit\'s cards each have their own box, and a line under the cards counts what you have checked.',
 			'The ticks stay on this phone or computer until the order is delivered or cancelled.',
