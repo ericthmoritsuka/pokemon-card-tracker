@@ -311,6 +311,13 @@ describe('Check spares: search, sort, Where, and Show', () => {
 		await summaryIs(page, '1 of 5 cards with more than one copy: 3 copies, 1 free.');
 		assert.deepEqual(await names(page), ['Charmander']);
 
+		// The pile checked: the place stays picked, by name, at 0. Undo.
+		await page.locator('.check-copy', {hasText: 'Region, page 1'}).locator('.check-gone').click();
+		await summaryIs(page, 'No card matches. Clear all shows every card again.');
+		assert.equal(await page.locator('#check-where option:checked').textContent(), 'Region · 0 copies');
+		await page.locator('.toast', {hasText: 'logged as given away'}).locator('button', {hasText: 'Undo'}).click();
+		await summaryIs(page, '1 of 5 cards with more than one copy: 3 copies, 1 free.');
+
 		// The oldest set first, then the number: Test Beta, then Test Alpha.
 		await page.selectOption('#check-where', 'any');
 		await page.selectOption('#check-sort', 'setOld');
