@@ -35,7 +35,7 @@ import {catalogFor, languageLabel} from './languages.js';
 import {finishLabel} from './monprice.js';
 import {applyMove, parsePrice, priceForInput, PRICE_FORM_TEXT} from './moves.js';
 import {addPhotoButton, mainSlide, slideSrc} from './photos/index.js';
-import {euroRates, exchangeRates, extractPrices, finishFits, finishOf, formatBrl, savedEuroRates, savedRates} from './prices.js';
+import {euroRates, exchangeRates, extractPrices, finishFits, finishOf, formatBrl, savedEuroRates, savedRates, shortDate} from './prices.js';
 import {PRICE_FILTERS, forSalePatches, groupCopy, groupMark, hasCards, listingRows, orderCheck, ownPicturePath, priceFilter, pricePatches, saleFields, shopGroups, shopKey, shopTotals, storePicturePath, suggestion, timeLeft, undoForSalePatches, undoPricePatches} from './shop.js';
 import {setPicker} from './set-picker.js';
 import {consignmentSection} from './shop-consignment.js';
@@ -43,7 +43,7 @@ import {kitsSection, openKitSheet, orderItemsNode} from './shop-kits.js';
 import {alertsOn, NEW_ORDERS_EVENT, notifyPermission, turnOff, turnOn} from './order-alerts.js';
 import {checkShopOwner, onShopOwner, setAddAndSell, setConsignPick, setShopTab, SHOP_TABS, shopOwnerKnown, shopTab} from './shop-owner.js';
 import {openDialogSheet} from './sheet.js';
-import {announceOrders, cancelOrder, keepOrderChecks, markDelivered, markPaid, openOrders, orderChecks, orderErrorText, receiptLink, setOrderCheck} from './store-orders.js';
+import {announceOrders, cancelOrder, DELIVERED_DAYS, deliveredErrorText, deliveredOrders, keepOrderChecks, markDelivered, markPaid, openOrders, orderChecks, orderErrorText, receiptLink, setOrderCheck, syncOrderChecks} from './store-orders.js';
 import {publishErrorText, syncListings, uploadOwnPicture, uploadPicture} from './store-publish.js';
 import {onSyncStatus, syncStatus} from './sync.js';
 
@@ -148,9 +148,16 @@ export function shopView(root) {
 	// HOTARU's orders (step 5): those waiting for payment and the paid ones
 	// still to hand over, with the document they are checked against, the
 	// question an order is asking (paid or cancel), and the orders whose
-	// call is running.
+	// call is running. Also the orders delivered lately, for the Delivered
+	// filter (v122), or why they could not be read.
 	let orders = [];
 	let orderDoc = null;
+	let deliveredList = [];
+	let deliveredError = null;
+	// The orders this filter keeps in sight after a tick or a payment moved
+	// them to another stage, so an order never vanishes under the finger;
+	// they move once the filter changes or the Shop opens again.
+	const heldInView = new Set();
 	const asking = new Map();
 	const working = new Set();
 	const ordersBox = h('section', {'aria-labelledby': 'shop-orders-title', class: 'shop-orders', hidden: true, id: 'shop-orders'});
@@ -1426,7 +1433,16 @@ export function shopView(root) {
 		try {
 			// Read with the orders: a paid or delivered order changes what
 			// consignors are owed, and an order names whose card it holds.
-			const [found, doc] = await Promise.all([openOrders(), loadDocument(), consignment.load().catch(() => null)]);
+			// The ticks come from the server too (v122), so the phone and
+			// the computer agree on what is separated; neither they nor the
+			// delivered orders stop the open ones from showing.
+			const [found, doc, , , done] = await Promise.all([
+				openOrders(),
+				loadDocument(),
+				consignment.load().catch(() => null),
+				syncOrderChecks(),
+				deliveredOrders().then((list) => ({list}), (error) => ({error})),
+			]);
 
 			if (!alive) {
 				return;
@@ -1434,6 +1450,8 @@ export function shopView(root) {
 
 			orders = found;
 			orderDoc = doc;
+			deliveredList = done.list || [];
+			deliveredError = done.error || null;
 			keepOrderChecks(found.map((order) => order.code));
 			drawOrders();
 		}
@@ -1629,11 +1647,30 @@ export function shopView(root) {
 		return peek;
 	}
 
+	// An open order's stage (Eric, 2026-11-26): Unpaid until the Pix
+	// arrives; then Separating while any card is not ticked, and Ready once
+	// every card is, to hand over. The ticks decide it, so a tick moves the
+	// order with no button of its own.
+	const allTicked = (order, ticked = orderChecks(order.code)) => (order.items || []).every((item) => ticked.has(item.listing_id));
+	const orderStage = (order) => {
+		if (order.status === 'pending') {
+			return 'pending';
+		}
+
+		return allTicked(order) ? 'ready' : 'separating';
+	};
+	const stageText = (order) => ({
+		pending: () => `Waiting for payment · ${timeLeft(order.reserved_until)}`,
+		ready: () => 'Paid · ready to hand over',
+		separating: () => 'Paid · separating',
+	})[orderStage(order)]();
+
 	// The order's checklist (Eric, 2026-11-26): a box beside each card to
 	// tick it off while putting the order together, so the right cards go
-	// out, and a line counting the ticks. Ticking redraws only the line, so
-	// the box keeps its focus.
-	function orderChecklist(order) {
+	// out, and a line counting the ticks. Ticking redraws only that line,
+	// the order's state, and the filter's counts, so the box keeps its focus;
+	// the order stays under this filter until it changes (heldInView).
+	function orderChecklist(order, onTick) {
 		const ticked = orderChecks(order.code);
 		const items = order.items || [];
 		const progress = h('p', {'aria-live': 'polite', class: 'shop-order-progress', hidden: !items.length});
@@ -1661,6 +1698,7 @@ export function shopView(root) {
 				setOrderCheck(order.code, item.listing_id, value);
 				label.classList.toggle('shop-order-checked', value);
 				drawProgress();
+				onTick();
 			}, type: 'checkbox'});
 			const label = h('label', {class: `shop-order-check${on ? ' shop-order-checked' : ''}`}, box, h('span', null, text));
 
@@ -1676,7 +1714,12 @@ export function shopView(root) {
 
 	function orderCard(order) {
 		const {logged, missing} = orderCheck(order, orderDoc);
-		const checklist = orderChecklist(order);
+		const state = h('p', {class: 'shop-order-state'}, stageText(order));
+		const checklist = orderChecklist(order, () => {
+			heldInView.add(order.code);
+			state.textContent = stageText(order);
+			drawOrderCounts();
+		});
 		const pending = order.status === 'pending';
 		const busy = working.has(order.code);
 		const question = asking.get(order.code);
@@ -1724,7 +1767,7 @@ export function shopView(root) {
 			h('p', {class: 'shop-order-who'},
 				h('a', {href: `tel:${String(order.phone).replace(/[^\d+]/g, '')}`}, order.phone),
 				order.note ? ` · ${order.note}` : null),
-			h('p', {class: 'shop-order-state'}, pending ? `Waiting for payment · ${timeLeft(order.reserved_until)}` : 'Paid · to hand over'),
+			state,
 			order.receipt_path
 				? h('p', {class: 'shop-order-receipt'}, 'Receipt sent ', h('button', {class: 'link-button', onclick: () => openReceipt(order), type: 'button'}, 'Receipt'))
 				: (pending ? h('p', {class: 'muted shop-order-receipt'}, 'No receipt yet') : null),
@@ -1739,23 +1782,63 @@ export function shopView(root) {
 		);
 	}
 
-	// Which orders the list shows (Eric, 2026-11-26: tell the ones ready to
-	// put together and hand over from the ones still waiting for the Pix).
-	const ORDER_FILTERS = ['all', 'pending', 'paid'];
+	// The day an order was handed over, on this phone's calendar.
+	const deliveredDay = (stamp) => {
+		const when = new Date(stamp);
+
+		if (Number.isNaN(when.getTime())) {
+			return null;
+		}
+
+		const pad = (n) => String(n).padStart(2, '0');
+
+		return shortDate(`${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}`);
+	};
+
+	// A delivered order (v122): what went out, to whom, and when, with no
+	// checklist and nothing left to do but log a sale that is missing.
+	function deliveredCard(order) {
+		const {logged} = orderCheck(order, orderDoc);
+		const day = deliveredDay(order.delivered_at);
+
+		return h('article', {class: 'card shop-order shop-order-delivered', 'data-code': order.code, id: `order-${order.code}`},
+			h('h4', {class: 'shop-order-head'}, `${order.code} · ${order.name}`),
+			h('p', {class: 'shop-order-who'},
+				h('a', {href: `tel:${String(order.phone).replace(/[^\d+]/g, '')}`}, order.phone),
+				order.note ? ` · ${order.note}` : null),
+			h('p', {class: 'shop-order-state'}, day ? `Delivered ${day}` : 'Delivered'),
+			orderItemsNode(order.items, itemLine),
+			h('p', {class: 'shop-order-total'}, `Total ${formatBrl(order.total)}`),
+			logged ? null : h('p', {class: 'status shop-order-missing'}, 'Delivered, but the sale is not in your Trades yet.'),
+			logged ? null : h('div', {class: 'shop-order-actions'},
+				h('button', {class: 'primary', disabled: working.has(order.code), onclick: () => logSale(order), type: 'button'}, 'Log the sale'))
+		);
+	}
+
+	// Which orders the list shows (Eric, 2026-11-26): the four stages an
+	// order goes through, each with its count. No All: the four cover every
+	// order, and a fifth segment does not fit a phone.
+	const ORDER_FILTERS = ['pending', 'separating', 'ready', 'delivered'];
 	const ORDER_FILTER_KEY = 'cardTracker.shopOrderFilter';
 	let orderFilter = (() => {
 		try {
 			const kept = sessionStorage.getItem(ORDER_FILTER_KEY);
 
-			return ORDER_FILTERS.includes(kept) ? kept : 'all';
+			// v118's Ready (paid, not delivered) is now Separating or Ready.
+			if (kept === 'paid') {
+				return 'separating';
+			}
+
+			return ORDER_FILTERS.includes(kept) ? kept : 'pending';
 		}
 		catch {
-			return 'all';
+			return 'pending';
 		}
 	})();
 
 	function setOrderFilter(value) {
 		orderFilter = value;
+		heldInView.clear();
 
 		try {
 			sessionStorage.setItem(ORDER_FILTER_KEY, value);
@@ -1768,26 +1851,35 @@ export function shopView(root) {
 	}
 
 	// One control, kept across redraws, with its counts (js/dom.js
-	// segmentCounts, as All, Owned, Missing elsewhere). Short words, so
-	// label and count fit side by side on a phone: Ready is paid and still
-	// to put together and hand over.
-	const ORDER_FILTER_NAMES = {all: 'All', paid: 'Ready', pending: 'Unpaid'};
+	// segmentCounts, as All, Owned, Missing elsewhere).
+	const ORDER_FILTER_NAMES = {delivered: 'Delivered', pending: 'Unpaid', ready: 'Ready', separating: 'Separating'};
 	const orderFilterNode = h('div', {'aria-label': 'Show orders', class: 'segmented shop-order-filter', id: 'shop-order-filter', role: 'radiogroup'},
 		ORDER_FILTERS.map((value) => h('label', null,
 			h('input', {checked: value === orderFilter, id: `shop-order-filter-${value}`, name: 'shop-order-filter', onchange: () => setOrderFilter(value), type: 'radio', value}),
 			h('span', {'data-label': ORDER_FILTER_NAMES[value]}, ORDER_FILTER_NAMES[value]))));
+
+	function orderCounts() {
+		const counts = {delivered: deliveredList.length, pending: 0, ready: 0, separating: 0};
+
+		for (const order of orders) {
+			counts[orderStage(order)] += 1;
+		}
+
+		return counts;
+	}
+
+	function drawOrderCounts() {
+		segmentCounts(orderFilterNode, orderCounts());
+	}
 
 	function drawOrders() {
 		ordersBox.hidden = false;
 		announceOrders(orders);
 		tabLabel('orders', orders.length);
 
-		const counts = {
-			all: orders.length,
-			paid: orders.filter((order) => order.status === 'paid').length,
-			pending: orders.filter((order) => order.status === 'pending').length,
-		};
-		const shownOrders = orderFilter === 'all' ? orders : orders.filter((order) => order.status === orderFilter);
+		const shown = orderFilter === 'delivered'
+			? deliveredList
+			: orders.filter((order) => orderStage(order) === orderFilter || heldInView.has(order.code));
 		// The radios are drawn anew with the list; the one that had the
 		// focus gets it back.
 		const hadFocus = orderFilterNode.contains(document.activeElement);
@@ -1795,30 +1887,26 @@ export function shopView(root) {
 		for (const input of orderFilterNode.querySelectorAll('input')) {
 			input.checked = input.value === orderFilter;
 		}
+
 		const none = {
-			all: 'No open orders.',
-			paid: 'Nothing ready: no paid order is waiting to be handed over.',
+			delivered: deliveredError
+				? deliveredErrorText(deliveredError)
+				: `Nothing delivered in the last ${formatCount(DELIVERED_DAYS)} days.`,
 			pending: 'Nothing waiting for payment.',
+			ready: 'Nothing ready: no paid order has every card checked.',
+			separating: 'Nothing to separate: every paid order has its cards checked.',
 		};
 
 		ordersBox.replaceChildren(...[
 			h('h3', {id: 'shop-orders-title'}, orders.length ? `Orders (${formatCount(orders.length)})` : 'Orders'),
-			orders.length ? orderFilterNode : null,
-			orders.length && orderFilter === 'all'
-				? h('p', {class: 'muted'}, [
-					counts.pending ? `${plural(counts.pending, 'order', 'orders')} waiting for payment` : 'Nothing waiting for payment',
-					counts.paid ? `${formatCount(counts.paid)} paid, ready to hand over` : null,
-				].filter(Boolean).join(', ') + '.')
-				: null,
-			shownOrders.length
+			orderFilterNode,
+			shown.length
 				? null
 				: h('p', {class: 'muted', id: 'shop-orders-none'}, none[orderFilter]),
-			...shownOrders.map(orderCard),
+			...shown.map(orderFilter === 'delivered' ? deliveredCard : orderCard),
 		].filter(Boolean));
 
-		if (orders.length) {
-			segmentCounts(orderFilterNode, counts);
-		}
+		drawOrderCounts();
 
 		if (hadFocus) {
 			const checked = ordersBox.querySelector('input[name="shop-order-filter"]:checked');
@@ -1883,6 +1971,7 @@ export function shopView(root) {
 		await run(order, async () => {
 			try {
 				await markPaid(order.code);
+				heldInView.add(order.code);
 				done = true;
 			}
 			catch (err) {
