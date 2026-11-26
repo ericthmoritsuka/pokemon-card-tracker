@@ -45,6 +45,9 @@ after(async () => {
 	await server.close();
 });
 
+// A card-shaped grey picture, 63 by 88 pixels.
+const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAD8AAABYCAIAAADNzLhqAAAAXUlEQVR42u3OAQ0AAAwCIPsnM5YBnuAbJCD9LPb29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb29vZnP4voxK/FWbkGAAAAAElFTkSuQmCC';
+
 const plain = (text) => String(text).replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
 
 const hours = (n) => new Date(Date.now() + n * 3600e3).toISOString();
@@ -136,7 +139,7 @@ async function ownerPhone(options) {
 
 	const store = await attachOrders(page, options);
 
-	await seed(page, server.origin, {binders: [], copies: [], index: indexRecords()});
+	await seed(page, server.origin, {binders: [], copies: [], index: (options && options.index) || indexRecords()});
 	await page.goto(`${server.origin}${BASE}signin`);
 	await page.fill('#signin-email', user.email);
 	await page.click('button:has-text("Send link")');
@@ -315,6 +318,64 @@ describe('Shop orders', () => {
 		await order(page, 'HTR-0006').waitFor({state: 'detached', ...TIMEOUT});
 		await page.waitForFunction(() => !('HTR-0006' in JSON.parse(localStorage.getItem('cardTracker.orderChecks') || '{}')), null, TIMEOUT);
 		assert.deepEqual(await kept(), {'HTR-0007': ['c-04']});
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a card line shows the card\'s picture under the mouse and on a long press, and a long press ticks nothing', async () => {
+		// Charmander has a catalog picture, served here; the fixtures' cards
+		// have none.
+		const index = indexRecords();
+		const base = 'https://assets.tcgdex.net/en/sm/tsa1/004';
+
+		for (const localization of Object.values(index['international|tsa1-004'].localizations)) {
+			localization.image = base;
+		}
+
+		const {context, errors, page} = await ownerPhone({index});
+
+		await page.route(`${base}/**`, (route) => route.fulfill({body: Buffer.from(PNG, 'base64'), contentType: 'image/png', status: 200}));
+		const line = order(page, 'HTR-0007').locator('.shop-order-check').first();
+		const peek = line.locator('.shop-order-peek');
+		const box = line.locator('input[type="checkbox"]');
+
+		await openShop(page);
+		await order(page, 'HTR-0007').waitFor(TIMEOUT);
+		assert.equal(await peek.isHidden(), true);
+
+		// The mouse resting on the line shows the copy's picture.
+		await line.hover();
+		await peek.waitFor({state: 'visible', ...TIMEOUT});
+		const src = await peek.getAttribute('src');
+
+		assert.equal(src, `${base}/high.webp`, 'the large catalog picture');
+		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-orders-peek.png`});
+		await page.mouse.move(0, 0);
+		await peek.waitFor({state: 'hidden', ...TIMEOUT});
+		assert.equal(await box.isChecked(), false, 'hovering ticks nothing');
+
+		// A finger held on the line shows it; lifting hides it and the box
+		// stays as it was.
+		const touch = (type) => line.evaluate((node, kind) => {
+			const rect = node.getBoundingClientRect();
+			const at = {bubbles: true, clientX: rect.left + 40, clientY: rect.top + 8, pointerId: 7, pointerType: 'touch'};
+
+			node.querySelector('span').dispatchEvent(new PointerEvent(kind, at));
+
+			if (kind === 'pointerup') {
+				node.querySelector('span').dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
+			}
+		}, type);
+
+		await touch('pointerdown');
+		await peek.waitFor({state: 'visible', ...TIMEOUT});
+		await touch('pointerup');
+		await peek.waitFor({state: 'hidden', ...TIMEOUT});
+		assert.equal(await box.isChecked(), false, 'a long press ticks nothing');
+
+		// A tap still ticks it.
+		await line.locator('span').first().tap().catch(() => line.locator('span').first().click());
+		assert.equal(await box.isChecked(), true);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

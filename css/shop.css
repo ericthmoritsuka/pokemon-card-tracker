@@ -380,6 +380,38 @@
 	color: var(--muted);
 }
 
+/* The card's picture over its line (js/shop-view.js peekNode): above the
+   line, or below it near the top of the window. A long press shows it on a
+   phone, so the line selects no text and opens no menu. */
+.shop-order-check {
+	position: relative;
+	-webkit-touch-callout: none;
+	user-select: none;
+}
+
+.shop-order-peek {
+	aspect-ratio: 63 / 88;
+	background: var(--skeleton);
+	border-radius: 4.5% / 3.2%;
+	bottom: calc(100% + 4px);
+	box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+	height: auto;
+	left: 2em;
+	pointer-events: none;
+	position: absolute;
+	width: min(200px, 60vw);
+	z-index: 20;
+}
+
+.shop-order-peek-below {
+	bottom: auto;
+	top: calc(100% + 4px);
+}
+
+.shop-order-peek[hidden] {
+	display: none;
+}
+
 .shop-order-progress {
 	color: var(--muted);
 	font-size: 0.92em;
