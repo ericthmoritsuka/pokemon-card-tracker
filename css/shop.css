@@ -615,11 +615,14 @@
 	}
 }
 
-/* The Shop's tabs, Prices, Kits, and Orders (js/shop-view.js, Eric
-   2026-11-26), drawn as the Lists tab's switch. They are buttons, so the
-   button look is taken off. */
-.shop-tabs {
-	grid-template-columns: repeat(3, 1fr);
+/* The Shop's tabs, Prices, Kits, Orders, and Consign (js/shop-view.js,
+   Eric 2026-11-26), drawn as the Lists tab's switch. They are buttons, so
+   the button look is taken off. Four share a phone's width: a label with a
+   count, "Orders (12)", wraps inside its tab rather than pushing a tab to a
+   second row. Two classes, so it wins over css/collections.css, which
+   loads later and gives every .lists-switch three columns. */
+.lists-switch.shop-tabs {
+	grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .shop-tabs .lists-switch-item {
@@ -627,9 +630,13 @@
 	border-radius: 0;
 	cursor: pointer;
 	font: inherit;
+	font-size: 0.94em;
 	font-weight: 600;
+	line-height: 1.15;
 	margin: 0;
-	padding: 0 var(--space-2);
+	min-width: 0;
+	overflow-wrap: anywhere;
+	padding: 0 var(--space-1);
 }
 
 .shop-tabs .lists-switch-item + .lists-switch-item {

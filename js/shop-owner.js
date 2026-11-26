@@ -128,13 +128,45 @@ export function setAddAndSell(on) {
 	}
 }
 
+// Consign a card (plans/hotaru-consignment-plan.md; Eric, 2026-11-26: picking
+// the card should take him straight back to consigning): the Consign tab's
+// button sends the owner to find a card, and the next card page opens its
+// Consign sheet by itself; saving it goes back to the Consign tab. Kept on
+// this tab only, and dropped once a card is consigned that way or the Shop
+// is opened again.
+const CONSIGN_PICK_KEY = 'cardTracker.consignPick';
+
+export function wantsConsignPick() {
+	try {
+		return sessionStorage.getItem(CONSIGN_PICK_KEY) === '1';
+	}
+	catch {
+		return false;
+	}
+}
+
+export function setConsignPick(on) {
+	try {
+		if (on) {
+			sessionStorage.setItem(CONSIGN_PICK_KEY, '1');
+		}
+		else {
+			sessionStorage.removeItem(CONSIGN_PICK_KEY);
+		}
+	}
+	catch {
+		// Not kept: the card page shows its Consign button as usual.
+	}
+}
+
 // The Shop's tab (Eric, 2026-11-26: one part to price the cards, one for
-// kits, one for the orders): 'prices', 'kits', or 'orders', kept on this tab
-// so the Shop opens where it was left. A new order's alert, and the
+// kits, one for the orders, and one for consigned cards): 'prices', 'kits',
+// 'orders', or 'consign', kept on this tab so the Shop opens where it was
+// left. A new order's alert, and the
 // header's bag while orders are open, set 'orders' before opening it.
 const TAB_KEY = 'cardTracker.shopTab';
 
-export const SHOP_TABS = ['prices', 'kits', 'orders'];
+export const SHOP_TABS = ['prices', 'kits', 'orders', 'consign'];
 
 export function shopTab() {
 	try {

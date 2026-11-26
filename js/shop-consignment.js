@@ -23,6 +23,7 @@ import {parsePrice, priceForInput} from './moves.js';
 import {brCode, pixKey} from './pix.js';
 import {finishName, formatBrl} from './prices.js';
 import {CONDITIONS} from './scan/session.js';
+import {setConsignPick} from './shop-owner.js';
 import {openDialogSheet} from './sheet.js';
 import {storePicturePath} from './shop.js';
 import {uploadPicture} from './store-publish.js';
@@ -182,6 +183,7 @@ export function consignmentSection({go, onLoad = () => {}, toast}) {
 	let loaded = false;
 	let problem = null;
 	let editingTerms = false;
+	let showRemoved = false;
 	const asking = new Map();
 	const working = new Set();
 	const node = h('section', {'aria-labelledby': 'shop-consign-title', class: 'shop-kits shop-consign', hidden: true, id: 'shop-consign'});
@@ -202,21 +204,79 @@ export function consignmentSection({go, onLoad = () => {}, toast}) {
 		}
 
 		const forSale = data.cards.filter((card) => stateOf(card) === 'available').length;
+		const active = data.consignors.filter((person) => person.active !== false);
+		const removed = data.consignors.filter((person) => person.active === false);
 
-		node.replaceChildren(
+		node.replaceChildren(...[
 			title,
-			h('p', {class: 'muted', id: 'shop-consign-note'}, data.consignors.length
+			h('p', {class: 'muted', id: 'shop-consign-note'}, active.length
 				? `Other people's cards, sold for a commission. ${plural(forSale, 'card')} on HOTARU.`
 				: 'Sell other people\'s cards for a commission taken out of the price. Add who leaves cards with you, then consign each card from its card page.'),
 			termsNode(),
 			h('div', {class: 'shop-kit-actions'},
-				h('button', {class: 'small', id: 'shop-consign-card', onclick: () => {
+				h('button', {class: 'small primary', id: 'shop-consign-card', onclick: () => {
+					// The next card page opens its Consign sheet by itself, and
+					// saving it comes back here (js/catalog-views.js).
+					setConsignPick(true);
 					go('sets');
-					toast('Consign: find the card, open it, and tap Consign.', {key: 'consign', timeout: 0});
+					toast('Consign: find the card and open it. Its Consign sheet opens by itself.', {key: 'consign', timeout: 0});
 				}, type: 'button'}, 'Consign a card'),
 				h('button', {class: 'small', id: 'shop-consign-person', onclick: () => openConsignorSheet({onSaved: load, settings: data.settings, toast}), type: 'button'}, 'Add consignor')),
-			...data.consignors.map(consignorCard)
-		);
+			...active.map(consignorCard),
+			removed.length
+				? h('button', {class: 'small', id: 'shop-consign-removed', onclick: () => {
+					showRemoved = !showRemoved;
+					draw();
+				}, type: 'button'}, showRemoved ? 'Hide removed consignors' : `Show removed consignors (${removed.length})`)
+				: null,
+			...(showRemoved ? removed.map(removedCard) : [])
+		// replaceChildren writes a null as text, unlike h().
+		].filter(Boolean));
+	}
+
+	// What save_consignor takes, from a consignor as the server lists them.
+	const consignorRecord = (person, changes) => ({
+		active: person.active !== false,
+		commission_pct: person.commission_pct,
+		id: person.id,
+		min_commission_brl: person.min_commission_brl,
+		name: person.name,
+		note: person.note,
+		phone: person.phone,
+		pix_key: person.pix_key,
+		...changes,
+	});
+
+	// What keeps a consignor from being removed: a card still with the shop
+	// for sale or in an order, or money not paid to them yet.
+	function removeBlock(person) {
+		if (Number(person.for_sale) || Number(person.reserved)) {
+			return `${person.name} still has cards for sale or in an order. Return them to ${person.name} first.`;
+		}
+
+		if (Number(person.waiting_brl) || Number(person.due_brl)) {
+			return `${person.name} is still owed ${brl(Number(person.waiting_brl) + Number(person.due_brl))}. Pay it first.`;
+		}
+
+		return null;
+	}
+
+	// A removed consignor, shown on request: their statement, and Restore.
+	function removedCard(person) {
+		const busy = working.has(person.id);
+
+		return h('article', {class: 'card shop-kit shop-consignor shop-consignor-removed', 'data-id': person.id, id: `consignor-${person.id}`},
+			h('h4', {class: 'shop-kit-name'}, `${person.name} (removed)`),
+			h('div', {class: 'shop-kit-actions'},
+				h('button', {class: 'small', disabled: busy, id: `shop-consign-restore-${person.id}`, onclick: () => act(person.id, async () => {
+					await saveConsignor(consignorRecord(person, {active: true}));
+					toast(`${person.name} is back.`);
+				}), type: 'button'}, 'Restore'),
+				h('button', {class: 'small', onclick: async () => {
+					const copied = await copyText(statementText(person, data, {brl}));
+
+					toast(copied ? `${person.name}'s statement copied.` : 'The statement could not be copied.');
+				}, type: 'button'}, 'Copy statement')));
 	}
 
 	function termsNode() {
@@ -292,7 +352,21 @@ export function consignmentSection({go, onLoad = () => {}, toast}) {
 			Number(person.paid_brl) ? `${brl(person.paid_brl)} paid` : null,
 		].filter(Boolean).join(' · ');
 		const paying = asking.get(person.id) === 'pay';
-		const actions = paying
+		const removing = asking.get(person.id) === 'remove';
+		const actions = removing
+			? [
+				h('p', {class: 'shop-kit-ask'}, `Remove ${person.name}? They leave this list and the Consign sheet. Their sold and returned cards stay in their statement, under Show removed consignors.`),
+				h('button', {class: 'small', disabled: busy, id: `shop-consign-remove-yes-${person.id}`, onclick: () => act(person.id, async () => {
+					asking.delete(person.id);
+					await saveConsignor(consignorRecord(person, {active: false}));
+					toast(`${person.name} removed.`);
+				}), type: 'button'}, 'Remove'),
+				h('button', {class: 'small', onclick: () => {
+					asking.delete(person.id);
+					draw();
+				}, type: 'button'}, 'Back'),
+			]
+			: paying
 			? [
 				h('p', {class: 'shop-kit-ask'}, `Send ${brl(person.due_brl)} to ${person.name} by Pix, then mark it paid.`),
 				pixPanel(person, Number(person.due_brl), toast),
@@ -317,6 +391,18 @@ export function consignmentSection({go, onLoad = () => {}, toast}) {
 					toast(copied ? `${person.name}'s statement copied. Paste it in WhatsApp.` : 'The statement could not be copied.');
 				}, type: 'button'}, 'Copy statement'),
 				h('button', {class: 'small', onclick: () => openConsignorSheet({existing: person, onSaved: load, settings: data.settings, toast}), type: 'button'}, 'Edit details'),
+				h('button', {class: 'small', id: `shop-consign-remove-${person.id}`, onclick: () => {
+					const block = removeBlock(person);
+
+					if (block) {
+						toast(block);
+
+						return;
+					}
+
+					asking.set(person.id, 'remove');
+					draw();
+				}, type: 'button'}, 'Remove'),
 			];
 
 		return h('article', {class: 'card shop-kit shop-consignor', 'data-id': person.id, id: `consignor-${person.id}`},
@@ -334,9 +420,11 @@ export function consignmentSection({go, onLoad = () => {}, toast}) {
 		const payout = payouts.find((one) => one.listing_id === card.id);
 		const busy = working.has(card.id);
 		const confirming = asking.get(card.id) === 'return';
+		// The commission beside the price (Eric, 2026-11-26): what is kept,
+		// or would be at this price.
 		const money = payout
-			? `${brl(payout.sale_brl)} · ${person.name} gets ${brl(payout.payout_brl)} · ${PAYOUT_STATES[payout.state] || payout.state}`
-			: `${brl(card.price_brl)} · ${person.name} gets ${brl(card.payout_brl)}`;
+			? `${brl(payout.sale_brl)} · ${person.name} gets ${brl(payout.payout_brl)} · you kept ${brl(payout.commission_brl)} · ${PAYOUT_STATES[payout.state] || payout.state}`
+			: `${brl(card.price_brl)} · ${person.name} gets ${brl(card.payout_brl)} · you keep ${brl(card.commission_brl)}`;
 		const buttons = confirming
 			? [
 				h('span', {class: 'shop-kit-ask'}, `Give ${card.name} back to ${person.name}? It leaves HOTARU.`),
