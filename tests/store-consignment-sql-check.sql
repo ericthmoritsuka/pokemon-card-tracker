@@ -42,6 +42,8 @@ insert into auth.users values
 \ir ../supabase/store-consignment.sql
 -- Safe to run again.
 \ir ../supabase/store-consignment.sql
+\ir ../supabase/store-consignment-delete.sql
+\ir ../supabase/store-consignment-delete.sql
 
 -- Assertion helpers, as in tests/store-bundles-sql-check.sql.
 create schema t;
@@ -200,10 +202,53 @@ insert into t.v select 'c3b', public.save_consigned(jsonb_build_object('id', t.i
 select t.ok((j ->> 'price_brl')::numeric = 60 and (j ->> 'commission_brl')::numeric = 6 and j ->> 'id' = t.id('c3'), 'edit keeps the ID and changes the price') from t.v where k = 'c3b';
 select t.ok((select image_path is null from public.store_listings where id = t.id('c3')), 'no picture until one is given');
 
+-- ------------------------------------------------- owner: delete for good
+-- (supabase/store-consignment-delete.sql)
+select t.err(format($$select public.delete_consigned('%s')$$, t.id('c1')), '22023', 'a sold card cannot be deleted');
+select t.err($$select public.delete_consigned('cons-missing')$$, 'P0002', 'deleting a card that is not there');
+select t.err($$select public.delete_consigned('mine-1')$$, 'P0002', 'delete_consigned never touches Eric''s own singles');
+select t.err(format($$select public.delete_consignor('%s')$$, t.id('ana')), '22023', 'a consignor with cards cannot be deleted');
+
+-- A card that was in an order, even one that lapsed, stays in the records.
+insert into t.v select 'c5', public.save_consigned(jsonb_build_object('consignor_id', t.id('bia'), 'card_id', 'base1-10', 'name', 'Mewtwo', 'price_brl', 30, 'image_path', 'consigned/cons-0b5c6f2e-1d2a-4c3b-9e8f-7a6b5c4d3e2f.jpg'));
+reset role;
+insert into public.store_orders (id, code, name, phone, total, status, reserved_until, ended_at)
+values ('20000000-0000-0000-0000-000000000000', 'HTR-9001', 'Lapsed', '81 92222-2222', 30, 'expired', now() - interval '1 hour', now());
+insert into public.store_order_items (order_id, listing_id, price_brl) values ('20000000-0000-0000-0000-000000000000', t.id('c5'), 30);
+set role authenticated;
+select t.err(format($$select public.delete_consigned('%s')$$, t.id('c5')), '22023', 'a card once in an order stays');
+reset role;
+delete from public.store_orders where id = '20000000-0000-0000-0000-000000000000';
+set role authenticated;
+
+-- Never ordered: Mewtwo goes, with its own picture's path handed back.
+insert into t.v select 'del5', public.delete_consigned(t.id('c5'));
+select t.ok(j ->> 'image_path' like 'consigned/cons-%' and j ->> 'id' = t.id('c5'), 'delete hands back the picture path') from t.v where k = 'del5';
+select t.ok(not exists (select 1 from public.store_listings where id = t.id('c5')) and not exists (select 1 from public.store_consignments where listing_id = t.id('c5')), 'the card and its terms are gone');
+
+-- A returned card that was never ordered can go too, and then its
+-- consignor, who has nothing left.
+select public.return_consigned(t.id('c3'));
+select t.ok(public.delete_consigned(t.id('c3')) ->> 'id' = t.id('c3'), 'a returned card can be deleted');
+select t.ok(not exists (select 1 from public.store_catalog() c where c.id = t.id('c3')), 'a deleted card is off HOTARU');
+select t.ok(public.delete_consignor(t.id('bia')::uuid) ->> 'id' = t.id('bia'), 'Bia, with no cards, is deleted');
+select t.ok(not exists (select 1 from public.store_consignors where id = t.id('bia')::uuid), 'Bia is gone');
+select t.err(format($$select public.delete_consignor('%s')$$, t.id('bia')), 'P0002', 'deleting a consignor twice');
+
+-- Members and visitors cannot delete.
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+select t.err(format($$select public.delete_consigned('%s')$$, t.id('c4')), '42501', 'member cannot delete a card');
+select t.err(format($$select public.delete_consignor('%s')$$, t.id('ana')), '42501', 'member cannot delete a consignor');
+reset request.jwt.claim.sub;
+set role anon;
+select t.err(format($$select public.delete_consigned('%s')$$, t.id('c4')), '42501', 'anon cannot delete a card');
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+
 -- Running the script again keeps every row.
 reset role;
 \ir ../supabase/store-consignment.sql
-select t.ok((select count(*) from public.store_payouts) = 2 and (select count(*) from public.store_consignors) = 2 and (select count(*) from public.store_consignments) = 4, 'a rerun keeps the data');
+select t.ok((select count(*) from public.store_payouts) = 2 and (select count(*) from public.store_consignors) = 1 and (select count(*) from public.store_consignments) = 3, 'a rerun keeps the data');
 select t.ok((select commission_pct from public.store_settings) = 15, 'a rerun keeps the defaults');
 
 \o

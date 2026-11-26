@@ -2,7 +2,7 @@
 // js/shop-view.js and js/catalog-views.js, plans/hotaru-consignment-plan.md):
 // the Shop's Consignment section with the shop's terms, a consignor's
 // cards, balances, Pay and Mark paid, the statement copied for WhatsApp,
-// and Return to owner; the Consign sheet on a card page, with its live
+// Return to owner, and Delete for an entry made by mistake; the Consign sheet on a card page, with its live
 // split and the record it saves; an order naming whose card it holds; and
 // the screen before supabase/store-consignment.sql has been run. Headless
 // Chromium against tests/pages-server.mjs, signed in as the family's owner.
@@ -66,20 +66,31 @@ function startingData() {
 
 // The consignment calls as supabase/store-consignment.sql answers them,
 // over data kept here.
-async function attachConsignment(page, {data = startingData(), orders = [], setUp = true} = {}) {
+async function attachConsignment(page, {data = startingData(), deleteSetUp = true, orders = [], setUp = true} = {}) {
 	const calls = [];
+	const removedFiles = [];
 	const reply = (route, body, status = 200) => route.fulfill({body: JSON.stringify(body), contentType: 'application/json', status});
 
 	await page.route('**/rest/v1/rpc/store_sync', (route) => reply(route, {}));
 	await page.route('**/rest/v1/rpc/store_orders_open', (route) => reply(route, orders));
 	await page.route('**/rest/v1/rpc/store_bundles_admin', (route) => reply(route, []));
-	await page.route(/\/rest\/v1\/rpc\/(store_consignment_admin|save_consigned|save_consignor|save_store_settings|return_consigned|relist_consigned|mark_payouts_paid)$/, (route) => {
+	// A deleted card's own picture (supabase-js storage remove).
+	await page.route('**/storage/v1/object/store', (route) => {
+		if (route.request().method() !== 'DELETE') {
+			return route.fallback();
+		}
+
+		removedFiles.push(...(route.request().postDataJSON().prefixes || []));
+
+		return reply(route, []);
+	});
+	await page.route(/\/rest\/v1\/rpc\/(store_consignment_admin|save_consigned|save_consignor|save_store_settings|return_consigned|relist_consigned|mark_payouts_paid|delete_consigned|delete_consignor)$/, (route) => {
 		const name = route.request().url().split('/rpc/')[1];
 		const args = route.request().postDataJSON() || {};
 
 		calls.push([name, args]);
 
-		if (!setUp) {
+		if (!setUp || (!deleteSetUp && name.startsWith('delete_'))) {
 			return reply(route, {code: 'PGRST202', details: null, hint: null, message: `Could not find the function public.${name} without parameters in the schema cache`}, 404);
 		}
 
@@ -128,6 +139,26 @@ async function attachConsignment(page, {data = startingData(), orders = [], setU
 			return reply(route, card);
 		}
 
+		// supabase/store-consignment-delete.sql: a card once in an order
+		// (ordered here) stays.
+		if (name === 'delete_consigned') {
+			const card = data.cards.find((one) => one.id === args.listing_id);
+
+			if (card.ordered) {
+				return reply(route, {code: '22023', details: null, hint: null, message: `This card was in order ${card.ordered}, so it stays in the records. Use Return to owner instead.`}, 400);
+			}
+
+			data.cards = data.cards.filter((one) => one !== card);
+
+			return reply(route, {id: card.id, image_path: card.image_path || null});
+		}
+
+		if (name === 'delete_consignor') {
+			data.consignors = data.consignors.filter((one) => one.id !== args.consignor_id);
+
+			return reply(route, {id: args.consignor_id});
+		}
+
 		if (name === 'mark_payouts_paid') {
 			let marked = 0;
 
@@ -148,7 +179,7 @@ async function attachConsignment(page, {data = startingData(), orders = [], setU
 		return reply(route, null);
 	});
 
-	return {calls, data};
+	return {calls, data, removedFiles};
 }
 
 // A phone signed in as the family's owner.
@@ -376,6 +407,82 @@ describe('Shop consignment', () => {
 		await page.click(`#shop-consign-restore-${ANA}`);
 		await page.locator(`#shop-consign-remove-${ANA}`).waitFor(TIMEOUT);
 		assert.equal(store.calls.filter(([name]) => name === 'save_consignor').pop()[1].consignor.active, true);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a card entered by mistake can be deleted, and then its consignor, with a confirm that says it cannot be undone', async () => {
+		const TEST = '0b000000-0000-4000-8000-00000000000b';
+		const data = startingData();
+
+		data.cards[1].image_path = 'consigned/cons-2.jpg';
+		data.cards[2].ordered = 'HTR-0007';
+		data.cards.push({card_id: 'tsb2-133', catalog: 'international', commission_pct: 15, condition: null, consignor_id: TEST, finish: null, commission_brl: 5, id: 'cons-9', image_path: 'tcgdex/en/tsb/tsb2/133.webp', language: 'en', min_commission_brl: 5, name: 'Eevee', number: '133', payout_brl: 5, price_brl: 10, received_at: '2026-11-26T12:00:00Z', returned_at: null, set_name: 'Test Beta', status: 'available'});
+		data.consignors.push({active: true, commission_pct: null, due_brl: 0, for_sale: 1, id: TEST, min_commission_brl: null, name: 'Teste', note: null, paid_brl: 0, phone: null, pix_key: null, reserved: 0, returned: 0, sold: 0, waiting_brl: 0});
+
+		const {context, errors, page, store} = await ownerPhone({data});
+		const teste = page.locator(`#consignor-${TEST}`);
+
+		await openShop(page);
+
+		// A sold card keeps its record: no Delete. For sale and returned can.
+		assert.equal(await page.locator('#shop-consigned-delete-cons-1').count(), 0);
+		await page.locator('#shop-consigned-delete-cons-2').waitFor(TIMEOUT);
+		await page.locator('#shop-consigned-delete-cons-3').waitFor(TIMEOUT);
+		// Teste has a card, so Remove, not Delete.
+		await page.locator(`#shop-consign-remove-${TEST}`).waitFor(TIMEOUT);
+		assert.equal(await page.locator(`#shop-consign-delete-${TEST}`).count(), 0);
+
+		// Eevee: the confirm says it cannot be undone; Back keeps it.
+		await page.click('#shop-consigned-delete-cons-9');
+		assert.equal(await text(teste.locator('.shop-kit-ask')), 'Delete Eevee for good? It leaves HOTARU and Teste\'s statement, as if never consigned. This cannot be undone. For a card going back to Teste, use Return to owner.');
+		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-consignment-delete-card.png`});
+		await page.click(`#consignor-${TEST} button:has-text("Back")`);
+		assert.equal(store.calls.filter(([name]) => name === 'delete_consigned').length, 0);
+
+		await page.click('#shop-consigned-delete-cons-9');
+		await page.click('#shop-consigned-delete-yes-cons-9');
+		await page.locator(`#shop-consign-delete-${TEST}`).waitFor(TIMEOUT);
+		assert.deepEqual(store.calls.find(([name]) => name === 'delete_consigned')[1], {listing_id: 'cons-9'});
+		// The shared TCGdex picture stays.
+		assert.deepEqual(store.removedFiles, []);
+		assert.equal(await teste.locator('.shop-consigned').count(), 0);
+
+		// Teste has nothing left: Delete in place of Remove.
+		assert.equal(await page.locator(`#shop-consign-remove-${TEST}`).count(), 0);
+		await page.click(`#shop-consign-delete-${TEST}`);
+		assert.equal(await text(teste.locator('.shop-kit-ask')), 'Delete Teste for good? They have no cards, so nothing else changes. This cannot be undone.');
+		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-consignment-delete-consignor.png`});
+		await page.click(`#shop-consign-delete-yes-${TEST}`);
+		await teste.waitFor({state: 'detached', timeout: TIMEOUT.timeout});
+		assert.deepEqual(store.calls.find(([name]) => name === 'delete_consignor')[1], {consignor_id: TEST});
+
+		// Pikachu's own picture goes with it.
+		await page.click('#shop-consigned-delete-cons-2');
+		await page.click('#shop-consigned-delete-yes-cons-2');
+		await page.locator('.shop-consigned[data-id="cons-2"]').waitFor({state: 'detached', timeout: TIMEOUT.timeout});
+		assert.deepEqual(store.removedFiles, ['consigned/cons-2.jpg']);
+
+		// Mew was in an order once: the server refuses, and says why.
+		await page.click('#shop-consigned-delete-cons-3');
+		await page.click('#shop-consigned-delete-yes-cons-3');
+		await page.waitForFunction(() => /was in order HTR-0007/.test(document.body.textContent), null, TIMEOUT);
+		assert.equal(await page.locator('.shop-consigned[data-id="cons-3"]').count(), 1);
+		// Ana still has cards, so no Delete for her.
+		assert.equal(await page.locator(`#shop-consign-delete-${ANA}`).count(), 0);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('Delete before supabase/store-consignment-delete.sql has been run says to run it', async () => {
+		const {context, errors, page, store} = await ownerPhone({deleteSetUp: false});
+
+		await openShop(page);
+		await page.click('#shop-consigned-delete-cons-2');
+		await page.click('#shop-consigned-delete-yes-cons-2');
+		await page.waitForFunction(() => /Deleting is not set up yet: run supabase\/store-consignment-delete\.sql/.test(document.body.textContent), null, TIMEOUT);
+		assert.equal(store.calls.filter(([name]) => name === 'delete_consigned').length, 1);
+		assert.equal(await page.locator('.shop-consigned[data-id="cons-2"]').count(), 1);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

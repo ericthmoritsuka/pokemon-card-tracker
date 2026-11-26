@@ -26,7 +26,7 @@ import {CONDITIONS} from './scan/session.js';
 import {setConsignPick} from './shop-owner.js';
 import {openDialogSheet} from './sheet.js';
 import {storePicturePath} from './shop.js';
-import {uploadPicture} from './store-publish.js';
+import {STORE_BUCKET, uploadPicture} from './store-publish.js';
 
 async function call(name, args = {}) {
 	const client = await getClient();
@@ -59,10 +59,38 @@ export const relistConsigned = (id) => call('relist_consigned', {listing_id: id}
 
 export const markPayoutsPaid = (ids, note = null) => call('mark_payouts_paid', {ids, note});
 
+// Deleting for good (supabase/store-consignment-delete.sql): only an entry
+// with no history, such as one made by mistake.
+export const deleteConsigned = (id) => call('delete_consigned', {listing_id: id});
+
+export const deleteConsignor = (id) => call('delete_consignor', {consignor_id: id});
+
+// A deleted card's own picture (consigned/<id>) is its alone, so it goes
+// too. The shared TCGdex picture stays: Eric's own singles of that print
+// use it. A file left behind does no harm, so a failure is ignored.
+async function deletePicture(path) {
+	if (!/^consigned\//.test(String(path || ''))) {
+		return;
+	}
+
+	try {
+		const client = await getClient();
+
+		await client.storage.from(STORE_BUCKET).remove([path]);
+	}
+	catch {
+		// Left in the bucket, unseen.
+	}
+}
+
 // Why a consignment call failed, for the screen.
 export function consignErrorText(error) {
 	const code = error && error.code;
 	const message = String((error && error.message) || '');
+
+	if ((code === 'PGRST202' || code === '42883') && /delete_consign/.test(message)) {
+		return 'Deleting is not set up yet: run supabase/store-consignment-delete.sql in the Supabase SQL Editor.';
+	}
 
 	if (code === 'PGRST202' || code === '42883' || /store_consignment_admin|save_consigned|save_consignor|save_store_settings/.test(message)) {
 		return 'Consignment is not set up yet: run supabase/store-consignment.sql in the Supabase SQL Editor.';
@@ -261,13 +289,51 @@ export function consignmentSection({go, onLoad = () => {}, toast}) {
 		return null;
 	}
 
+	// A consignor with nothing in their statement can be deleted for good,
+	// rather than removed.
+	const hasNothing = (person) => {
+		const {cards, payouts} = consignorParts(data, person.id);
+
+		return !cards.length && !payouts.length;
+	};
+
+	// The Delete confirm, the same for an active and a removed consignor.
+	function deleteAsk(person) {
+		const busy = working.has(person.id);
+
+		return [
+			h('p', {class: 'shop-kit-ask'}, `Delete ${person.name} for good? They have no cards, so nothing else changes. This cannot be undone.`),
+			h('button', {class: 'small', disabled: busy, id: `shop-consign-delete-yes-${person.id}`, onclick: () => act(person.id, async () => {
+				asking.delete(person.id);
+				await deleteConsignor(person.id);
+				toast(`${person.name} deleted.`);
+			}), type: 'button'}, 'Delete'),
+			h('button', {class: 'small', onclick: () => {
+				asking.delete(person.id);
+				draw();
+			}, type: 'button'}, 'Back'),
+		];
+	}
+
+	const deleteButton = (person) => h('button', {class: 'small', id: `shop-consign-delete-${person.id}`, onclick: () => {
+		asking.set(person.id, 'delete');
+		draw();
+	}, type: 'button'}, 'Delete');
+
 	// A removed consignor, shown on request: their statement, and Restore.
 	function removedCard(person) {
 		const busy = working.has(person.id);
 
+		if (asking.get(person.id) === 'delete') {
+			return h('article', {class: 'card shop-kit shop-consignor shop-consignor-removed', 'data-id': person.id, id: `consignor-${person.id}`},
+				h('h4', {class: 'shop-kit-name'}, `${person.name} (removed)`),
+				h('div', {class: 'shop-kit-actions'}, ...deleteAsk(person)));
+		}
+
 		return h('article', {class: 'card shop-kit shop-consignor shop-consignor-removed', 'data-id': person.id, id: `consignor-${person.id}`},
 			h('h4', {class: 'shop-kit-name'}, `${person.name} (removed)`),
 			h('div', {class: 'shop-kit-actions'},
+				hasNothing(person) ? deleteButton(person) : null,
 				h('button', {class: 'small', disabled: busy, id: `shop-consign-restore-${person.id}`, onclick: () => act(person.id, async () => {
 					await saveConsignor(consignorRecord(person, {active: true}));
 					toast(`${person.name} is back.`);
@@ -353,7 +419,9 @@ export function consignmentSection({go, onLoad = () => {}, toast}) {
 		].filter(Boolean).join(' · ');
 		const paying = asking.get(person.id) === 'pay';
 		const removing = asking.get(person.id) === 'remove';
-		const actions = removing
+		const actions = asking.get(person.id) === 'delete'
+			? deleteAsk(person)
+			: removing
 			? [
 				h('p', {class: 'shop-kit-ask'}, `Remove ${person.name}? They leave this list and the Consign sheet. Their sold and returned cards stay in their statement, under Show removed consignors.`),
 				h('button', {class: 'small', disabled: busy, id: `shop-consign-remove-yes-${person.id}`, onclick: () => act(person.id, async () => {
@@ -391,7 +459,8 @@ export function consignmentSection({go, onLoad = () => {}, toast}) {
 					toast(copied ? `${person.name}'s statement copied. Paste it in WhatsApp.` : 'The statement could not be copied.');
 				}, type: 'button'}, 'Copy statement'),
 				h('button', {class: 'small', onclick: () => openConsignorSheet({existing: person, onSaved: load, settings: data.settings, toast}), type: 'button'}, 'Edit details'),
-				h('button', {class: 'small', id: `shop-consign-remove-${person.id}`, onclick: () => {
+				// No cards at all: Delete, as Remove would keep nothing.
+				hasNothing(person) ? deleteButton(person) : h('button', {class: 'small', id: `shop-consign-remove-${person.id}`, onclick: () => {
 					const block = removeBlock(person);
 
 					if (block) {
@@ -420,12 +489,31 @@ export function consignmentSection({go, onLoad = () => {}, toast}) {
 		const payout = payouts.find((one) => one.listing_id === card.id);
 		const busy = working.has(card.id);
 		const confirming = asking.get(card.id) === 'return';
+		const deleting = asking.get(card.id) === 'delete';
+		// Never sold: the server also refuses a card that was ever in an
+		// order (supabase/store-consignment-delete.sql).
+		const deletable = !payout && (state === 'available' || state === 'returned' || state === 'withdrawn');
 		// The commission beside the price (Eric, 2026-11-26): what is kept,
 		// or would be at this price.
 		const money = payout
 			? `${brl(payout.sale_brl)} · ${person.name} gets ${brl(payout.payout_brl)} · you kept ${brl(payout.commission_brl)} · ${PAYOUT_STATES[payout.state] || payout.state}`
 			: `${brl(card.price_brl)} · ${person.name} gets ${brl(card.payout_brl)} · you keep ${brl(card.commission_brl)}`;
-		const buttons = confirming
+		const buttons = deleting
+			? [
+				h('span', {class: 'shop-kit-ask'}, `Delete ${card.name} for good? It leaves HOTARU and ${person.name}'s statement, as if never consigned. This cannot be undone. For a card going back to ${person.name}, use Return to owner.`),
+				h('button', {class: 'small', disabled: busy, id: `shop-consigned-delete-yes-${card.id}`, onclick: () => act(card.id, async () => {
+					asking.delete(card.id);
+					const gone = await deleteConsigned(card.id);
+
+					await deletePicture(gone && gone.image_path);
+					toast(`${card.name} deleted.`);
+				}), type: 'button'}, 'Delete'),
+				h('button', {class: 'small', onclick: () => {
+					asking.delete(card.id);
+					draw();
+				}, type: 'button'}, 'Back'),
+			]
+			: confirming
 			? [
 				h('span', {class: 'shop-kit-ask'}, `Give ${card.name} back to ${person.name}? It leaves HOTARU.`),
 				h('button', {class: 'small', disabled: busy, onclick: () => act(card.id, async () => {
@@ -453,6 +541,12 @@ export function consignmentSection({go, onLoad = () => {}, toast}) {
 						await relistConsigned(card.id);
 						toast(`${card.name} is back on HOTARU.`);
 					}), type: 'button'}, 'Put back on sale')
+					: null,
+				deletable
+					? h('button', {class: 'small shop-consigned-delete', disabled: busy, id: `shop-consigned-delete-${card.id}`, onclick: () => {
+						asking.set(card.id, 'delete');
+						draw();
+					}, type: 'button'}, 'Delete')
 					: null,
 			].filter(Boolean);
 

@@ -21,7 +21,7 @@ done
 
 "${engine}" exec "${name}" mkdir -p /check/supabase /check/tests
 
-for file in setup store store-orders store-sealed store-bundles store-own-pictures store-withdraw store-consignment
+for file in setup store store-orders store-sealed store-bundles store-own-pictures store-withdraw store-consignment store-consignment-delete
 do
 	"${engine}" cp "supabase/${file}.sql" "${name}:/check/supabase/${file}.sql"
 done
