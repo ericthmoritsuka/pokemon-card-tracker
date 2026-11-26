@@ -68,7 +68,7 @@ after(async () => {
 	await server.close();
 });
 
-async function phone({colorScheme = 'light'} = {}) {
+async function phone({colorScheme = 'light', copies = COPIES} = {}) {
 	const context = await browser.newContext({colorScheme, serviceWorkers: 'block', viewport: {height: 844, width: 390}});
 
 	await fakeServices(context);
@@ -79,7 +79,7 @@ async function phone({colorScheme = 'light'} = {}) {
 	const errors = [];
 
 	page.on('pageerror', (err) => errors.push(err.message));
-	await seed(page, server.origin, {binders: BINDERS, copies: COPIES});
+	await seed(page, server.origin, {binders: BINDERS, copies});
 	await page.locator('.card-grid .tile').first().waitFor(TIMEOUT);
 
 	return {context, errors, page};
@@ -257,6 +257,92 @@ describe('Check spares', () => {
 		await page.goto(`${server.origin}${BASE}cards/en/tsa1-006`);
 		await page.locator('#copies-title').waitFor(TIMEOUT);
 		assert.equal(await page.locator('#copies-check').count(), 1, 'Charizard ex has two copies');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+// Eric, 2026-11-26: narrow the list to the pile in hand and walk it in his
+// order; favorites with more than one copy are in the list too. Bulbasaur
+// is starred, two copies; Sprigatito has two loose copies, one free.
+describe('Check spares: search, sort, Where, and Show', () => {
+	const MORE = [
+		...COPIES,
+		copy('c-11', 'tsa1-001', {is_favorite: true}),
+		copy('c-12', 'tsa1-001'),
+		copy('c-13', 'tsb2-090'),
+		copy('c-14', 'tsb2-090'),
+	];
+	const names = (page) => page.locator('.check-group .check-name').allTextContents();
+	const summaryIs = (page, text) => page.waitForFunction((want) => document.getElementById('check-summary').textContent === want, text, TIMEOUT);
+
+	test('a favorite pair is listed; Show, Where, the sort, the search, and Clear all narrow and order it', async () => {
+		const {context, errors, page} = await phone({copies: MORE});
+
+		await page.setViewportSize({height: 740, width: 360});
+		await page.goto(`${server.origin}${BASE}trade/check`);
+		await summaryIs(page, '5 cards with more than one copy: 11 copies, 3 free.');
+
+		const bulbasaur = page.locator('.check-group', {hasText: 'Bulbasaur'});
+
+		assert.equal(await bulbasaur.locator('.check-count').textContent(), '2 copies, none free');
+		assert.deepEqual(await bulbasaur.locator('.check-tag').allTextContents(), ['Favorite', 'Favorite']);
+
+		// The bar fits a 360 px phone with no sideways scroll.
+		assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'no sideways scroll');
+
+		for (const selector of ['#check-search', '#check-sort', '#check-filters', '#check-where', '#check-show']) {
+			const box = await page.locator(selector).boundingBox();
+
+			assert.ok(box && box.x >= 0 && box.x + box.width <= 360.5, `${selector} inside the screen`);
+		}
+
+		await page.screenshot({path: `${SHOTS}/spare-check-bar.png`});
+
+		// Show: Favorites.
+		await page.selectOption('#check-show', 'favorite');
+		await summaryIs(page, '1 of 5 cards with more than one copy: 2 copies, 0 free.');
+		assert.deepEqual(await names(page), ['Bulbasaur']);
+
+		// Where: the Region binder's pockets, with every Show.
+		await page.selectOption('#check-show', 'all');
+		assert.deepEqual(await page.locator('#check-where option').allTextContents(), ['Anywhere', '30 anos · 1 copy', 'Region · 1 copy', 'Loose · 9 copies']);
+		await page.selectOption('#check-where', {label: 'Region · 1 copy'});
+		await summaryIs(page, '1 of 5 cards with more than one copy: 3 copies, 1 free.');
+		assert.deepEqual(await names(page), ['Charmander']);
+
+		// The oldest set first, then the number: Test Beta, then Test Alpha.
+		await page.selectOption('#check-where', 'any');
+		await page.selectOption('#check-sort', 'setOld');
+		await page.waitForFunction(() => document.querySelectorAll('.check-group').length === 5, null, TIMEOUT);
+		assert.deepEqual(await names(page), ['Pikachu', 'Sprigatito', 'Bulbasaur', 'Charmander', 'Charizard ex']);
+
+		// The search, then Clear all, which clears Show and Where too.
+		await page.selectOption('#check-show', 'free');
+		await page.fill('#check-search', 'pika');
+		await summaryIs(page, '1 of 5 cards with more than one copy: 2 copies, 1 free.');
+		assert.deepEqual(await names(page), ['Pikachu']);
+		await page.locator('.fb-clear').click();
+		await summaryIs(page, '5 cards with more than one copy: 11 copies, 3 free.');
+		assert.equal(await page.locator('#check-show').inputValue(), 'all');
+		assert.equal(await page.locator('#check-search').inputValue(), '');
+
+		// The sort is kept on this phone.
+		await page.reload();
+		await summaryIs(page, '5 cards with more than one copy: 11 copies, 3 free.');
+		assert.equal(await page.locator('#check-sort').inputValue(), 'setOld');
+		assert.deepEqual(await names(page), ['Pikachu', 'Sprigatito', 'Bulbasaur', 'Charmander', 'Charizard ex']);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('one card\'s check has no bar', async () => {
+		const {context, errors, page} = await phone({copies: MORE});
+
+		await page.goto(`${server.origin}${BASE}trade/check/en/tsa1-001`);
+		await summaryIs(page, '2 copies, none free');
+		assert.equal(await page.locator('#check-search').count(), 0);
+		assert.equal(await page.locator('#check-where').count(), 0);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
