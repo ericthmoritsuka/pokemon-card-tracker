@@ -68,7 +68,7 @@
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 import {nextStamp, restoreEntry, stampEntry} from './merge.js';
 import {byCreated, orderForNew, sortByOrder, withOrders} from './reorder.js';
-import {CLAIM_RANK, addedCount, checkBinderRule, checkFits, defaultRank, extraCardEntries, extraPagesOf, isGenerated, listEditEntries, listPageCount, pagesFor, pickEntry, pickId, picksOf, ruleKey, skipsOf, withExtraCard, withListEdit} from './binder-rules.js';
+import {CLAIM_RANK, addedCount, checkBinderRule, checkFits, defaultRank, extraCardEntries, extraPagesOf, isGenerated, listEditEntries, listPageCount, outranks, pagesFor, pickEntry, pickId, picksOf, ruleKey, skipsOf, withExtraCard, withListEdit} from './binder-rules.js';
 
 export {isGenerated};
 
@@ -268,56 +268,62 @@ export function placements(binders) {
 
 // The copies in use in a pocket, which are never spares (js/wishlist.js
 // spareEntries; Eric, 2026-11-24): every copy a hand-made binder places,
-// and the copy on top of each pocket of a binder made from a list. A list's
-// pocket shows every copy of its Pokémon or card, but only the one on top
-// is in use there; the copies under it stay free to trade or sell. The top
-// is the hand pick while that copy is still owned, else the default the
-// last refresh stored, as the binder screen shows it before it has read
-// the list (js/binders-view.js listState), unless that copy is skipped
-// there ("Not this copy here"). A binder's tray holds none.
+// and the copy on top of each pocket of a binder made from a list, as
+// copyClaims allocates them (below), so two binders never hold one copy
+// while another sits free. A list's pocket shows every copy of its Pokémon
+// or card, but only the one on top is in use there; the copies under it
+// stay free to trade or sell. A binder's tray holds none.
 // doc: {binders, binder_picks, cards}, the person's document or a family
 // member's. Returns a Set of entry ids.
 export function heldCopies(doc) {
-	const binders = (doc && doc.binders) || [];
-	const held = new Set(placements(binders).keys());
-	const live = new Set(((doc && doc.cards) || []).filter((entry) => entry && isLive(entry)).map((entry) => entry.id));
-	const owned = (id) => (typeof id === 'string' && live.has(id) ? id : null);
+	const held = new Set(placements((doc && doc.binders) || []).keys());
 
-	for (const binder of liveBinders(binders).filter(isGenerated)) {
-		const snapshot = binder.snapshot && typeof binder.snapshot === 'object' ? binder.snapshot : {};
-		const shown = snapshot.shown && typeof snapshot.shown === 'object' ? snapshot.shown : {};
-		const picks = picksOf(doc && doc.binder_picks, binder.id);
-		const skips = skipsOf(doc && doc.binder_picks, binder.id);
-
-		for (const key of Array.isArray(snapshot.keys) ? snapshot.keys : []) {
-			const stored = key && !(skips.get(key) || new Set()).has(shown[key]) ? shown[key] : null;
-			const top = key ? owned(picks.get(key)) || owned(stored) : null;
-
-			if (top) {
-				held.add(top);
-			}
-		}
+	for (const claim of copyClaims(doc)) {
+		held.add(claim.entryId);
 	}
 
 	return held;
 }
 
+// A copy's print, for finding another copy of what a list pocket showed:
+// the same card in the same catalog and language.
+const printKey = (entry) => `${entry.catalog || 'international'}|${entry.card_id}|${entry.language || ''}`;
+const finishOfCopy = (entry) => (entry.variant_id ? `v:${entry.variant_id}` : entry.finish_raw ? `raw:${entry.finish_raw}` : '');
+
 // Every copy in use, as claims (js/binder-rules.js, "copies in use
 // elsewhere"; Eric, 2026-11-24): each copy a hand-made binder places, each
-// hand pick in a binder from a list, and the default each list pocket's
-// last layout shows (unless it is skipped there or the pocket is picked by
-// hand). Only owned copies. doc: {binders, binder_picks, cards}, the
+// hand pick in a binder from a list, and the copy each other list pocket
+// holds. Only owned copies. doc: {binders, binder_picks, cards}, the
 // person's document. A binder from a list's own defaults are claims for the
 // other binders; its refresh works them out again (planRefresh).
+//
+// One copy, one pocket (Eric, 2026-11-26: "se uma carta esta em um
+// fichario, ela imediatamente deve ficar 'ocupada'. entao a outra carta
+// deve ser adicionada a um binder se ela existir, e se tornar 'ocupada'
+// tambem"). A list pocket's default is the copy its last refresh stored,
+// and two binders refreshed at different times can both have stored the
+// same copy: an Illumise in Hoenn and in 30 anos, with the second copy
+// left free. So the defaults are allocated here, in claim order (hand,
+// then pick, then a card's pocket before a Pokémon's, then the older
+// binder, then the earlier pocket, as outranks): a pocket keeps its stored
+// copy while nothing above it holds that copy, else it takes the next free
+// copy of the same print (the same finish first, then the newest; never
+// one skipped there), else it holds nothing and shows its placeholder.
+// Two hand picks of one copy both stand: each was asked for. The same doc
+// always gives the same claims, on every phone and in the family view.
 export function copyClaims(doc) {
 	const binders = (doc && doc.binders) || [];
-	const live = new Set(((doc && doc.cards) || []).filter((entry) => entry && isLive(entry)).map((entry) => entry.id));
-	const owned = (id) => (typeof id === 'string' && live.has(id) ? id : null);
+	const liveCards = ((doc && doc.cards) || []).filter((entry) => entry && isLive(entry));
+	const byId = new Map(liveCards.map((entry) => [entry.id, entry]));
+	const owned = (id) => (typeof id === 'string' && byId.has(id) ? id : null);
 	const claims = [];
+	const taken = new Set();
+	const defaults = [];
 
 	for (const [entryId, {binder, slot}] of placements(binders)) {
 		if (owned(entryId)) {
 			claims.push({age: binder.created_at, binderId: binder.id, binderName: binder.name, entryId, index: (slot.page - 1) * pocketsPerPage(binder) + slot.position - 1, key: null, rank: CLAIM_RANK.hand});
+			taken.add(entryId);
 		}
 	}
 
@@ -335,18 +341,46 @@ export function copyClaims(doc) {
 
 			const pocket = {age: binder.created_at, binderId: binder.id, binderName: binder.name, index, key};
 			const pick = owned(picks.get(key));
+			const skipped = skips.get(key) || new Set();
 			const stored = owned(shown[key]);
 
 			if (pick) {
 				claims.push({...pocket, entryId: pick, rank: CLAIM_RANK.pick});
+				taken.add(pick);
 			}
-			else if (stored && !(skips.get(key) || new Set()).has(stored)) {
-				claims.push({...pocket, entryId: stored, rank: defaultRank(key)});
+			else if (stored && !skipped.has(stored)) {
+				defaults.push({pocket: {...pocket, rank: defaultRank(key)}, skipped, stored});
 			}
 		});
 	}
 
+	defaults.sort((a, b) => (outranks(a.pocket, b.pocket) ? -1 : outranks(b.pocket, a.pocket) ? 1 : 0));
+
+	for (const {pocket, skipped, stored} of defaults) {
+		const entryId = taken.has(stored) ? nextFreeCopy(byId.get(stored), liveCards, {skipped, taken}) : stored;
+
+		if (entryId) {
+			claims.push({...pocket, entryId});
+			taken.add(entryId);
+		}
+	}
+
 	return claims;
+}
+
+// Another copy of the same print as was, free and not skipped: the same
+// finish first, then the newest, then the larger id, so every phone picks
+// the same one. Null when there is none.
+function nextFreeCopy(was, cards, {skipped, taken}) {
+	const print = printKey(was);
+	const finish = finishOfCopy(was);
+
+	return cards
+		.filter((entry) => !taken.has(entry.id) && !skipped.has(entry.id) && printKey(entry) === print)
+		.sort((a, b) => Number(finishOfCopy(b) === finish) - Number(finishOfCopy(a) === finish)
+			|| String(b.created_at || '').localeCompare(String(a.created_at || ''))
+			|| String(b.id).localeCompare(String(a.id)))
+		.map((entry) => entry.id)[0] || null;
 }
 
 // The slots a binder really holds: inside its grid, one per pocket, and no

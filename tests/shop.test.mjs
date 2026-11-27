@@ -7,6 +7,7 @@
 
 import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
+import {heldCopies} from '../js/binders.js';
 
 import {
 	finishKey,
@@ -144,6 +145,32 @@ describe('shopGroups', () => {
 
 		assert.equal(group.price, 3, 'the keeper holds it while the spares do not yet');
 		assert.equal(groupPrice({copies: [], spares: [copy('x', {sale_price: 0})]}), null, 'zero is no price');
+	});
+});
+
+describe('one copy, one pocket: copies two list binders stored are both held (Eric, 2026-11-26)', () => {
+	// The Illumise and Cherrim case: 30 anos (a card's pocket) and Hoenn (a
+	// Pokémon's) had both stored c1, so c2 counted as free and went on
+	// HOTARU. The Shop publishes by heldCopies, and store_sync withdraws every
+	// single it is not sent, so the next Shop open takes c2 off.
+	const KEY = 'international|sv10-001';
+	const list = (id, created, key, shown) => ({cols: 3, created_at: created, deleted_at: null, id, name: id, page_count: 1, rows: 3, rule: {order: 'dex', source: {id, kind: 'checklist'}}, slots: [], snapshot: {at: created, keys: [key], rule_key: 'x', shown: {[key]: shown}}, updated_at: created});
+	const binders = [list('Hoenn', '2026-10-01T00:00:00Z', 'dex:906', 'a'), list('30 anos', '2026-10-05T00:00:00Z', KEY, 'a')];
+
+	test('both copies are held, so nothing is listed and the old listing of the second one is withdrawn', () => {
+		const cards = [copy('a', {sale_price: 5}), copy('bb', {sale_price: 5})];
+		const held = heldCopies({binder_picks: [], binders, cards});
+
+		assert.deepEqual([...held].sort(), ['a', 'bb']);
+		assert.deepEqual(listingRows(shopGroups(cards, {held})), []);
+	});
+
+	test('with a third copy, Hoenn takes the newest free one and the copy left is listed', () => {
+		const cards = [copy('a', {sale_price: 5}), copy('bb', {sale_price: 5}), copy('ccc', {sale_price: 5})];
+		const held = heldCopies({binder_picks: [], binders, cards});
+
+		assert.deepEqual([...held].sort(), ['a', 'ccc']);
+		assert.deepEqual(listingRows(shopGroups(cards, {held})).map((row) => row.id), ['bb']);
 	});
 });
 

@@ -328,15 +328,16 @@ describe('Checked', () => {
 });
 
 describe('placesOf', () => {
-	test('a copy on top of a list binder\'s pocket is there; one two binders claim lists both', () => {
+	test('a copy on top of a list binder\'s pocket is there, and a list pocket whose copy a hand pocket holds takes the next free copy (Eric, 2026-11-26)', () => {
 		const list = binderOf('Hoenn', {
 			rule: {order: 'dex', source: {id: 'hoenn', kind: 'checklist'}},
 			snapshot: {at: at(0), keys: ['', '', '', '', '', '', '', '', '', 'dex:559'], rule_key: 'x', shown: {'dex:559': 'c1'}},
 		});
 		const doc = {binder_picks: [], binders: [list, binderOf('30 anos', {slots: [pocket('c1', 1, 1)]})], cards: [card('c1'), card('c2')]};
-		const places = placesOf(doc).get('c1');
+		const places = placesOf(doc);
 
-		assert.deepEqual(places.map(placeLabel), ['30 anos, page 1, pocket 1', 'Hoenn, page 2, pocket 1']);
+		assert.deepEqual(places.get('c1').map(placeLabel), ['30 anos, page 1, pocket 1']);
+		assert.deepEqual(places.get('c2').map(placeLabel), ['Hoenn, page 2, pocket 1']);
 	});
 
 	test('a copy in a pocket and still listed in a tray is in the pocket only', () => {
