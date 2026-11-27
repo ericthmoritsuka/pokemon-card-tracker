@@ -256,6 +256,6 @@
 }
 
 /* Nothing to show in a picker's bar: no room taken. */
-.fb:has(> .fb-row:empty):has(> .fb-chips[hidden]) {
+.fb:not(.fb-lines):has(> .fb-row:empty):has(> .fb-chips[hidden]) {
 	display: none;
 }

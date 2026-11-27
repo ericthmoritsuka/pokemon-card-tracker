@@ -67,6 +67,40 @@
 	scrollbar-width: none;
 }
 
+/* Below 600 px the strip fades at its right edge, so what overflows reads
+   as more to scroll (design review F13). */
+@media (max-width: 599px) {
+	.cards-tools {
+		mask-image: linear-gradient(90deg, #000 88%, transparent);
+	}
+}
+
+.cards-tools > .select-wrap,
+.cards-tools > .fb-view-wrap {
+	flex: none;
+	min-height: 0;
+	padding: 0;
+}
+
+.cards-tools select {
+	min-height: 44px;
+	padding-bottom: 4px;
+	padding-top: 4px;
+}
+
+.cards-summary-links {
+	margin-left: calc(-1 * var(--space-2));
+}
+
+.cards-summary-links .link-button {
+	color: var(--link);
+	display: inline;
+	text-decoration: underline;
+	min-height: 32px;
+	padding: 0 2px;
+	width: auto;
+}
+
 .cards-tools::-webkit-scrollbar {
 	display: none;
 }
@@ -152,8 +186,11 @@
 		flex: 1 1 14rem;
 	}
 
+	/* The strip holds Filters, Select, Sort, and View too (F13), so it
+	   shares the search's line and scrolls when narrow. */
 	.fb-lines > .cards-tools {
-		flex: 0 1 auto;
+		flex: 1 1 20rem;
+		min-width: 0;
 		gap: 6px;
 		margin: -4px 0;
 		max-width: 100%;

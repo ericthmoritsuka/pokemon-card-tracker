@@ -593,7 +593,22 @@ export function cardsScreen(root, {
 	// and Add by hand on one line that scrolls sideways rather than wrap,
 	// with the count under it. The heading keeps only the title, for a
 	// screen reader on a phone.
-	const tools = bulk ? h('div', {class: 'cards-tools', id: 'cards-tools'}, valueButton, statsLink, tradeLink, movesLink, ...toolbar, handButton) : null;
+	// Design review F13 (2026-11-27): at 360 px three rows of controls put
+	// the first tile 255 px down. Now the search is alone on the first line,
+	// and Filters, Select, Sort, View, Spares, Trades, and Add by hand share
+	// one strip that scrolls sideways, fading at its edge; Value and Stats
+	// are links on the count line.
+	const tools = bulk ? h('div', {class: 'cards-tools', id: 'cards-tools'}, tradeLink, movesLink, ...toolbar, handButton) : null;
+
+	if (tools) {
+		valueButton.className = 'link-button fb-value';
+
+		if (statsLink) {
+			statsLink.className = 'link-button fb-stats';
+		}
+
+		summaryLine.insertBefore(h('span', {class: 'cards-summary-links', id: 'cards-summary-links'}, ' · ', ...(statsLink ? [statsLink, ' · '] : []), valueButton), summary.nextSibling);
+	}
 	// Elsewhere (the Trade view, a family member's cards) Value and Stats
 	// stay together in the bar's sort line.
 	const valueTools = tools || !statsLink ? valueButton : h('span', {class: 'fb-value-pair', id: 'cards-value-stats'}, valueButton, statsLink);
@@ -618,6 +633,15 @@ export function cardsScreen(root, {
 		query: queryFromHistory(),
 		storageKey,
 	});
+
+	// Filters and Select (beside the search), and Sort and View, lead the
+	// tools strip (F13 above).
+	if (tools) {
+		const top = bar.element.querySelector(':scope > .fb-top');
+		const row = bar.element.querySelector(':scope > .fb-row');
+
+		tools.prepend(...(top ? [...top.children].slice(1) : []), ...(row ? [...row.children] : []));
+	}
 
 	// The account the collection belongs to, so a phone that signs into
 	// another account keeps each one's values apart.

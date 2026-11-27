@@ -199,7 +199,13 @@ describe('search', () => {
 		const line = await page.evaluate(() => [...document.querySelector('.fb-top').children].map((element) => element.id));
 
 		assert.match(order[0], /fb-top/);
-		assert.deepEqual(line, ['cards-search', 'cards-filters', 'cards-select'], 'the search first, with Filters and Select');
+		assert.deepEqual(line, ['cards-search'], 'the search alone on its line (design review F13)');
+
+		const strip = await page.evaluate(() => [...document.getElementById('cards-tools').children].map((element) => element.id || element.className));
+
+		assert.deepEqual(strip.slice(0, 2), ['cards-filters', 'cards-select'], 'Filters and Select lead the one strip');
+		assert.ok(strip.includes('select-wrap fb-sort-wrap'), 'Sort in the strip');
+		assert.equal(await page.locator('#cards-summary-line #cards-value').count(), 1, 'Value on the count line');
 
 		await context.setOffline(true);
 
@@ -836,17 +842,17 @@ describe('layout', () => {
 				});
 				const toolsTop = layout.tools[0][1];
 
-				assert.deepEqual(layout.tools.map(([id]) => id), ['cards-value', 'cards-stats-link', 'cards-trade', 'cards-moves', 'cards-add-hand'], 'the tools, in order');
+				// Design review F13: one strip, Filters first; Value and Stats
+				// on the count line.
+				assert.deepEqual(layout.tools.map(([id]) => id), ['cards-filters', 'cards-select', '', '', 'cards-trade', 'cards-moves', 'cards-add-hand'], 'the tools, in order');
 				assert.ok(layout.tools.every(([, top]) => top === toolsTop), `the tools on one line (${JSON.stringify(layout.tools)})`);
 				assert.ok(layout.tools.every(([, , tall]) => tall >= 44), 'each tool a whole touch target, 44 px tall or more');
 				assert.ok(['auto', 'fits'].includes(layout.toolsScroll), `the tools scroll sideways rather than wrap (${layout.toolsScroll})`);
-				assert.equal(layout.filters, layout.search, 'Filters beside the search');
-				assert.equal(layout.select, layout.search, 'Select beside the search');
+				assert.ok(layout.filters > layout.search, 'Filters under the search, in the strip');
 				assert.ok(layout.placeholderFits, 'the search\'s placeholder whole');
-				assert.equal(layout.sort, layout.view, 'Sort and View share a line');
-				assert.ok(layout.sort > layout.search, 'Sort and View under the search');
-				assert.ok(layout.sortTall >= 40 && layout.sortTall < 48 && layout.viewTall === layout.sortTall, `Sort and View 40 px tall (${layout.sortTall}, ${layout.viewTall})`);
-				assert.ok(toolsTop > layout.sort, 'the tools are the third line');
+				assert.ok(layout.sort > layout.search, 'Sort in the strip under the search');
+				assert.ok(layout.sortTall >= 40 && layout.viewTall === layout.sortTall, `Sort and View alike (${layout.sortTall}, ${layout.viewTall})`);
+				assert.ok(toolsTop > layout.search, 'the strip is the second line');
 				assert.equal(layout.countIn, 'cards-summary-line', 'the count has a line of its own');
 				assert.ok(layout.summary >= layout.toolsBottom, 'the count under the tools');
 				assert.ok(layout.line <= 24, `the count is one line (${layout.line} px)`);
@@ -962,8 +968,9 @@ describe('held sideways', () => {
 		// The search line and Sort and View share a line, and so do the
 		// tools and the count; the header is not sticky, as on a binder.
 		assert.equal(start.header, 'static');
-		assert.ok(Math.abs(start.sort - start.search) <= 2, `Sort beside the search (${JSON.stringify(start)})`);
-		assert.ok(Math.abs(start.count - start.tools) <= 2, `the count beside the tools (${JSON.stringify(start)})`);
+		// Sort lives in the tools strip (design review F13).
+		assert.equal(start.sort, start.tools, `Sort in the strip (${JSON.stringify(start)})`);
+		assert.ok(start.tools - start.search <= 64, `the strip right under the search (${JSON.stringify(start)})`);
 		assert.ok(start.tabs - start.first >= 100, `cards in sight under the bar (${JSON.stringify(start)})`);
 
 		await page.evaluate(() => window.scrollTo(0, 400));
