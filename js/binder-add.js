@@ -58,9 +58,11 @@ export function targetText(target) {
 		: `Adds it after the list, page ${target.page}.`;
 }
 
-// Which copy goes: one not in use in another pocket first, then the newest.
-export function copyToShow(copies, claims) {
-	const free = copies.filter((entry) => !(claims.get(entry.id) || []).length);
+// Which copy goes: one not in use in another binder's pocket first, then the
+// newest. The binder's own claims do not count: a copy it already holds for
+// that card (js/binders.js copyClaims) is free to show there.
+export function copyToShow(copies, claims, binderId = null) {
+	const free = copies.filter((entry) => !(claims.get(entry.id) || []).some((claim) => claim.binderId !== binderId));
 	const newest = (list) => [...list].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] || null;
 
 	return newest(free) || newest(copies);
@@ -86,7 +88,7 @@ export function planListAdds(binder, copies, {claims = new Map(), index = new Ma
 	let skipped = 0;
 
 	for (const [key, list] of byCard) {
-		const entry = copyToShow(list, claims);
+		const entry = copyToShow(list, claims, binder.id);
 		const record = index.get(key);
 		const target = listTarget(binder, {catalog: catalogOf(entry), cardId: entry.card_id, dexIds: (record && record.dex_ids) || [], language: entry.language}, {languages});
 
