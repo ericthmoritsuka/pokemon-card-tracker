@@ -960,6 +960,10 @@ export function filterBar({
 			max: MAX_DEX,
 			min: 1,
 			onchange: () => setFilter('dex', dexRangeValue(document.getElementById(`${id}-f-dex-from`).value, document.getElementById(`${id}-f-dex-to`).value)),
+			// As typed too, so the Show count matches what Show applies (QA
+			// collection 6: "Show 0 cards" for 100 to 1 until the field lost
+			// the focus, then 8).
+			oninput: () => setFilter('dex', dexRangeValue(document.getElementById(`${id}-f-dex-from`).value, document.getElementById(`${id}-f-dex-to`).value)),
 			placeholder: which === 'from' ? '1' : String(MAX_DEX),
 			type: 'number',
 			value: value === null ? null : String(value),

@@ -23,7 +23,7 @@ import {recordOf, recordsOfCard} from './card-info.js';
 import {cardInfoList, isLive, loadDocument, onChange, ownedBySet, ownedIn, sourceNames, updateCards} from './collection.js';
 import {alikeKey, closeCopySheet, copyPlaces, copyStepper, languageName, openAddSheet, openEditSheet, placeText, storedLine} from './copy-sheet.js';
 import {cardPosition, cardSwipe, offerCardList, restoreCardList} from './card-swipe.js';
-import {BASE, backWords, errorText, go, h, segmentCounts} from './dom.js';
+import {BASE, backWords, errorText, go, h, keepFocus, segmentCounts} from './dom.js';
 import {flagBadge} from './flags.js';
 import {CATALOG_LANGUAGES, catalogFor, catalogsOf, hasLiga, htmlLang, languageChip, languageLabel} from './languages.js';
 import {ligaUrl} from './liga.js';
@@ -1775,6 +1775,7 @@ export function cardView(root, {lang, cardId}) {
 		finally {
 			wishing = false;
 			drawLigaRow();
+			keepFocus('card-wished', 'card-wish');
 		}
 	}
 
@@ -2372,6 +2373,8 @@ export function cardView(root, {lang, cardId}) {
 				else {
 					unstarHint(live);
 				}
+
+				keepFocus('favorite-toggle');
 			},
 			title: on ? 'Remove from favorites' : 'Mark as a favorite (never a spare)',
 			type: 'button',

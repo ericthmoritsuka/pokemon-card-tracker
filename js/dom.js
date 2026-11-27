@@ -207,3 +207,29 @@ window.addEventListener('error', (event) => {
 window.addEventListener('unhandledrejection', (event) => {
 	showError('Unhandled error.', event.reason);
 });
+
+// After a redraw replaces the control that had the keyboard focus, gives
+// the focus to the first of ids that exists again, so the next Tab does
+// not start at the top of the page (QA collection 7). Only when the focus
+// fell to the page itself; tries for up to a second.
+export function keepFocus(...ids) {
+	const started = Date.now();
+	const tick = () => {
+		const active = document.activeElement;
+
+		if (active && active !== document.body) {
+			return;
+		}
+
+		const next = ids.map((id) => document.getElementById(id)).find(Boolean);
+
+		if (next) {
+			next.focus();
+		}
+		else if (Date.now() - started < 1000) {
+			setTimeout(tick, 50);
+		}
+	};
+
+	setTimeout(tick, 0);
+}

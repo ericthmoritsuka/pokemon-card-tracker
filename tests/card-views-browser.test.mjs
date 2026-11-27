@@ -185,7 +185,7 @@ describe('the View switch', () => {
 			assert.equal(await page.inputValue('#cards-view'), 'grid', 'Grid is the default');
 			assert.equal(await page.getAttribute('#cards-view', 'aria-label'), 'View');
 			assert.deepEqual(await page.locator('#cards-view option').allTextContents(), ['View: Large', 'View: Grid', 'View: Mini', 'View: List']);
-			assert.equal(await page.locator('.fb-row #cards-view').count(), 1, 'in the row with Sort and Filters');
+			assert.equal(await page.locator('#cards-tools #cards-view').count(), 1, 'in the strip with Sort and Filters (design review F13)');
 			assert.equal(await columns(page), 3, 'Grid: three a row');
 
 			const total = await page.locator('.card-grid > .tile').count();

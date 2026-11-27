@@ -37,7 +37,7 @@ import {
 	showSheet,
 	UNDO_MS,
 } from './copy-sheet.js';
-import {BASE, errorText, h} from './dom.js';
+import {BASE, errorText, h, keepFocus} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {languageLabel} from './languages.js';
 import {addToBinder, undoAddToBinder} from './placeholder-fill.js';
@@ -205,6 +205,7 @@ export function bulkSelect({fullRecord, grid, groups, recordsReady = () => Promi
 
 		repaint();
 		update();
+		keepFocus('bulk-all', 'bulk-none');
 	}
 
 	function clearAll() {
