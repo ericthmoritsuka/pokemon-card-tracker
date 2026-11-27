@@ -800,3 +800,43 @@
 .shop-order-receipt {
 	text-align: left;
 }
+
+/* Sell a card and More on one row (design review F4). */
+.shop-sell-more {
+	align-items: flex-start;
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	margin: 0 0 var(--space-2);
+}
+
+.shop-sell-more[hidden] {
+	display: none;
+}
+
+.shop-more > summary {
+	list-style: none;
+	width: auto;
+}
+
+.shop-more > summary::-webkit-details-marker {
+	display: none;
+}
+
+.shop-more > summary::after {
+	content: " \25BE";
+}
+
+.shop-more-items {
+	display: grid;
+	gap: var(--space-2);
+	margin-top: var(--space-2);
+}
+
+.shop-sealed-admin {
+	margin: 0 0 var(--space-2);
+}
+
+.shop-sealed-admin a {
+	color: var(--link);
+}

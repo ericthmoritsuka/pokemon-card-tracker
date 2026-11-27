@@ -617,6 +617,8 @@ describe('Shop publishing', () => {
 
 		await openShop(page);
 		await page.locator('#shop-sell-more:not([hidden])').waitFor(TIMEOUT);
+		// Add and sell is under More (design review F4).
+		await page.click('#shop-more > summary');
 		await page.click('#shop-add-sell');
 		await page.waitForFunction(() => location.pathname.endsWith('/sets'), null, TIMEOUT);
 		await page.waitForFunction(() => [...document.querySelectorAll('.toast-text')].some((node) => node.textContent.startsWith('Add and sell:')), null, TIMEOUT);
@@ -790,7 +792,7 @@ describe('Shop publishing', () => {
 		store.listings.set('c-08', {id: 'c-08', image_path: null, price_brl: 9, status: 'withdrawn'});
 		store.listings.set('c-99', {id: 'c-99', image_path: null, price_brl: 1, status: 'available'});
 		await openShop(page);
-		await waitLine(page, /^On HOTARU: 1 card, 1 copy\. 1 new copy to publish\. Withdrew 1 copy that should not be listed\.$/);
+		await waitLine(page, /^1 new copy waits to publish\. On HOTARU: 1 card, 1 copy\. Withdrew 1 copy that should not be listed\.$/);
 		assert.equal(store.listings.get('c-04').status, 'available');
 		assert.equal(store.listings.get('c-04').price_brl, 3, 'a live copy\'s price syncs by itself');
 		assert.equal(store.listings.get('c-08').status, 'withdrawn', 'opening the Shop re-lists nothing');
@@ -813,7 +815,7 @@ describe('Shop publishing', () => {
 		const {context, errors, page, store} = await ownerPhone({copies});
 
 		await openShop(page);
-		await waitLine(page, /13 new copies to publish\.$/);
+		await waitLine(page, /^13 new copies wait to publish\./);
 		await page.click('#shop-publish-changes');
 		await page.locator('#shop-guard[open]').waitFor(TIMEOUT);
 		assert.equal(plain(await page.locator('#shop-guard-title').textContent()), 'List 13 new copies on HOTARU?');

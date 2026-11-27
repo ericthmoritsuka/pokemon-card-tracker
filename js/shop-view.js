@@ -230,19 +230,27 @@ export function shopView(root) {
 	// HOTARU's sealed products are added on its own admin page, which signs
 	// in with this app's session (Eric, 2026-11-24). Shown once the server
 	// says this is the family's owner, the only one it lets save them.
+	// Check live listings sits by the publish line it checks; the sealed
+	// products link folds into More (design review F4).
+	const sealedLink = h('a', {class: 'button small', href: HOTARU_ADMIN, id: 'shop-sealed-admin-link'}, 'Add sealed products on HOTARU');
 	const sealedAdmin = h('p', {class: 'shop-sealed-admin', hidden: true, id: 'shop-sealed-admin'},
-		h('a', {class: 'button small', href: HOTARU_ADMIN, id: 'shop-sealed-admin-link'}, 'Add sealed products on HOTARU'),
-		h('a', {class: 'button small', 'data-link': 'shop/audit', href: `${BASE}shop/audit`, id: 'shop-audit-link'}, 'Check live listings'));
+		h('a', {class: 'link-button', 'data-link': 'shop/audit', href: `${BASE}shop/audit`, id: 'shop-audit-link'}, 'Check live listings'));
 
 	// For sale beyond the spares (plans/hotaru-for-sale-plan.md, sections 4
 	// and 5): one of his own copies, or a card added to sell.
+	// One row of two (design review F4): Sell a card, and More for the
+	// rarer ones.
 	const sellMore = h('div', {class: 'shop-sell-more', hidden: true, id: 'shop-sell-more'},
 		h('button', {class: 'small', id: 'shop-sell-own', onclick: () => openSellOwn(), type: 'button'}, 'Sell a card I own'),
-		h('button', {class: 'small', id: 'shop-add-sell', onclick: () => {
+		h('details', {class: 'shop-more', id: 'shop-more'},
+			h('summary', {class: 'button small'}, 'More'),
+			h('div', {class: 'shop-more-items'},
+				sealedLink,
+				h('button', {class: 'small', id: 'shop-add-sell', onclick: () => {
 			setAddAndSell(true);
 			go('sets');
 			import('./shell.js').then((shell) => shell.toast('Add and sell: find the card, open it, and tap Add. For sale on HOTARU is ticked.', {key: 'add-and-sell', timeout: 0})).catch(() => {});
-		}, type: 'button'}, 'Add and sell'));
+		}, type: 'button'}, 'Add and sell'))));
 
 	// Opening the Shop ends an Add and sell left unfinished.
 	setAddAndSell(false);
@@ -506,11 +514,11 @@ export function shopView(root) {
 	root.append(
 		h('div', {class: 'view-head'}, h('h2', null, 'Shop')),
 		publishLine,
+		sealedAdmin,
 		publishHint,
 		tabList,
 		panel('prices',
 			h('p', {class: 'muted shop-intro'}, 'Price your spares for HOTARU. Only cards with a price will be offered, and the suggestions stay on this screen.'),
-			sealedAdmin,
 			sellMore,
 			summary,
 			h('div', {class: 'shop-controls'}, search, filter, h('div', {class: 'shop-selects'}, setSelect.node, raritySelect, finishSelect)),
@@ -1657,7 +1665,7 @@ export function shopView(root) {
 		publishLine.textContent = 'Publishing to HOTARU…';
 
 		try {
-			const planned = await plan({live: !explicit});
+			const planned = await plan({live: true});
 
 			if (!alive) {
 				return;
@@ -1698,7 +1706,12 @@ export function shopView(root) {
 				? new Set(planned.rows.filter((row) => !only || only.has(row.id) || (planned.status && isLiveStatus(planned.status[row.id]))).map((row) => row.id))
 				: auto.ids;
 			const extra = auto ? auto.extra : [];
-			const send = (list) => [...rowsFor(list).filter((row) => allowed.has(row.id)), ...extra];
+			// A finish this screen cannot name yet (the card's record not read)
+			// keeps the one HOTARU holds, so a listing never flips between
+			// "Normal" and none from one run to the next (QA shop 18).
+			const liveFinish = new Map((planned.live || []).filter((row) => row.finish).map((row) => [row.id, row.finish]));
+			const named = (row) => (!row.finish && liveFinish.has(row.id) ? {...row, finish: liveFinish.get(row.id)} : row);
+			const send = (list) => [...rowsFor(list).filter((row) => allowed.has(row.id)).map(named), ...extra];
 			// Live copies that break the invariant, or that this device took
 			// off sale, leave HOTARU now.
 			const pulled = explicit
@@ -1777,15 +1790,15 @@ export function shopView(root) {
 			const live = priced().filter((group) => group.listed.some(isOn)).length;
 			const copies = priced().reduce((n, group) => n + group.listed.filter(isOn).length, 0);
 			const noPicture = priced().filter((group) => group.listed.some((entry) => sent(entry) && !(states[entry.id] && states[entry.id].image_path))).length;
+			// The waiting count first, then what is live, then the pictures,
+			// one per line (design review P5).
 			const parts = [
+				pendingNew.length ? `${plural(pendingNew.length, 'new copy waits', 'new copies wait')} to publish.` : null,
 				live
-					? `On HOTARU: ${plural(live, 'card', 'cards')}, ${plural(copies, 'copy', 'copies')}.${noPicture ? ` ${plural(noPicture, 'card has', 'cards have')} no picture yet.` : ''}`
+					? `On HOTARU: ${plural(live, 'card', 'cards')}, ${plural(copies, 'copy', 'copies')}.`
 					: (pendingNew.length ? 'Nothing on HOTARU yet.' : 'Nothing on HOTARU yet: give a card a price to offer it.'),
-			];
-
-			if (pendingNew.length) {
-				parts.push(`${plural(pendingNew.length, 'new copy', 'new copies')} to publish.`);
-			}
+				noPicture ? `${plural(noPicture, 'card has', 'cards have')} no picture yet.` : null,
+			].filter(Boolean);
 
 			if (pulled) {
 				parts.push(`Withdrew ${plural(pulled, 'copy', 'copies')} that should not be listed.`);
