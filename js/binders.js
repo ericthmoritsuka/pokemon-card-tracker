@@ -65,10 +65,11 @@
 // The pure functions take the binders and the time, so Node can test them
 // (tests/binders.test.mjs). The rest read and save the document on the phone.
 
+import {setIdOfCard} from './catalog.js';
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 import {nextStamp, restoreEntry, stampEntry} from './merge.js';
 import {byCreated, orderForNew, sortByOrder, withOrders} from './reorder.js';
-import {CLAIM_RANK, addedCount, checkBinderRule, checkFits, defaultRank, extraCardEntries, extraPagesOf, isGenerated, listEditEntries, listPageCount, outranks, pagesFor, pickEntry, pickId, picksOf, ruleKey, skipsOf, withExtraCard, withListEdit} from './binder-rules.js';
+import {CLAIM_RANK, addedCount, cardKey, checkBinderRule, checkFits, defaultRank, extraCardEntries, extraPagesOf, isGenerated, listEditEntries, listPageCount, outranks, pagesFor, pickEntry, pickId, picksOf, ruleKey, skipsOf, withExtraCard, withListEdit} from './binder-rules.js';
 
 export {isGenerated};
 
@@ -308,17 +309,26 @@ const finishOfCopy = (entry) => (entry.variant_id ? `v:${entry.variant_id}` : en
 // binder, then the earlier pocket, as outranks): a pocket keeps its stored
 // copy while nothing above it holds that copy, else it takes the next free
 // copy of the same print (the same finish first, then the newest; never
-// one skipped there), else it holds nothing and shows its placeholder.
+// one skipped there), else it holds nothing and shows its placeholder. A
+// pocket with no stored copy, or one its list gained since the last refresh
+// (currentKeys), takes a free copy that fits it (Eric, 2026-11-27: an
+// Illumise stayed spare until 30 anos was refreshed).
 // Two hand picks of one copy both stand: each was asked for. The same doc
 // always gives the same claims, on every phone and in the family view.
 export function copyClaims(doc) {
 	const binders = (doc && doc.binders) || [];
-	const liveCards = ((doc && doc.cards) || []).filter((entry) => entry && isLive(entry));
+	const allCards = ((doc && doc.cards) || []).filter(Boolean);
+	const liveCards = allCards.filter(isLive);
 	const byId = new Map(liveCards.map((entry) => [entry.id, entry]));
 	const owned = (id) => (typeof id === 'string' && byId.has(id) ? id : null);
 	const claims = [];
 	const taken = new Set();
 	const defaults = [];
+	const generated = liveBinders(binders).filter(isGenerated);
+	const fits = pocketCopies(generated, allCards, liveCards);
+	// Every copy some list pocket stored, so a pocket with no default of its
+	// own takes another copy first and leaves the stored ones where they are.
+	const storedSomewhere = new Set();
 
 	for (const [entryId, {binder, slot}] of placements(binders)) {
 		if (owned(entryId)) {
@@ -327,12 +337,12 @@ export function copyClaims(doc) {
 		}
 	}
 
-	for (const binder of liveBinders(binders).filter(isGenerated)) {
+	for (const binder of generated) {
 		const snapshot = binder.snapshot && typeof binder.snapshot === 'object' ? binder.snapshot : {};
 		const shown = snapshot.shown && typeof snapshot.shown === 'object' ? snapshot.shown : {};
 		const picks = picksOf(doc && doc.binder_picks, binder.id);
 		const skips = skipsOf(doc && doc.binder_picks, binder.id);
-		const keys = Array.isArray(snapshot.keys) ? snapshot.keys : [];
+		const keys = currentKeys(binder, snapshot, doc, liveCards);
 
 		keys.forEach((key, index) => {
 			if (!key) {
@@ -347,17 +357,36 @@ export function copyClaims(doc) {
 			if (pick) {
 				claims.push({...pocket, entryId: pick, rank: CLAIM_RANK.pick});
 				taken.add(pick);
+
+				return;
 			}
-			else if (stored && !skipped.has(stored)) {
-				defaults.push({pocket: {...pocket, rank: defaultRank(key)}, skipped, stored});
+
+			const usable = stored && !skipped.has(stored) ? stored : null;
+
+			if (usable) {
+				storedSomewhere.add(usable);
 			}
+
+			defaults.push({pocket: {...pocket, rank: defaultRank(key)}, skipped, stored: usable});
 		});
 	}
 
 	defaults.sort((a, b) => (outranks(a.pocket, b.pocket) ? -1 : outranks(b.pocket, a.pocket) ? 1 : 0));
 
 	for (const {pocket, skipped, stored} of defaults) {
-		const entryId = taken.has(stored) ? nextFreeCopy(byId.get(stored), liveCards, {skipped, taken}) : stored;
+		let entryId = null;
+
+		if (stored) {
+			entryId = taken.has(stored) ? nextFreeCopy(byId.get(stored), liveCards, {skipped, taken}) : stored;
+		}
+
+		// No stored default (the pocket is new to the list, showed its
+		// placeholder at its last refresh, or its copy was sold or skipped):
+		// the pocket still holds a free copy that fits it, as its next
+		// refresh would show.
+		if (!entryId) {
+			entryId = firstFree(fits.get(pocket.key), {skipped, storedSomewhere, taken});
+		}
 
 		if (entryId) {
 			claims.push({...pocket, entryId});
@@ -366,6 +395,144 @@ export function copyClaims(doc) {
 	}
 
 	return claims;
+}
+
+// The pockets a list binder has now: its stored layout's, then the pockets
+// its rule gives a copy owned now that the layout does not have yet (added
+// after its last refresh), where that can be told from the copy alone: a set
+// list, or a filter by set and language. A card left out of the list
+// (list_edits) gets none. Nothing here needs the catalog, so the claims stay
+// the same on every phone.
+function currentKeys(binder, snapshot, doc, liveCards) {
+	const keys = Array.isArray(snapshot.keys) ? snapshot.keys : [];
+	const fitsRule = ruleTest(binder.rule, doc);
+
+	if (!fitsRule) {
+		return keys;
+	}
+
+	const have = new Set(keys);
+	const edited = new Set(listEditEntries(binder).filter((edit) => edit.kind === 'out' || edit.kind === 'gap').map((edit) => edit.key));
+	const extra = [];
+
+	for (const entry of liveCards) {
+		const key = cardKey(entry.catalog, entry.card_id);
+
+		if (entry.card_id && !have.has(key) && !edited.has(key) && fitsRule(entry)) {
+			have.add(key);
+			extra.push(key);
+		}
+	}
+
+	return extra.length ? [...keys, ...extra.sort()] : keys;
+}
+
+// Whether a copy belongs in a binder's list, from the copy alone, or null
+// when the list needs the catalog to tell.
+function ruleTest(rule, doc) {
+	const source = rule && rule.source;
+
+	if (!source) {
+		return null;
+	}
+
+	if (source.kind === 'goal') {
+		const goal = ((doc && doc.goals) || []).find((item) => item && item.id === source.id && isLive(item));
+
+		if (!goal || goal.kind !== 'set' || typeof goal.target !== 'string' || !goal.target) {
+			return null;
+		}
+
+		const catalog = goal.catalog || 'international';
+
+		return (entry) => (entry.catalog || 'international') === catalog && setIdOfCard(entry.card_id) === goal.target;
+	}
+
+	if (source.kind === 'filter' && source.filter && typeof source.filter === 'object') {
+		const filter = source.filter;
+		const named = Object.keys(filter).filter((kind) => Array.isArray(filter[kind]) ? filter[kind].length : filter[kind]);
+
+		if (!named.length || named.some((kind) => kind !== 'set' && kind !== 'language')) {
+			return null;
+		}
+
+		const list = (kind) => (Array.isArray(filter[kind]) ? filter[kind] : [filter[kind]]).filter(Boolean);
+
+		return (entry) => {
+			const setId = setIdOfCard(entry.card_id);
+			const setKey = setId ? `${entry.catalog || 'international'}|${setId}` : null;
+
+			return (!filter.set || list('set').includes(setKey)) && (!filter.language || list('language').includes(entry.language));
+		};
+	}
+
+	return null;
+}
+
+// The copies that fit each pocket, without the catalog: a card's pocket
+// takes copies of that card; a Pokémon's pocket takes copies of a print (the
+// card in one language) some list pocket stored for that Pokémon (sold copies count), or of a
+// hand-made card picked as it. Map key -> copies, newest first, then the
+// larger id, so every phone picks the same one. Worked out once per call.
+function pocketCopies(generated, allCards, liveCards) {
+	// A Pokémon's pocket knows a print in one language, as its list reads it.
+	const cardOf = new Map(allCards.map((entry) => [entry.id, printKey(entry)]));
+	const dexOf = new Map();
+	const addDex = (print, key) => {
+		if (!dexOf.has(print)) {
+			dexOf.set(print, new Set());
+		}
+
+		dexOf.get(print).add(key);
+	};
+
+	for (const binder of generated) {
+		const shown = binder.snapshot && binder.snapshot.shown && typeof binder.snapshot.shown === 'object' ? binder.snapshot.shown : {};
+
+		for (const [key, id] of Object.entries(shown)) {
+			if (/^dex:\d+$/.test(key) && cardOf.has(id)) {
+				addDex(cardOf.get(id), key);
+			}
+		}
+	}
+
+	for (const entry of allCards) {
+		if (Number.isInteger(entry.dex_number) && entry.dex_number > 0) {
+			addDex(cardOf.get(entry.id), `dex:${entry.dex_number}`);
+		}
+	}
+
+	const out = new Map();
+	const add = (key, entry) => {
+		if (!out.has(key)) {
+			out.set(key, []);
+		}
+
+		out.get(key).push(entry);
+	};
+	const newest = [...liveCards].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id).localeCompare(String(a.id)));
+
+	for (const entry of newest) {
+		if (!entry.card_id) {
+			continue;
+		}
+
+		add(cardKey(entry.catalog, entry.card_id), entry);
+
+		for (const key of dexOf.get(printKey(entry)) || []) {
+			add(key, entry);
+		}
+	}
+
+	return out;
+}
+
+// The first copy free for a pocket: one no pocket stored first, then any.
+function firstFree(copies, {skipped, storedSomewhere, taken}) {
+	const open = (copies || []).filter((entry) => !taken.has(entry.id) && !skipped.has(entry.id));
+	const best = open.find((entry) => !storedSomewhere.has(entry.id)) || open[0];
+
+	return best ? best.id : null;
 }
 
 // Another copy of the same print as was, free and not skipped: the same

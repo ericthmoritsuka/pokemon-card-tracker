@@ -625,13 +625,14 @@ describe('one copy, one pocket: list binders share out the copies (Eric, 2026-11
 		// Keep the placeholder skips every copy that fits the pocket
 		// (js/binders-view.js listRemovePanel), so the pocket claims none, and
 		// 30 anos holds its copy; the other stays free. A copy added later
-		// fills the pocket when the binder next refreshes (planRefresh).
+		// fills the pocket at once, as its next refresh will show it (Eric,
+		// 2026-11-27: claims follow the copies owned now).
 		const keep = {binder_id: 'hoenn', created_at: at(1), deleted_at: null, entry_id: null, id: 'hoenn|dex:314', key: 'dex:314', skipped: ['i1', 'i2'], updated_at: at(1)};
 		const doc = {binder_picks: [keep], binders: [hoenn(), trinta()], cards: [illumise('i1'), illumise('i2')]};
 
 		assert.deepEqual(where(doc), [['30 anos', 'i1']]);
 		assert.deepEqual([...heldCopies(doc)], ['i1']);
-		assert.deepEqual(where({...doc, cards: [...doc.cards, illumise('i3', {created_at: at(7)})]}), [['30 anos', 'i1']], 'a copy got later fills it at the binder\'s next refresh, not before');
+		assert.deepEqual(where({...doc, cards: [...doc.cards, illumise('i3', {created_at: at(7)})]}), [['30 anos', 'i1'], ['Hoenn', 'i3']], 'a copy got later fills it at once');
 	});
 
 	test('the same document gives the same claims whatever the binder order', () => {
@@ -639,6 +640,65 @@ describe('one copy, one pocket: list binders share out the copies (Eric, 2026-11
 		const one = where({binder_picks: [], binders: [hoenn(), trinta()], cards});
 
 		assert.deepEqual(where({binder_picks: [], binders: [trinta(), hoenn()], cards: [...cards].reverse()}), one);
+	});
+});
+
+describe('claims follow each list binder\'s current pockets, not only its last refresh (Eric, 2026-11-27)', () => {
+	// Illumise 30th, two copies, one in each binder. Hoenn (older) shows i1 in
+	// its Pokémon pocket; 30 anos is the 30th set list, last refreshed before
+	// the second copy was counted.
+	const illumise = (id, fields = {}) => card(id, {card_id: '30th-004', ...fields});
+	const KEY = 'international|30th-004';
+	const goals = [{created_at: at(0), deleted_at: null, id: 'g30', kind: 'set', catalog: 'international', level: 'set', target: '30th', updated_at: at(0)}];
+	const hoenn = (snapshot = {}) => binderOf('hoenn', {created_at: at(1), name: 'Hoenn', rule: {order: 'dex', source: {id: 'hoenn', kind: 'checklist'}}, snapshot: {at: at(1), keys: ['dex:313', 'dex:314'], rule_key: 'x', shown: {'dex:314': 'i1'}, ...snapshot}});
+	const trinta = (snapshot = {}, fields = {}) => binderOf('trinta', {created_at: at(5), name: '30 anos', rule: {order: 'number', source: {id: 'g30', kind: 'goal'}}, snapshot: {at: at(5), keys: [], rule_key: 'x', shown: {}, ...snapshot}, ...fields});
+	const cards = [illumise('i1'), illumise('i2', {created_at: at(2)})];
+	const where = (doc) => copyClaims(doc).map((claim) => [claim.binderName, claim.entryId]).sort();
+
+	test('a set list whose stored layout lacks the card\'s pocket still claims a copy for it', () => {
+		const doc = {binder_picks: [], binders: [hoenn(), trinta({keys: ['international|30th-001']})], cards, goals};
+
+		assert.deepEqual([...heldCopies(doc)].sort(), ['i1', 'i2'], 'no Illumise is free');
+		assert.deepEqual(where(doc), [['30 anos', 'i2'], ['Hoenn', 'i1']], 'the new pocket takes the copy no pocket stored, so Hoenn keeps its own');
+	});
+
+	test('a pocket that showed its placeholder at its last refresh claims a copy that is free now', () => {
+		const doc = {binder_picks: [], binders: [hoenn(), trinta({keys: [KEY]})], cards, goals};
+
+		assert.deepEqual([...heldCopies(doc)].sort(), ['i1', 'i2']);
+	});
+
+	test('a stored default that is no longer owned gives way to another copy of the card', () => {
+		const doc = {binder_picks: [], binders: [hoenn({shown: {'dex:314': 'old'}}), trinta({keys: [KEY], shown: {[KEY]: 'i1'}})], cards: [...cards, illumise('old', {deleted_at: at(6)})], goals};
+
+		assert.deepEqual([...heldCopies(doc)].sort(), ['i1', 'i2'], 'Hoenn\'s pocket knew the card through its sold copy');
+	});
+
+	test('a skipped default leaves the pocket\'s other copies to claim, never the skipped one', () => {
+		const skip = {binder_id: 'trinta', created_at: at(6), deleted_at: null, entry_id: null, id: `trinta|${KEY}`, key: KEY, skipped: ['i1', 'i2'], updated_at: at(6)};
+		const doc = {binder_picks: [skip], binders: [hoenn({shown: {}}), trinta({keys: [KEY], shown: {[KEY]: 'i1'}})], cards, goals};
+
+		assert.deepEqual(where(doc), [], 'both skipped in 30 anos, and Hoenn\'s pocket does not know the card');
+
+		const one = {...skip, skipped: ['i1']};
+
+		assert.deepEqual(where({...doc, binder_picks: [one]}), [['30 anos', 'i2']]);
+	});
+
+	test('a filter binder claims a copy new to its set, and a card left out of a list claims nothing', () => {
+		const filtered = binderOf('f', {created_at: at(5), name: 'Filter', rule: {order: 'number', source: {filter: {set: ['international|30th']}, kind: 'filter'}}, snapshot: {at: at(5), keys: [], rule_key: 'x', shown: {}}});
+
+		assert.deepEqual([...heldCopies({binder_picks: [], binders: [hoenn(), filtered], cards, goals})].sort(), ['i1', 'i2']);
+
+		const out = trinta({keys: []}, {list_edits: [{at: at(6), key: KEY, kind: 'out'}]});
+
+		assert.deepEqual([...heldCopies({binder_picks: [], binders: [hoenn(), out], cards, goals})].sort(), ['i1']);
+	});
+
+	test('a set list in another language claims nothing from this one', () => {
+		const japanese = [{...goals[0], catalog: 'ja'}];
+
+		assert.deepEqual([...heldCopies({binder_picks: [], binders: [hoenn(), trinta()], cards, goals: japanese})].sort(), ['i1']);
 	});
 });
 
