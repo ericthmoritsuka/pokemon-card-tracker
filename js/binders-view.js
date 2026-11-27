@@ -1076,7 +1076,15 @@ export const binderView = (root, {id, page}) => binderScreen(root, MINE, id, pag
 
 export const familyBinderView = (root, {id, page, userId}) => binderScreen(root, familySource(userId), id, page);
 
+// ?pocket=N on a binder from a list's page opens pocket N's Remove panel
+// once, on the first draw, where Keep the placeholder is (Check spares links
+// each pocket a copy is in: js/spare-check-view.js pocketRoute). The address
+// drops it at once, so Back and a reload do not open it again.
+export const POCKET_PARAM = 'pocket';
+
 function binderScreen(root, source, id, pageParam) {
+	// The pocket the address asks for (POCKET_PARAM), once.
+	let askedPocket = Number.parseInt(new URLSearchParams(window.location.search).get(POCKET_PARAM), 10);
 	let alive = true;
 	let binder = null;
 	let data = null;
@@ -1676,6 +1684,32 @@ function binderScreen(root, source, id, pageParam) {
 
 		if (listMode) {
 			startList();
+		}
+
+		openAskedPocket();
+	}
+
+	function openAskedPocket() {
+		const position = askedPocket;
+
+		if (!Number.isInteger(position)) {
+			return;
+		}
+
+		askedPocket = null;
+
+		const params = new URLSearchParams(window.location.search);
+
+		params.delete(POCKET_PARAM);
+
+		const search = params.toString();
+
+		history.replaceState(history.state, '', `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`);
+
+		const page = Math.min(Math.max(1, Number.parseInt(pageParam, 10) || 1), binder.page_count);
+
+		if (listMode && !source.readOnly && position >= 1 && position <= binder.rows * binder.cols) {
+			openListSheet(page, position, {remove: true});
 		}
 	}
 
