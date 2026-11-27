@@ -119,6 +119,19 @@ function copyWords(entry) {
 // claim, so a clash shows rather than hides.
 const whereText = (places) => (places.length ? places.map(placeLabel).join(' · also ') : placeLabel(null));
 
+// The same words, each pocket a link to its binder's page that opens the
+// pocket's Remove panel, where Keep the placeholder is (Eric, 2026-11-26: a
+// pocket kept empty on purpose must say so, or it holds a copy he sells; see
+// js/binders-view.js POCKET_PARAM). Two taps from here.
+export const pocketRoute = (place) => `binders/${encodeURIComponent(place.binder_id)}/${place.page}?pocket=${place.position}`;
+
+const whereNodes = (places) => (places.length
+	? places.flatMap((place, i) => [
+		i ? ' · also ' : null,
+		place.kind === 'pocket' ? h('a', {class: 'check-copy-pocket', 'data-link': pocketRoute(place), href: BASE + pocketRoute(place)}, placeLabel(place)) : placeLabel(place),
+	]).filter((part) => part !== null)
+	: [placeLabel(null)]);
+
 export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 	let alive = true;
 	let index = new Map();
@@ -354,7 +367,7 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		return h('li', {class: row.free ? 'check-copy is-free' : 'check-copy', 'data-entry': row.entry.id},
 			h('div', {class: 'check-copy-text'},
 				h('span', {class: 'check-copy-what'}, copyWords(row.entry)),
-				h('span', {class: 'check-copy-where'}, whereText(row.places)),
+				h('span', {class: 'check-copy-where'}, ...whereNodes(row.places)),
 				h('span', {class: 'check-copy-why'}, h('span', {class: row.free ? 'check-tag is-free' : 'check-tag'}, reason.label), ` ${reason.text}`)),
 			button);
 	}
