@@ -4680,6 +4680,33 @@ over them, well under the 1 s the unit test allows.
   read in part has none), and a deleted list drops out. With no count kept, the part is left out;
   a family member's Stats has none, as it has no Over time.
 
+### Copy Cleanup: Import Check and Copies With No Finish
+
+*(Eric, 2026-11-26, after the wrong listings of v118 to v121; built on branch `copy-cleanup`.)*
+Two screens under Check spares, each reached by one line under its heading with a count
+(`js/copy-cleanup.js`), at `trade/check/import` and `trade/check/finish`.
+
+- **Monprice import check** (`js/import-dup-check.js`, `js/import-dup-view.js`). Lists the groups
+  of copies that carry an `import_key` where one card, language, and finish has more than one
+  copy. The finish is told apart as the spares tell it (`copyFinishKey`), so a group here is one
+  whose extra copies count as spares. Only imported copies count: a copy added by hand beside
+  them is not the import's. Each group shows the picture, name, set and number, language,
+  finish, count, and when the copies were added (the phone's own time), with Open card, where a
+  copy that is not there is removed with Remove copy and its Undo. **Checked, I have them** hides
+  a group; the mark is kept on this phone only (`cardTracker.importChecked`), changes no copy, and
+  is the group's copy IDs, so it is forgotten when a copy is added, removed, or swapped (the
+  count changes). Show checked lists the marked groups with Not checked.
+- **Copies with no finish** (`js/unset-finish.js`, `js/unset-finish-view.js`). Lists copies with
+  no `variant_id` and no `finish_raw`, one row per card and language, by set, with a checkbox per
+  card and Select all per set. Set finish reuses My Cards' bulk Finish (`finishLabels`,
+  `finishPlan`, `undoPatches` in `js/bulk-edit.js`) and its reads (saved records first, then
+  TCGdex cache first). Where My Cards' Finish reads the first `FINISH_READS` cards and calls the
+  rest unknown, this reads every selected card in batches of `FINISH_READS` (now defined in
+  `js/bulk-edit.js`) with the progress said, and saves in one write with Undo. A card left
+  unread (offline) stays as it is, and the sheet says so. A finish that is the only printing of a
+  selected card is offered first, and such a card says "Only printing" in its row. A card the
+  chosen finish does not exist on is left as it was and counted in the toast.
+
 ## 12. Open Questions
 
 - **Trade matching: built as Trade Ideas in v100** (Eric, 2026-11-23; deferred on 2026-10-01),

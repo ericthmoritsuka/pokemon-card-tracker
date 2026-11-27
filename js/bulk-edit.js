@@ -126,6 +126,12 @@ export function languagePlan(tiles, code) {
 
 // ----------------------------------------------------------------- finish
 
+// The most cards whose finishes are read from TCGdex in one go: My Cards'
+// Finish says the rest are not known (js/bulk-select.js), and Copies with no
+// finish set reads a larger selection in batches of this size
+// (js/unset-finish.js).
+export const FINISH_READS = 60;
+
 // The field a finish is kept in: a hand-made card has no catalog printings,
 // so its finish is one of monprice's words in finish_raw.
 export const finishField = (catalog) => (catalog === 'custom' ? 'finish_raw' : 'variant_id');

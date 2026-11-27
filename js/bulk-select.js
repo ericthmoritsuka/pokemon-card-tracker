@@ -16,7 +16,7 @@
 // The ticked tiles are kept by key while the screen is open, so a redraw
 // (a save, a sync, a filter) keeps them; Done or leaving the screen ends it.
 
-import {binderCopies, fieldPatches, finishLabels, finishPlan, languageChoices, languagePlan, undoPatches} from './bulk-edit.js';
+import {FINISH_READS, binderCopies, fieldPatches, finishLabels, finishPlan, languageChoices, languagePlan, undoPatches} from './bulk-edit.js';
 import {addCopiesToListBinder, listLanguagesOf, planListAdds} from './binder-add.js';
 import {binderList, listAddText, listAddUndo} from './binder-hand.js';
 import {claimIndex, isGenerated} from './binder-rules.js';
@@ -46,9 +46,9 @@ import {pool} from './tcgdex.js';
 
 const SHEET = 'bulk-sheet';
 
-// The most cards whose finishes are read from TCGdex for one Finish: the
-// rest are said to be unknown rather than sending hundreds of requests.
-const FINISH_READS = 60;
+// FINISH_READS (js/bulk-edit.js) is the most cards whose finishes one Finish
+// reads from TCGdex: the rest are said to be unknown rather than sending
+// hundreds of requests.
 
 const copiesOf = (tiles) => tiles.flatMap((tile) => tile.entries);
 
