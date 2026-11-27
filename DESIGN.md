@@ -4536,7 +4536,7 @@ the code:** `shopGroups` already lists a copy marked For sale (`for_sale === tru
 the last one, in a binder, or the keeper (its `marked` copies; the mark is Eric's consent and beats
 the favorite star), so such a copy is exempt from `held` and `last`, never from `missing`. Kits,
 sealed products, and consigned cards are other listing kinds, which `store_sync` never touches. The
-server half (the same check inside `store_sync`) is not built yet.
+server half lives in `store_sync` (Store Hardening, below).
 
 **Delivered asks about unticked cards** (Eric, 2026-11-26). Delivered on an order with cards not
 ticked asks first, as Cancel does ("2 cards are not checked. Deliver anyway?"); an order with every
@@ -4561,6 +4561,63 @@ as HOTARU does (`store_catalog`, singles only) and lists each one that breaks th
 of its card, language, and finish, with an unset finish its own finish. A copy marked For sale is
 offered wherever it is, as the Shop offers it, so it is only ever flagged as gone. The screen is
 read only: it changes no listing. *(Decided 2026-11-27.)*
+
+#### Store Hardening
+
+`supabase/store-hardening.sql` (2026-11-27, from the principal engineer review of HOTARU at
+`042d50f`) runs last, after every other store script, and its checks are
+`tests/store-hardening-sql-check.sh`. The script order it assumes, the order Eric ran them in:
+setup, store, store-orders, store-sealed, store-withdraw, store-own-pictures, store-featured,
+store-blog, store-bundles, store-consignment, store-order-stages, store-consignment-delete, then
+store-hardening. The decisions:
+
+- **H1, what a visitor can reserve.** `place_order` refuses (22023, a short English message, as
+  its other refusals) a third pending order from one phone (letters and digits only, lowercased,
+  since HOTARU takes a ramal), a third from one client (a salted SHA-256 of the first
+  `x-forwarded-for` address; the address itself is never stored), and any order that would put
+  more than 60 cards in pending orders altogether. A lock makes concurrent orders count one at a
+  time. The numbers live in `private.store_limit`. The 48-hour hold stays, because HOTARU's pages
+  promise it. What is left: an attacker with many addresses and phones can still fill the 60, so
+  the catalog never vanishes wholesale but checkout can stall until Eric cancels; a Turnstile check
+  in an Edge Function is the next step if that happens.
+- **H2, order codes.** Four digits until 9999, then as many as the number needs (`HTR-10000`):
+  `lpad` cut longer numbers to four. The order's ID is made first, its cards reserved under it, and
+  only then is the order row, and so its number, made, so a failed order uses none. A code that
+  already exists is skipped. Existing orders keep their codes.
+- **H3, a stale sealed save.** The admin form sends `expected_available`, the count it loaded, and
+  `save_product` applies the difference typed to what is available now, so a description edit
+  never resizes stock. Without the field it behaves as before, so the SQL can run before the new
+  `admin.js` ships and an old admin tab keeps working (with the old risk) until reloaded. SQL first
+  is the order to follow.
+- **M4, a receipt keeps the order.** `attach_receipt` moves the deadline to at least 48 hours from
+  then; it never shortens it.
+- **M5, receipt uploads.** At most 3 files under one order's token, checked in
+  `receipt_upload_open`, which the bucket's insert policy calls. A Storage policy sees a name, not
+  a size, so the size stays bounded by the bucket's 5 MB file limit: at most 15 MB per order.
+- **M6, an older script run again.** The file creates `private.store_hardening_version()`. Each
+  older script that redefines a function it replaces (store, store-orders, store-sealed,
+  store-own-pictures, store-bundles) now refuses to run while that marker exists, unless
+  `set store.allow_rerun = on;` is above it. After such a rerun, run every later store script and
+  store-hardening.sql again. `select private.store_verify();` names any function an older script
+  put back, and the hardening file ends by running it. A guard plus a check was smaller than moving
+  every function into one owner file.
+- **The listing invariant, server half** (2026-11-27, version 2 of the guard; the client half is
+  `js/listing-invariant.js`). `store_sync` now reads the owner's document (the caller's
+  `public.documents` row, which `patch_document` also writes) and, before the upsert, skips every
+  single whose copy is `missing` (no live entry with that id, or no document), `held` (an
+  `entry_id` in the slots of any live binder), or `last` (the last live copy of its catalog, card,
+  language, and finish once the earlier rows of the same call leave: For sale copies first, then
+  the order sent). A copy with `for_sale` true is exempt from held and last, never from missing.
+  The finish key is the client's: `v:` variant, else `raw:` finish word, else unset, which never
+  pairs with Normal. Skipped rows are not upserted and so are withdrawn if listed (a kit holding
+  one leaves the catalog); the answer keeps its shape and gains `_skipped: [{id, reason}]` only when
+  something was skipped, which the Shop names on the publish line. Rows `store_sync` never changed
+  (reserved, sold, sealed, consigned) pass through unjudged. Limits, all on the strict side, since
+  a false skip is acceptable and a false listing is not: a list binder's computed claims are not
+  repeated (too complex for SQL), so only the client checks those; every live binder's slots count,
+  even stale or off-grid ones the app ignores; and a hand-made copy matched to a catalog twin, or a
+  copy whose finish the app infers from a card's only printing, counts under its own key. Splitting
+  a key can only skip more, never list a copy the client would keep home.
 
 ### Stats
 

@@ -73,6 +73,23 @@ export async function listingStatus(ids, {chunk = 100} = {}) {
 	return out;
 }
 
+// The copies store_sync refused to publish (supabase/store-hardening.sql,
+// the listing invariant's server half): its answer's "_skipped" list, as
+// [{id, reason}], reason 'missing', 'held', or 'last'. Empty when the key is
+// absent (nothing skipped, or an older store_sync). The words are
+// js/listing-invariant.js PROBLEM_TEXT's.
+export const SERVER_SKIP_TEXT = {
+	held: 'held in a binder',
+	last: 'the last copy of its finish',
+	missing: 'no longer in your cards',
+};
+
+export function serverSkipped(states) {
+	const list = states && Array.isArray(states._skipped) ? states._skipped : [];
+
+	return list.filter((one) => one && typeof one.id === 'string' && SERVER_SKIP_TEXT[one.reason]);
+}
+
 // Copies one card picture into the bucket at path (js/shop.js
 // storePicturePath). base is the TCGdex picture address without a size.
 // Resolves true once it is there, false when the picture could not be read

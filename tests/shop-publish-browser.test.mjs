@@ -56,13 +56,20 @@ function fakeStore() {
 	const uploads = [];
 	const relayed = [];
 	let calls = 0;
+	// Copy ids the server's listing invariant refuses (supabase/
+	// store-hardening.sql), each with its reason.
+	const refuse = new Map();
 
 	return {
 		calls: () => calls,
 		listings,
+		refuse,
 		relayed,
-		sync(rows) {
+		sync(all) {
 			calls++;
+
+			const skipped = all.filter((row) => refuse.has(row.id)).map((row) => ({id: row.id, reason: refuse.get(row.id)}));
+			const rows = all.filter((row) => !refuse.has(row.id));
 
 			const ids = new Set(rows.map((row) => row.id));
 
@@ -82,7 +89,9 @@ function fakeStore() {
 				}
 			}
 
-			return Object.fromEntries([...ids].map((id) => [id, {image_path: listings.get(id).image_path, status: listings.get(id).status}]));
+			const answer = Object.fromEntries([...ids].map((id) => [id, {image_path: listings.get(id).image_path, status: listings.get(id).status}]));
+
+			return skipped.length ? {...answer, _skipped: skipped} : answer;
 		},
 		uploads,
 	};
@@ -203,6 +212,22 @@ describe('Shop publishing', () => {
 		await publishNew(page);
 		await waitLine(page, /^On HOTARU: 1 card, 1 copy\.$/);
 		assert.deepEqual([...store.listings.values()].map((row) => [row.id, row.image_path]), [['c-04', 'tcgdex/en/tsa/tsa1/004.webp']]);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a copy the server refuses (the listing invariant) is not listed and is named on the publish line', async () => {
+		const copies = [...SPARE_COPIES, copy('c-16', 'tsa1-004', {condition: 'Near Mint'})];
+		const {context, errors, page, store} = await ownerPhone({copies});
+
+		store.refuse.set('c-16', 'held');
+		await openShop(page);
+		await page.fill(`${CHARMANDER_EN} .shop-price-input`, '2,30');
+		await page.click('#shop-save-all');
+		await publishNew(page);
+		await waitLine(page, /Skipped 1 copy: Charmander \(held in a binder\)\.$/);
+		assert.equal(store.listings.has('c-16'), false);
+		assert.equal(store.listings.get('c-04').status, 'available');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

@@ -48,7 +48,7 @@ import {checkShopOwner, onShopOwner, setAddAndSell, setConsignPick, setShopTab, 
 import {openDialogSheet} from './sheet.js';
 import {announceOrders, cancelOrder, DELIVERED_DAYS, deliveredErrorText, deliveredOrders, keepOrderChecks, markDelivered, markPaid, openOrders, ORDER_CHECKS_EVENT, orderChecks, orderErrorText, receiptLink, setOrderCheck, syncOrderChecks, unsavedChecks} from './store-orders.js';
 import {PROBLEM_TEXT, listingProblems} from './listing-invariant.js';
-import {listingStatus, publishErrorText, syncListings, uploadOwnPicture, uploadPicture} from './store-publish.js';
+import {listingStatus, publishErrorText, serverSkipped, syncListings, uploadOwnPicture, uploadPicture} from './store-publish.js';
 import {onSyncStatus, syncStatus} from './sync.js';
 import {loadOnePrintings} from './wishlist.js';
 
@@ -1584,7 +1584,17 @@ export function shopView(root) {
 				parts.push(`Withdrew ${plural(pulled, 'copy', 'copies')} that should not be listed.`);
 			}
 
-			publishLine.textContent = parts.join(' ') + skippedText(planned.skipped);
+			// Copies the server refused (the listing invariant's server half,
+			// supabase/store-hardening.sql), named the way the client's own
+			// skips are.
+			const refused = serverSkipped(states).map(({id, reason}) => {
+				const group = priced().find((one) => one.listed.some((entry) => entry.id === id));
+				const name = group ? (group.publishInfo && group.publishInfo.name) || (group.info && group.info.name) || group.card_id : id;
+
+				return {group: {card_id: group ? group.card_id : id, info: {name}}, reason};
+			});
+
+			publishLine.textContent = parts.join(' ') + skippedText([...planned.skipped, ...refused]);
 
 			// A kit whose copy is gone takes another copy of the same card.
 			await kits.refill(states).catch(() => {});
