@@ -140,22 +140,22 @@ describe('the finish select', () => {
 	test('a card listed only as 1st Edition also offers Normal, Holo, and Reverse holo, marked not listed', () => {
 		const options = finishOptions([choice(FIRST, 'Holo, 1st Edition stamp')], 'v-first');
 
-		assert.deepEqual(labels(options), ['Not set', 'Holo, 1st Edition stamp', 'Normal (not listed)', 'Holo (not listed)', 'Reverse holo (not listed)']);
+		assert.deepEqual(labels(options), ['No finish set', 'Holo, 1st Edition stamp', 'Normal (not in the catalog)', 'Holo (not in the catalog)', 'Reverse holo (not in the catalog)']);
 		assert.deepEqual(values(options), ['', 'v-first', 'raw:NORMAL', 'raw:HOLOFOIL', 'raw:REVERSE_HOLOFOIL']);
 	});
 
 	test('a finish the catalog lists as a plain print is not offered twice', () => {
 		const options = finishOptions([choice(NORMAL, 'Normal'), choice(REVERSE, 'Reverse holo'), choice(BALL, 'Reverse holo, Poké Ball pattern')]);
 
-		assert.deepEqual(labels(options), ['Not set', 'Normal', 'Reverse holo', 'Reverse holo, Poké Ball pattern', 'Holo (not listed)']);
-		assert.deepEqual(labels(finishOptions([choice(SHADOWLESS, 'Holo, Shadowless'), choice(UNLIMITED, 'Holo, Unlimited')])).slice(3), ['Normal (not listed)', 'Reverse holo (not listed)']);
+		assert.deepEqual(labels(options), ['No finish set', 'Normal', 'Reverse holo', 'Reverse holo, Poké Ball pattern', 'Holo (not in the catalog)']);
+		assert.deepEqual(labels(finishOptions([choice(SHADOWLESS, 'Holo, Shadowless'), choice(UNLIMITED, 'Holo, Unlimited')])).slice(3), ['Normal (not in the catalog)', 'Reverse holo (not in the catalog)']);
 	});
 
 	test('the current finish is kept when it is not offered', () => {
 		const list = [choice(UNLIMITED, 'Holo, Unlimited')];
 
-		assert.deepEqual(finishOptions(list, 'raw:FIRST_EDITION').at(-1), {label: '1st Edition (not listed)', value: 'raw:FIRST_EDITION'});
-		assert.deepEqual(finishOptions(list, 'raw:HOLOFOIL').at(-1), {label: 'Holo (not listed)', value: 'raw:HOLOFOIL'}, 'an import from before TCGdex listed a plain holo');
+		assert.deepEqual(finishOptions(list, 'raw:FIRST_EDITION').at(-1), {label: '1st Edition (not in the catalog)', value: 'raw:FIRST_EDITION'});
+		assert.deepEqual(finishOptions(list, 'raw:HOLOFOIL').at(-1), {label: 'Holo (not in the catalog)', value: 'raw:HOLOFOIL'}, 'an import from before TCGdex listed a plain holo');
 		assert.deepEqual(finishOptions(list, 'gone').at(-1), {label: 'Current finish (not in the catalog list)', value: 'gone'});
 		assert.equal(finishOptions(list, 'raw:NORMAL').filter((option) => option.value === 'raw:NORMAL').length, 1);
 	});
@@ -163,23 +163,23 @@ describe('the finish select', () => {
 	test('with the catalog offline and no saved printings, the words say the catalog is offline', () => {
 		const options = finishOptions([], 'v-normal', 'international', true);
 
-		assert.deepEqual(labels(options), ['Not set', 'Normal (catalog offline)', 'Holo (catalog offline)', 'Reverse holo (catalog offline)', 'Current finish (catalog offline)']);
+		assert.deepEqual(labels(options), ['No finish set', 'Normal (catalog offline)', 'Holo (catalog offline)', 'Reverse holo (catalog offline)', 'Current finish (catalog offline)']);
 		assert.deepEqual(values(options), ['', 'raw:NORMAL', 'raw:HOLOFOIL', 'raw:REVERSE_HOLOFOIL', 'v-normal']);
 		assert.deepEqual(finishOptions([], 'raw:FIRST_EDITION', 'international', true).at(-1), {label: '1st Edition (catalog offline)', value: 'raw:FIRST_EDITION'});
 	});
 
 	test('an empty list alone is not offline: a Japanese card with no variants still says not listed', () => {
-		assert.deepEqual(labels(finishOptions([], null, 'japanese')), ['Not set', 'Normal (not listed)', 'Holo (not listed)', 'Reverse holo (not listed)']);
+		assert.deepEqual(labels(finishOptions([], null, 'japanese')), ['No finish set', 'Normal (not in the catalog)', 'Holo (not in the catalog)', 'Reverse holo (not in the catalog)']);
 	});
 
 	test('offline with the printings the phone saved, not listed still holds', () => {
 		const options = finishOptions([choice(FIRST, 'Holo, 1st Edition stamp')], 'gone', 'international', true);
 
-		assert.deepEqual(labels(options), ['Not set', 'Holo, 1st Edition stamp', 'Normal (not listed)', 'Holo (not listed)', 'Reverse holo (not listed)', 'Current finish (catalog offline)'], 'the copy\'s printing, as its row says');
+		assert.deepEqual(labels(options), ['No finish set', 'Holo, 1st Edition stamp', 'Normal (not in the catalog)', 'Holo (not in the catalog)', 'Reverse holo (not in the catalog)', 'Current finish (catalog offline)'], 'the copy\'s printing, as its row says');
 	});
 
 	test('a hand-made card offers monprice\'s words alone, as before', () => {
-		assert.deepEqual(labels(finishOptions(rawFinishes(), 'HOLOFOIL', 'custom')), ['Not set', '1st Edition', 'Holo', 'Normal', 'Reverse holo', 'Unlimited', 'Unlimited holo']);
+		assert.deepEqual(labels(finishOptions(rawFinishes(), 'HOLOFOIL', 'custom')), ['No finish set', '1st Edition', 'Holo', 'Normal', 'Reverse holo', 'Unlimited', 'Unlimited holo']);
 	});
 
 	test('a copy reads into the select by its variant, else its word', () => {

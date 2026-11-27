@@ -27,7 +27,7 @@ import {BASE, backWords, errorText, go, h, segmentCounts} from './dom.js';
 import {flagBadge} from './flags.js';
 import {CATALOG_LANGUAGES, catalogFor, catalogsOf, hasLiga, htmlLang, languageChip, languageLabel} from './languages.js';
 import {ligaUrl} from './liga.js';
-import {finishLabel} from './monprice.js';
+import {finishLabel, NO_FINISH} from './monprice.js';
 import {cardNames, hasOwnNames} from './names.js';
 import {copyPriceText, priceSection} from './price-view.js';
 import {printedVariant, sizeName} from './prices.js';
@@ -73,6 +73,21 @@ const copiesText = (n) => `${n} ${n === 1 ? 'copy' : 'copies'}`;
 // For sale beats the star (Eric, 2026-11-24): a copy marked For sale
 // (v111) stays listed, so markedForSale leaves it out here as it lets it
 // through js/wishlist.js spareEntries.
+// Taking the star off makes the copies spares again, but a copy withdrawn
+// when it was starred goes back on HOTARU only from Publish changes (v128
+// review, Low 3), so the owner is told where.
+async function unstarHint(entries) {
+	if (!entries.some((entry) => salePrice(entry) !== null)) {
+		return;
+	}
+
+	const owner = shopOwnerKnown() ?? await checkShopOwner().catch(() => null);
+
+	if (owner === true) {
+		toast('Unstarred. Publish changes in the Shop to put it back on HOTARU.');
+	}
+}
+
 async function takeOffHotaru(entries) {
 	const priced = entries.filter((entry) => salePrice(entry) !== null && !markedForSale(entry));
 
@@ -1198,7 +1213,7 @@ export const finishChoices = (variants, cardId) => variants
 // What one copy's finish is called on a row: the card page's Your copies
 // and Check spares (js/spare-check-view.js). variants: the card's
 // variants_detailed; offline: true when they could not be read, so a
-// variant ID the list lacks says so rather than "Finish not set".
+// variant ID the list lacks says so rather than "No finish set".
 export function copyFinishName(entry, variants, offline = false) {
 	const variant = (variants || []).find((item) => item.variantId && item.variantId === entry.variant_id);
 
@@ -1211,7 +1226,7 @@ export function copyFinishName(entry, variants, offline = false) {
 	}
 
 	if (!entry.finish_raw) {
-		return 'Finish not set';
+		return 'No finish set';
 	}
 
 	// The word monprice gave, never matched; or a finish picked in the
@@ -1221,7 +1236,7 @@ export function copyFinishName(entry, variants, offline = false) {
 
 	return entry.import_key && imported === entry.finish_raw
 		? `${finishLabel(entry.finish_raw)} (from monprice, finish not matched)`
-		: `${finishLabel(entry.finish_raw)} (not listed)`;
+		: `${finishLabel(entry.finish_raw)} (not in the catalog)`;
 }
 
 export function cardView(root, {lang, cardId}) {
@@ -1512,7 +1527,7 @@ export function cardView(root, {lang, cardId}) {
 	function shareFinish(entry, variants) {
 		const text = finishName(entry, variants);
 
-		return text === 'Finish not set' || text === 'Finish (catalog offline)' ? null : text;
+		return text === 'No finish set' || text === 'Finish (catalog offline)' ? null : text;
 	}
 
 	async function shareCard(button) {
@@ -2123,15 +2138,15 @@ export function cardView(root, {lang, cardId}) {
 			groups.set(key, group);
 		}
 
-		// The words of a row (design review 2, 2026-11-20: "Finish not set"
+		// The words of a row (design review 2, 2026-11-20: "No finish set"
 		// led on three copies in four). The title is the copy's language and
 		// where it is, "Portuguese · Kanto 151 p1 #6"; under it, the finish
-		// and condition, or a quiet "Set finish" when no finish is set. Read
+		// and condition, or "No finish set" (design review F1: one name everywhere). Read
 		// only, the count is in the title; with a stepper, the stepper
 		// shows it. The words name the language, so the row has no flag:
 		// the room it took keeps a plain copy's row to one line at 360 px,
 		// and Ver na Liga on the first screen.
-		const unset = (group) => group.finish === 'Finish not set';
+		const unset = (group) => group.finish === 'No finish set';
 		const placesOf = (group) => group.entries.filter((entry) => placed.has(entry.id)).map((entry) => placed.get(entry.id));
 		const rowContent = (group) => [
 			h('span', {class: 'copy-title'},
@@ -2140,11 +2155,11 @@ export function cardView(root, {lang, cardId}) {
 				readOnly && group.entries.length > 1 ? ` ×${group.entries.length}` : null
 			),
 			// The two lines are separate words when read as text, as on
-			// screen ("Portuguese Set finish", not "PortugueseSet").
+			// screen ("Portuguese No finish set", not "PortugueseNo finish set").
 			' ',
 			h('span', {class: 'copy-text'},
 				...(unset(group)
-					? [readOnly ? null : h('span', {class: 'copy-chip'}, 'Set finish'), group.condition ? `${readOnly ? '' : ' · '}${group.condition}` : null]
+					? [readOnly ? null : h('span', {class: 'copy-chip'}, NO_FINISH), group.condition ? `${readOnly ? '' : ' · '}${group.condition}` : null]
 					: [[group.finish, group.condition].filter(Boolean).join(' · ')])
 			),
 			...[...group.prices].map((price) => h('span', {class: 'copy-price'}, price)),
@@ -2353,6 +2368,9 @@ export function cardView(root, {lang, cardId}) {
 
 				if (!on) {
 					takeOffHotaru(live);
+				}
+				else {
+					unstarHint(live);
 				}
 			},
 			title: on ? 'Remove from favorites' : 'Mark as a favorite (never a spare)',

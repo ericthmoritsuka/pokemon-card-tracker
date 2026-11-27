@@ -37,7 +37,7 @@ import {
 import {errorText, go, h} from './dom.js';
 import {plural} from './format.js';
 import {catalogFor, copyLanguageCodes, languageLabel} from './languages.js';
-import {FINISHES, finishLabel} from './monprice.js';
+import {FINISHES, finishLabel, NO_FINISH} from './monprice.js';
 import {formatBrl, isStandardSize} from './prices.js';
 import {PRICE_FORM_TEXT, parsePrice, priceForInput, setPendingMove} from './moves.js';
 import {pricePatches, salePrice as copySalePrice} from './shop.js';
@@ -420,7 +420,7 @@ export function plainKind(variant) {
 // sheet cannot tell whether TCGdex lists the word, so it says why there is
 // no list instead, as the copy's row does ("Finish (catalog offline)",
 // js/catalog-views.js finishName).
-const notListed = (word, offline) => `${finishLabel(word)} (${offline ? 'catalog offline' : 'not listed'})`;
+const notListed = (word, offline) => `${finishLabel(word)} (${offline ? 'catalog offline' : 'not in the catalog'})`;
 
 // The finish select's options.
 //   finishes  [{value: variantId, label, variant}] from the card's
@@ -439,7 +439,7 @@ const notListed = (word, offline) => `${finishLabel(word)} (${offline ? 'catalog
 //             A current variant ID the list lacks says offline whenever
 //             the card page does, as its row does (finishName)
 export function finishOptions(finishes, current = null, catalog = null, offline = false) {
-	const options = [{label: 'Not set', value: NOT_SET}, ...finishes.map(({label, value}) => ({label, value}))];
+	const options = [{label: NO_FINISH, value: NOT_SET}, ...finishes.map(({label, value}) => ({label, value}))];
 	const unknown = Boolean(offline) && !finishes.length;
 
 	if (catalog !== 'custom') {

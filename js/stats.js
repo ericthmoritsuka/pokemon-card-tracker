@@ -10,6 +10,7 @@
 
 import {tileKey} from './bulk-edit.js';
 import {ASIAN_LANGUAGES, languageLabel} from './languages.js';
+import {NO_FINISH} from './monprice.js';
 import {copyValue, extractPrices, finishFits, finishOf, roundCents} from './prices.js';
 
 const ASIAN = new Set(ASIAN_LANGUAGES);
@@ -84,7 +85,10 @@ export function copyFinish(entry, finishes = []) {
 		return RAW_FAMILY[entry.finish_raw] || entry.finish_raw;
 	}
 
-	return NOT_KNOWN;
+	// A copy whose finish was never set takes the one name every screen
+	// uses for it (design review F1); one with a finish whose printing is
+	// not read yet stays not known.
+	return entry.variant_id ? NOT_KNOWN : NO_FINISH;
 }
 
 // Why a copy has no price, as the Value sheet says it (js/value-sheet.js
@@ -274,7 +278,7 @@ export function collectionStats(entries, {describe = plainDescribe, now = new Da
 	return {
 		before,
 		condition: rows(condition, {order: [...CONDITIONS, NOT_SET]}),
-		finish: rows(finish, {last: [NOT_KNOWN], order: FINISH_ORDER}),
+		finish: rows(finish, {last: [NOT_KNOWN, NO_FINISH], order: FINISH_ORDER}),
 		language: languageRows,
 		months: [...months].map(([month, count]) => ({count, month})),
 		rarity: rows(rarity, {last: [NOT_KNOWN]}),

@@ -63,7 +63,7 @@ function finishWords(group, variants) {
 	const entry = group.rows.find((row) => row.variant_id || row.finish_raw) || group.rows[0];
 
 	if (entry.catalog === 'custom') {
-		return entry.finish_raw ? finishLabel(entry.finish_raw) : 'Finish not set';
+		return entry.finish_raw ? finishLabel(entry.finish_raw) : 'No finish set';
 	}
 
 	return copyFinishName(entry, variants || [], variants === null);

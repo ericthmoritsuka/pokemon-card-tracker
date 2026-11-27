@@ -630,8 +630,8 @@ describe('Check spares: Finish', () => {
 		await summaryIs(page, '3 cards with more than one copy: 7 copies, 2 free.');
 
 		// The copy added with no finish says so; it was "Regular" before.
-		assert.match(await looseCopy(page).locator('.check-copy-what').textContent(), /^Finish not set · Near Mint$/);
-		assert.equal(await looseCopy(page).locator('.check-finish').getAttribute('aria-label'), 'Finish: Finish not set · Near Mint, Loose');
+		assert.match(await looseCopy(page).locator('.check-copy-what').textContent(), /^No finish set · Near Mint$/);
+		assert.equal(await looseCopy(page).locator('.check-finish').getAttribute('aria-label'), 'Finish: No finish set · Near Mint, Loose');
 		await page.screenshot({path: `${SHOTS}/spare-check-finish-row.png`});
 
 		// Checked first, so the finish set has a mark to undo.

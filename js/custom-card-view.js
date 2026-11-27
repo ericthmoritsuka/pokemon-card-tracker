@@ -385,7 +385,7 @@ const back = () => h('a', {class: 'back', 'data-link': 'cards', href: `${BASE}ca
 	}
 }, style: 'min-width: 48px'}, backWords('Back'));
 
-const finishName = (entry) => (entry.finish_raw ? finishLabel(entry.finish_raw) : 'Finish not set');
+const finishName = (entry) => (entry.finish_raw ? finishLabel(entry.finish_raw) : 'No finish set');
 
 // The card page for a hand-made card, at cards/<language>/<card id>. A family
 // member's (the Mine switcher on their cards) is read only.

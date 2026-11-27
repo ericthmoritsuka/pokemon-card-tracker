@@ -111,7 +111,7 @@ describe('collectionStats', () => {
 			{count: 2, label: 'Normal'},
 			{count: 2, label: 'Holo'},
 			{count: 2, label: 'Master Ball pattern'},
-			{count: 2, label: NOT_KNOWN},
+			{count: 2, label: 'No finish set'},
 		]);
 		assert.deepEqual(stats.condition, [{count: 2, label: 'Near Mint'}, {count: 1, label: 'Lightly Played'}, {count: 5, label: NOT_SET}]);
 	});
@@ -228,7 +228,8 @@ describe('finishes', () => {
 		assert.equal(copyFinish({finish_raw: 'REVERSE_HOLOFOIL'}, []), 'Reverse holo');
 		assert.equal(copyFinish({finish_raw: 'UNLIMITED_HOLOFOIL'}, []), 'Holo');
 		assert.equal(copyFinish({finish: 'first'}, []), '1st Edition');
-		assert.equal(copyFinish({}, []), NOT_KNOWN);
+		assert.equal(copyFinish({}, []), 'No finish set');
+		assert.equal(copyFinish({variant_id: 'x'}, []), NOT_KNOWN);
 	});
 });
 
