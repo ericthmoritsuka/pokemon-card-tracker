@@ -224,8 +224,8 @@ describe('Trade', () => {
 
 		const text = plain(await page.locator('#trade-empty').textContent());
 
-		assert.match(text, /^No spares yet ?A spare is a copy beyond the first of the same card in the same language\./);
-		assert.match(text, /a second Portuguese copy is a spare, whatever its finish/);
+		assert.match(text, /^No spares yet ?A spare is a copy beyond the first of the same card in the same language and finish\./);
+		assert.match(text, /the same card in the same language and finish/);
 		assert.match(text, /no copy of a favorite card is\./);
 		assert.equal(await page.locator('#cards-search').count(), 0, 'no filter bar over nothing');
 		await page.screenshot({path: `${SHOTS}/trade-empty.png`});

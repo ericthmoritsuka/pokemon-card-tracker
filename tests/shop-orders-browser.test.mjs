@@ -290,12 +290,12 @@ describe('Shop orders', () => {
 		await order(page, 'HTR-0007').waitFor(TIMEOUT);
 		assert.equal(await text(page.locator('#shop-orders-title')), 'Orders (3)');
 		assert.equal(await text(page.locator('#shop-tab-orders')), 'Orders (3)');
-		assert.deepEqual(await shownCodes(page), ['HTR-0007', 'HTR-0008'], 'the Shop opens on Unpaid');
+		assert.deepEqual(await shownCodes(page), ['HTR-0008', 'HTR-0007'], 'the Shop opens on Unpaid, the one with a receipt first (design review F11)');
 		assert.equal(await text(order(page, 'HTR-0007').locator('.shop-order-head')), 'HTR-0007 · Ana');
 		assert.match(await text(order(page, 'HTR-0007').locator('.shop-order-state')), /^Waiting for payment · 4[67] h left$/);
 		assert.equal(await text(order(page, 'HTR-0007').locator('.shop-order-receipt')), 'No receipt yet');
 		assert.equal(await order(page, 'HTR-0007').locator('.shop-order-who a').getAttribute('href'), 'tel:8199999-0000'.replace('-', ''));
-		assert.match(await text(order(page, 'HTR-0008').locator('.shop-order-state')), /^Waiting for payment · (29|30) min left$/);
+		assert.match(await text(order(page, 'HTR-0008').locator('.shop-order-state')), /^(29|30) min left · Receipt sent: check the Pix$/);
 		assert.equal(await text(order(page, 'HTR-0007').locator('.shop-order-total')), 'Total R$ 5,00');
 
 		// Each card names its finish: the listing's, or on a listing
@@ -872,7 +872,7 @@ describe('Shop orders', () => {
 		const labels = async () => (await page.locator('#shop-order-filter span[data-label]').allTextContents()).map(plain);
 
 		assert.deepEqual(await labels(), ['Unpaid 2', 'Separating 1', 'Ready 0', 'Delivered 1']);
-		assert.deepEqual(await shownCodes(page), ['HTR-0007', 'HTR-0008']);
+		assert.deepEqual(await shownCodes(page), ['HTR-0008', 'HTR-0007']);
 		await showStage(page, 'separating');
 		assert.deepEqual(await shownCodes(page), ['HTR-0006']);
 		await showStage(page, 'ready');

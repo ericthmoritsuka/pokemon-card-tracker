@@ -447,3 +447,8 @@ button.link-button.price-glance {
 .price-slot {
 	scroll-margin-top: 0;
 }
+
+/* "No market price" may wrap on a narrow tile (design review F9). */
+.price-tile.price-none {
+	white-space: normal;
+}
