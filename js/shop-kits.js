@@ -16,7 +16,7 @@ import {getClient} from './auth.js';
 import {h} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {copiesInKits, KIT_MAX, KIT_MIN, kitDefaultName, kitPrice, kitRecord, kitSum, orderGroups, parsePercent, percentOff, pickCopy, refillKit} from './kits.js';
-import {parsePrice, priceForInput} from './moves.js';
+import {parseSalePrice, priceForInput} from './moves.js';
 import {formatBrl} from './prices.js';
 import {openDialogSheet} from './sheet.js';
 
@@ -362,7 +362,7 @@ export function openKitSheet({chosen = null, existing = null, kits = [], onSaved
 			return {error: typed.error, price: typed.value === null ? null : kitPrice({discount_pct: typed.value, price_mode: 'percent'}, sum), value: typed.value};
 		}
 
-		const typed = parsePrice(amount.value);
+		const typed = parseSalePrice(amount.value);
 
 		return {error: typed.error, price: typed.value, value: typed.value};
 	}

@@ -101,7 +101,16 @@ export const PRICE_FORM_TEXT = 'Type the price as 30,50 or 1.500,00, or leave it
 // "1.500.000" is 1500000), and any other dot is the decimal point ("30.5").
 // Spaces are ignored. Empty is no price, {value: null, error: null};
 // anything else, and zero, is refused with PRICE_FORM_TEXT.
-export function parsePrice(text) {
+// The largest price any form takes (QA shop 6: HOTARU's column is
+// numeric(10, 2), and one R$ 999.999.999 price failed every publish).
+export const PRICE_MAX = 99999.99;
+export const PRICE_MAX_TEXT = 'A price can be at most R$ 99.999,99.';
+
+// A price for HOTARU (the Shop, a kit, a consigned card): at most
+// PRICE_MAX. A purchase or a sale logged in Trades has no cap.
+export const parseSalePrice = (text) => parsePrice(text, {max: PRICE_MAX});
+
+export function parsePrice(text, {max = Infinity} = {}) {
 	const typed = String(text ?? '').replace(/\s/g, '');
 
 	if (!typed) {
@@ -110,10 +119,12 @@ export function parsePrice(text) {
 
 	let plain = null;
 
-	if (/^(\d{1,3}(\.\d{3})+|\d+),\d{1,2}$/.test(typed)) {
+	// A thousands dot needs a first group that does not start with 0, so
+	// 0.500 is refused rather than read as R$ 500 (QA shop 7).
+	if (/^([1-9]\d{0,2}(\.\d{3})+|\d+),\d{1,2}$/.test(typed)) {
 		plain = typed.replace(/\./g, '').replace(',', '.');
 	}
-	else if (/^\d{1,3}(\.\d{3})+$/.test(typed)) {
+	else if (/^[1-9]\d{0,2}(\.\d{3})+$/.test(typed)) {
 		plain = typed.replace(/\./g, '');
 	}
 	else if (/^\d+(\.\d{1,2})?$/.test(typed)) {
@@ -121,6 +132,10 @@ export function parsePrice(text) {
 	}
 
 	const number = plain === null ? NaN : Number(plain);
+
+	if (Number.isFinite(number) && number > max) {
+		return {error: PRICE_MAX_TEXT, value: null};
+	}
 
 	return Number.isFinite(number) && number > 0 ? {error: null, value: Math.round(number * 100) / 100} : {error: PRICE_FORM_TEXT, value: null};
 }

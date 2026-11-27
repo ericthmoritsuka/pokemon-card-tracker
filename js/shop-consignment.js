@@ -19,7 +19,7 @@ import {getClient} from './auth.js';
 import {h} from './dom.js';
 import {CARD_STATES, PAYOUT_STATES, consignedRecord, consignorParts, ownersByListing, parsePercent, split, statementText, termsFor, termsText} from './consignment.js';
 import {plural} from './format.js';
-import {parsePrice, priceForInput} from './moves.js';
+import {parseSalePrice, priceForInput} from './moves.js';
 import {brCode, pixKey} from './pix.js';
 import {finishName, formatBrl} from './prices.js';
 import {CONDITIONS} from './scan/session.js';
@@ -365,7 +365,7 @@ export function consignmentSection({go, onLoad = () => {}, toast}) {
 			event.preventDefault();
 
 			const typedPct = parsePercent(pct.value);
-			const typedMin = minimum.value.trim() === '' || minimum.value.trim() === '0' ? {error: null, value: 0} : parsePrice(minimum.value);
+			const typedMin = minimum.value.trim() === '' || minimum.value.trim() === '0' ? {error: null, value: 0} : parseSalePrice(minimum.value);
 
 			if (typedPct.error || typedPct.value === null || typedMin.error) {
 				error.textContent = typedPct.error || typedMin.error || 'Type the percent, such as 15.';
@@ -661,7 +661,7 @@ function sheetFrame(id, title, form) {
 function readTerms(pctInput, minInput) {
 	const pct = parsePercent(pctInput.value);
 	const minText = minInput.value.trim();
-	const minimum = minText === '' ? {error: null, value: null} : /^0+([.,]0+)?$/.test(minText) ? {error: null, value: 0} : parsePrice(minText);
+	const minimum = minText === '' ? {error: null, value: null} : /^0+([.,]0+)?$/.test(minText) ? {error: null, value: 0} : parseSalePrice(minText);
 
 	return {error: pct.error || minimum.error, minimum: minimum.value, pct: pct.value};
 }
@@ -821,7 +821,7 @@ export async function openConsignSheet({card = null, existing = null, finishes =
 	}
 
 	function drawSplit() {
-		const typed = parsePrice(price.value);
+		const typed = parseSalePrice(price.value);
 		const terms = readTerms(pct, minimum);
 		const who = consignor.value === NEW ? newName.value.trim() : person() && person().name;
 
@@ -863,7 +863,7 @@ export async function openConsignSheet({card = null, existing = null, finishes =
 	async function save(event) {
 		event.preventDefault();
 
-		const typed = parsePrice(price.value);
+		const typed = parseSalePrice(price.value);
 		const terms = readTerms(pct, minimum);
 
 		if (consignor.value === NEW && !newName.value.trim()) {
