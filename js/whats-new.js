@@ -23,6 +23,15 @@ export const RELEASES = [
 	{
 		date: '2026-11-27',
 		items: [
+			'When you check an order\'s last card, it moves to Ready on its own five seconds later. Uncheck it in that time and it stays in Separating. A payment moves an order from Unpaid to Separating the same way.',
+			'A check that has not reached the server yet says "not saved yet", because your other devices do not see it. It goes out the next time the app reaches the server.',
+			'A check the server refuses, such as one on an order that is no longer open, is unchecked, and a message says why.',
+		],
+		version: 'v127',
+	},
+	{
+		date: '2026-11-27',
+		items: [
 			'A card in two binders is held in both right away, with no need to refresh a binder: each pocket takes its own copy, and only copies no pocket uses are spare.',
 			'A copy you add later fills a pocket that fits it, even one marked Keep the placeholder; the binder page shows it after its next refresh.',
 		],
