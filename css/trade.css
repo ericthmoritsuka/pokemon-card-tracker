@@ -143,6 +143,16 @@
 	color: var(--badge-paper);
 }
 
+/* Finish and I don't have this one, side by side under the copy's words
+   on a phone. */
+.check-copy-actions {
+	display: flex;
+	flex: none;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+.check-finish,
 .check-gone {
 	flex: none;
 	min-height: var(--target);

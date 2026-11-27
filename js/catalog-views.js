@@ -1194,6 +1194,35 @@ export const finishChoices = (variants) => variants
 	.filter((variant) => variant && variant.variantId)
 	.map((variant) => ({label: variantText(variant), value: variant.variantId, variant}));
 
+// What one copy's finish is called on a row: the card page's Your copies
+// and Check spares (js/spare-check-view.js). variants: the card's
+// variants_detailed; offline: true when they could not be read, so a
+// variant ID the list lacks says so rather than "Finish not set".
+export function copyFinishName(entry, variants, offline = false) {
+	const variant = (variants || []).find((item) => item.variantId && item.variantId === entry.variant_id);
+
+	if (variant) {
+		return variantText(variant);
+	}
+
+	if (entry.variant_id && offline) {
+		return 'Finish (catalog offline)';
+	}
+
+	if (!entry.finish_raw) {
+		return 'Finish not set';
+	}
+
+	// The word monprice gave, never matched; or a finish picked in the
+	// sheet that the catalog does not list (Eric, 2026-11-18), named as
+	// the sheet names it. The import key keeps monprice's word.
+	const imported = String(entry.import_key || '').split('|')[3];
+
+	return entry.import_key && imported === entry.finish_raw
+		? `${finishLabel(entry.finish_raw)} (from monprice, finish not matched)`
+		: `${finishLabel(entry.finish_raw)} (not listed)`;
+}
+
 export function cardView(root, {lang, cardId}) {
 	// A hand-made card has no catalog record: its own page
 	// (js/custom-card-view.js), told by its id ("hand_...").
@@ -1834,30 +1863,9 @@ export function cardView(root, {lang, cardId}) {
 		}
 	}
 
-	// What one copy's finish is called on its row.
+	// What one copy's finish is called on its row (copyFinishName).
 	function finishName(entry, variants) {
-		const variant = variants.find((item) => item.variantId && item.variantId === entry.variant_id);
-
-		if (variant) {
-			return variantText(variant);
-		}
-
-		if (entry.variant_id && unreachable) {
-			return 'Finish (catalog offline)';
-		}
-
-		if (!entry.finish_raw) {
-			return 'Finish not set';
-		}
-
-		// The word monprice gave, never matched; or a finish picked in the
-		// sheet that the catalog does not list (Eric, 2026-11-18), named as
-		// the sheet names it. The import key keeps monprice's word.
-		const imported = String(entry.import_key || '').split('|')[3];
-
-		return entry.import_key && imported === entry.finish_raw
-			? `${finishLabel(entry.finish_raw)} (from monprice, finish not matched)`
-			: `${finishLabel(entry.finish_raw)} (not listed)`;
+		return copyFinishName(entry, variants, Boolean(unreachable));
 	}
 
 	// The name and number the sheets show under their title.

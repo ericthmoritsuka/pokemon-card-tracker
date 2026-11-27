@@ -286,7 +286,7 @@ describe('Checked', () => {
 
 		assert.equal(isChecked(grown, checked), false);
 		assert.deepEqual(keepChecked(spareCheck(more), checked), {});
-		assert.deepEqual(keepChecked(groups, checked), {[scraggy.key]: 's1,s2'});
+		assert.deepEqual(keepChecked(groups, checked), {[scraggy.key]: checkedSignature(scraggy)});
 	});
 
 	// Spares are decided per finish (2026-11-26), but a card and language is
@@ -306,7 +306,7 @@ describe('Checked', () => {
 
 		assert.equal(spareCheck(finishes()).length, 1, 'one block for the card');
 		assert.equal(ralts.copies, 4);
-		assert.equal(checkedSignature(ralts), 'n1,n2,n3,r1');
+		assert.deepEqual(JSON.parse(checkedSignature(ralts)), [['n1', null, null], ['n2', null, null], ['n3', null, null], ['r1', null, 'Reverse Holofoil']]);
 
 		// The lone reverse holo is kept, not free: two normals are free.
 		const rows = new Map(ralts.rows.map((row) => [row.entry.id, row]));
@@ -324,6 +324,51 @@ describe('Checked', () => {
 
 		assert.deepEqual(grown.map((group) => isChecked(group, checked)), [false]);
 		assert.deepEqual(keepChecked(grown, checked), {});
+	});
+
+	// Eric, 2026-11-26: a finish set in Check spares (2 regulars and a
+	// reverse holo where the list said 3 regulars) is a different list from
+	// the one he checked, so the card comes back; Undo puts the finish and
+	// the mark back.
+	test('a copy\'s finish set or changed un-checks the card; the finish put back checks it again', () => {
+		const three = () => ({binders: [], cards: [card('n1', {card_id: 'ralts'}), card('n2', {card_id: 'ralts'}), card('n3', {card_id: 'ralts'})]});
+		const [before] = spareCheck(three());
+		const checked = {[before.key]: checkedSignature(before)};
+
+		assert.equal(isChecked(before, checked), true);
+
+		for (const finish of [{variant_id: 'v-reverse'}, {finish_raw: 'Reverse Holofoil'}]) {
+			const doc = three();
+
+			Object.assign(doc.cards[2], finish);
+
+			const [after] = spareCheck(doc);
+
+			assert.equal(after.key, before.key, 'still one block');
+			assert.equal(isChecked(after, checked), false, `un-checked by ${JSON.stringify(finish)}`);
+			assert.deepEqual(keepChecked([after], checked), {});
+		}
+
+		// Undo writes back the fields the copy had (js/copy-sheet.js unwrite).
+		assert.equal(isChecked(spareCheck(three())[0], checked), true, 'the finish put back');
+	});
+
+	test('a v122 mark (the IDs alone) still holds at opening and takes the finish signature', () => {
+		const groups = spareCheck(doc());
+		const scraggy = groupOf(groups, 'scraggy');
+		const legacy = {[scraggy.key]: 's1,s2'};
+
+		assert.equal(isChecked(scraggy, legacy), false, 'read only through keepChecked');
+		assert.deepEqual(keepChecked(groups, legacy), {[scraggy.key]: checkedSignature(scraggy)});
+
+		// IDs that no longer match are forgotten, as before.
+		assert.deepEqual(keepChecked(groups, {[scraggy.key]: 's1,s9'}), {});
+
+		// Mixed-case IDs, in the order v122's plain sort put them.
+		const mixed = {binders: [], cards: [card('b1', {card_id: 'zubat'}), card('B2', {card_id: 'zubat'})]};
+		const [zubat] = spareCheck(mixed);
+
+		assert.deepEqual(keepChecked([zubat], {[zubat.key]: ['b1', 'B2'].sort().join(',')}), {[zubat.key]: checkedSignature(zubat)});
 	});
 });
 
