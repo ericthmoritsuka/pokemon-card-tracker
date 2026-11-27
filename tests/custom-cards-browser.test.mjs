@@ -183,7 +183,7 @@ describe('hand-made cards', () => {
 		await page.click('.copies .copy-row');
 		await page.waitForSelector('#copy-sheet[open]');
 		assert.ok((await page.locator('#copy-language option').allTextContents()).includes('Korean'));
-		assert.deepEqual(await page.locator('#copy-finish option').allTextContents(), ['Not set', '1st Edition', 'Holo', 'Normal', 'Reverse holo', 'Unlimited', 'Unlimited holo']);
+		assert.deepEqual(await page.locator('#copy-finish option').allTextContents(), ['No finish set', '1st Edition', 'Holo', 'Normal', 'Reverse holo', 'Unlimited', 'Unlimited holo']);
 		assert.equal(await page.locator('#copy-finish').inputValue(), 'HOLOFOIL');
 		await page.check('input[name="copy-scope"][value="all"]');
 		await page.fill('#copy-notes', 'From a trade');

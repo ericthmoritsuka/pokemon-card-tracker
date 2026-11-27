@@ -271,7 +271,7 @@ describe('copies on card detail', () => {
 		// Finish names as on English pages: no "Padrão", no Portuguese foils.
 		// The card lists no plain holo, so Holo is offered as not listed
 		// (Eric, 2026-11-18).
-		assert.deepEqual(await page.locator('#copy-finish option').allTextContents(), ['Not set', 'Normal', 'Reverse holo', 'Reverse holo, Poké Ball pattern', 'Reverse holo, Master Ball pattern', 'Holo (not listed)']);
+		assert.deepEqual(await page.locator('#copy-finish option').allTextContents(), ['No finish set', 'Normal', 'Reverse holo', 'Reverse holo, Poké Ball pattern', 'Reverse holo, Master Ball pattern', 'Holo (not in the catalog)']);
 		assert.equal(await page.locator('#copy-remove').textContent(), 'Remove copy');
 		assert.ok(await page.locator('#copy-leaves').isHidden(), 'no binder to leave');
 		await page.screenshot({path: '/tmp/copies-edit-sheet.png'});
@@ -976,13 +976,13 @@ describe('when TCGdex fails, and in family view', () => {
 
 		await page.click('.copies .copy-row');
 		await page.waitForSelector('#copy-sheet[open]');
-		assert.deepEqual(await page.locator('#copy-finish option').allTextContents(), ['Not set', ...offline, 'Current finish (catalog offline)']);
+		assert.deepEqual(await page.locator('#copy-finish option').allTextContents(), ['No finish set', ...offline, 'Current finish (catalog offline)']);
 		assert.equal(await page.locator('#copy-finish').inputValue(), variantOf(pt, 'Normal'), 'the copy keeps its printing');
 		await page.click('#copy-sheet-close');
 		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
 		await page.click('#copy-add');
 		await page.waitForSelector('#copy-sheet[open]');
-		assert.deepEqual(await page.locator('#copy-finish option').allTextContents(), ['Not set', ...offline]);
+		assert.deepEqual(await page.locator('#copy-finish option').allTextContents(), ['No finish set', ...offline]);
 		await page.click('#copy-sheet-close');
 		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
 		assert.equal((await entries(page))[0].variant_id, variantOf(pt, 'Normal'), 'closing the sheet changed nothing');
