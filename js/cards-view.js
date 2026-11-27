@@ -16,7 +16,6 @@ import {
 	readPriceRecord,
 	savedCardRecords,
 	pictureOf,
-	printedCode,
 	saveToCardIndex,
 	setDetailOnce,
 	setDetails,
@@ -25,8 +24,9 @@ import {
 	viewingLanguage,
 } from './catalog.js';
 import {currentUser} from './auth.js';
-import {heldCopies, listBinders, liveBinders, placements} from './binders.js';
-import {freeCopyIds, listedOf, shopGroups} from './shop.js';
+import {listBinders, liveBinders, placements} from './binders.js';
+import {copyState as heldAndFree} from './held-free.js';
+import {listedOf} from './shop.js';
 import {shopOwnerKnown} from './shop-owner.js';
 import {offerCardList} from './card-swipe.js';
 import {mainName, namesFor, tileNames, withTwinName} from './catalog-views.js';
@@ -514,7 +514,7 @@ export function cardsScreen(root, {
 	// The ids of the shop owner's copies on HOTARU now (priced and listed,
 	// js/shop.js), each tile with one showing For sale.
 	let onSale = new Set();
-	// The ids of your copies free to trade or sell (js/shop.js freeCopyIds),
+	// The ids of your copies free to trade or sell (js/held-free.js copyState),
 	// for the tiles' "×3 | 1", or null on a family member's cards.
 	let freeIds = null;
 	let rates = savedRates();
@@ -1705,15 +1705,16 @@ export function cardsScreen(root, {
 	};
 
 	// From one read of the whole document: the copies free to trade or sell
-	// (js/shop.js freeCopyIds), and For sale (plans/hotaru-for-sale-plan.md),
+	// (js/held-free.js copyState), and For sale (plans/hotaru-for-sale-plan.md),
 	// where only the shop owner sells and only a priced copy is offered.
 	// The whole document, because Spares draws only the spares.
 	async function copyState() {
 		const doc = await loadDocument();
-		const shop = shopGroups((doc && doc.cards) || [], {codeOf: printedCode, held: heldCopies(doc)});
+		// js/held-free.js copyState: the free copies every screen counts.
+		const {free, groups: shop} = heldAndFree(doc);
 
 		return {
-			free: freeCopyIds(null, {groups: shop}),
+			free,
 			onSale: shopOwnerKnown() === true ? new Set(shop.filter((group) => group.price !== null).flatMap(listedOf).map((entry) => entry.id)) : new Set(),
 		};
 	}

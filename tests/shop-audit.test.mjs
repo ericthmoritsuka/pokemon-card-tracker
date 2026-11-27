@@ -1,0 +1,79 @@
+// The Shop audit (js/shop-audit.js) and the listing invariant it reads
+// (js/listing-invariant.js listingProblems), on the invented collection of
+// tests/fixtures/collection-shape.mjs. No browser, no network: the
+// listings come from a stand-in client.
+//
+// Run: node --test tests/shop-audit.test.mjs
+
+import assert from 'node:assert/strict';
+import {describe, test} from 'node:test';
+
+import {listingProblems} from '../js/listing-invariant.js';
+import {AUDIT_REASONS, auditRows, readLiveListings} from '../js/shop-audit.js';
+import {collectionShape} from './fixtures/collection-shape.mjs';
+
+const listing = (id, fields = {}) => ({card_id: 'zz1-001', catalog: 'international', finish: '', id, image_path: null, kind: 'single', language: 'pt', name: `Card ${id}`, number: '001', price_brl: 2, set_name: 'Invented Set', ...fields});
+
+describe('listingProblems', () => {
+	test('missing, held, and last, each by its own rule', () => {
+		const doc = collectionShape();
+		const problems = listingProblems(doc, ['m2', 'm4', 'u1', 'u2', 't1', 't2', 'h1', 'h2', 'p2', 'r1', 'r2', 'gone', 'nowhere', 'o2']);
+
+		assert.deepEqual(Object.fromEntries(problems), {
+			gone: 'missing',
+			h1: 'held',
+			m4: 'last',
+			nowhere: 'missing',
+			p2: 'held',
+			t1: 'held',
+			t2: 'held',
+			u1: 'last',
+			u2: 'last',
+		});
+	});
+
+	test('a copy marked For sale is offered wherever it is, so only missing counts', () => {
+		const doc = collectionShape();
+
+		assert.deepEqual([...listingProblems(doc, ['s1'])], [], 'the last copy, marked For sale');
+		doc.cards.find((entry) => entry.id === 'h1').for_sale = true;
+		assert.deepEqual([...listingProblems(doc, ['h1'])], [], 'in a pocket, marked For sale');
+	});
+
+	test('an empty or missing document leaves every listing missing', () => {
+		assert.deepEqual(Object.fromEntries(listingProblems(null, ['a'])), {a: 'missing'});
+		assert.deepEqual([...listingProblems(collectionShape(), [])], []);
+	});
+});
+
+describe('auditRows', () => {
+	test('lists only the listings that break the rule, missing first, with the copy and the reason', () => {
+		const rows = auditRows(collectionShape(), [listing('m2'), listing('m4'), listing('t1', {card_id: 'zz1-004', number: '004'}), listing('gone', {card_id: 'zz1-005', number: '005'})]);
+
+		assert.deepEqual(rows.map((row) => [row.listing.id, row.reason, row.entry && row.entry.id]), [['gone', 'missing', null], ['t1', 'held', 't1'], ['m4', 'last', 'm4']]);
+		assert.equal(rows[0].text, AUDIT_REASONS.missing);
+		assert.equal(rows[2].text, 'The only copy of this card in this language and finish.');
+	});
+
+	test('every listing passes on spares alone', () => {
+		assert.deepEqual(auditRows(collectionShape(), [listing('m2'), listing('m3'), listing('i2'), listing('s1')]), []);
+	});
+});
+
+describe('readLiveListings', () => {
+	test('reads store_catalog and keeps the singles', async () => {
+		const calls = [];
+		const client = {rpc: async (name) => {
+			calls.push(name);
+
+			return {data: [listing('m2'), listing('kit', {kind: 'sealed'}), listing('c', {kind: 'consigned'})], error: null};
+		}};
+
+		assert.deepEqual((await readLiveListings(client)).map((row) => row.id), ['m2']);
+		assert.deepEqual(calls, ['store_catalog']);
+	});
+
+	test('a failed read throws with the server\'s words', async () => {
+		await assert.rejects(readLiveListings({rpc: async () => ({data: null, error: {message: 'offline'}})}), /offline/);
+	});
+});

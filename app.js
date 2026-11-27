@@ -60,6 +60,7 @@ import {startReportSync} from './js/scan/reports.js';
 import {scanView} from './js/scan/routes.js';
 import {startSettings} from './js/settings.js';
 import {shopAccountViews, shopRoutes} from './js/shop-view.js';
+import {shopAuditAccountViews, shopAuditRoutes} from './js/shop-audit-view.js';
 import {statsAccountViews, statsRoutes} from './js/stats-view.js';
 import {spareCheckAccountViews, spareCheckRoutes} from './js/spare-check-view.js';
 import {tradeAccountViews, tradeRoutes} from './js/trade-view.js';
@@ -99,11 +100,12 @@ const ROUTES = [
 	...movesRoutes,
 	...statsRoutes,
 	...shopRoutes,
+	...shopAuditRoutes,
 ];
 
 // Routes whose screen depends on who is signed in, redrawn on sign-in and
 // sign-out.
-const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, unplacedCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...COLLECTIONS_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews, ...spareCheckAccountViews, ...movesAccountViews, ...goalAccountViews, ...scanReportAccountViews, ...statsAccountViews, ...shopAccountViews]);
+const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, unplacedCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...COLLECTIONS_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews, ...spareCheckAccountViews, ...movesAccountViews, ...goalAccountViews, ...scanReportAccountViews, ...statsAccountViews, ...shopAccountViews, ...shopAuditAccountViews]);
 
 const DEFAULT_ROUTE = 'cards';
 

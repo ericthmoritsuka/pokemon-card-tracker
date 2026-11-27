@@ -62,6 +62,10 @@ export class FakeSupabase {
 		// true: the project ran supabase/patch-document.sql. Otherwise the
 		// function is missing, as PostgREST answers (PGRST202).
 		this.patchDocument = false;
+		// HOTARU's live listings as store_catalog returns them
+		// (supabase/store.sql), for the Shop audit; null: the function is
+		// missing, as PostgREST answers (PGRST202).
+		this.storeCatalog = null;
 	}
 
 	// A password makes it an account that signs in with one, as an account
@@ -803,6 +807,10 @@ export class FakeSupabase {
 				.sort((a, b) => (b.role === 'owner') - (a.role === 'owner'));
 
 			return this.json(route, 200, {group, members, role: mine.role});
+		}
+
+		if (name === 'store_catalog' && this.storeCatalog) {
+			return this.json(route, 200, this.storeCatalog);
 		}
 
 		if (name === 'patch_document' && this.patchDocument) {

@@ -34,7 +34,6 @@ import {
 	isLanguage,
 	languageLabel,
 	pictureOf,
-	printedCode,
 	saveToCardIndex,
 	savedCardRecords,
 	setIdOfCard,
@@ -71,7 +70,8 @@ import {loadedSpeciesNames, namesFor} from './catalog-views.js';
 import {activeFilters, applyFilters, filterBar, searchTextOf, sortItems} from './filter-bar.js';
 import {searchKey} from './names.js';
 import {nowIso} from './collection.js';
-import {listedOf, shopGroups} from './shop.js';
+import {copyState} from './held-free.js';
+import {listedOf} from './shop.js';
 import {shopOwnerKnown} from './shop-owner.js';
 import {
 	COVER_SWATCHES,
@@ -99,7 +99,6 @@ import {
 	placeholdersFor,
 	locate,
 	getBinder,
-	heldCopies,
 	movePocket,
 	moveWithShift,
 	insertPocketAt,
@@ -1614,7 +1613,7 @@ function binderScreen(root, source, id, pageParam) {
 			data = await source.load();
 			index = await cardIndex();
 			onSale = !source.readOnly && shopOwnerKnown() === true
-				? new Set(shopGroups(data.cards, {codeOf: printedCode, held: heldCopies(data.doc)}).filter((group) => group.price !== null).flatMap(listedOf).map((entry) => entry.id))
+				? new Set(copyState(data.doc, {cards: data.cards}).groups.filter((group) => group.price !== null).flatMap(listedOf).map((entry) => entry.id))
 				: new Set();
 		}
 		catch (err) {

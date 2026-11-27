@@ -14,10 +14,10 @@
 //   family/<id>/trade      a family member's spares, read only
 
 import {currentUser} from './auth.js';
-import {heldCopies} from './binders.js';
 import {cardsScreen} from './cards-view.js';
 import {loadDocument, onChange} from './collection.js';
 import {BASE, h} from './dom.js';
+import {freeEntries} from './held-free.js';
 import {whenMemberName} from './family.js';
 import {memberDocument} from './sync.js';
 import {spareEntries} from './wishlist.js';
@@ -47,8 +47,11 @@ const emptyNode = (mine) => () => h('div', {class: 'card empty-state', id: 'trad
 	h('a', {class: 'button', 'data-link': 'cards', href: `${BASE}cards`}, 'Back to My Cards')
 );
 
-// A document's spares: its copies less the ones in use in its binders.
-const docSpares = (doc) => spareEntries((doc && doc.cards) || [], {held: heldCopies(doc)});
+// A document's spares: the copies free to trade or sell, as Check spares,
+// the tile's badge, the binders, and the Shop count them (js/held-free.js
+// copyState): not in a pocket, not the copy kept, not taken off sale, or
+// marked For sale.
+const docSpares = (doc) => freeEntries(doc);
 
 export function tradeView(root) {
 	return cardsScreen(root, {
