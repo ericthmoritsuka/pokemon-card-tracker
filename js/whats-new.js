@@ -23,6 +23,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-27',
 		items: [
+			'A card in two binders is held in both right away, with no need to refresh a binder: each pocket takes its own copy, and only copies no pocket uses are spare.',
+			'A copy you add later fills a pocket that fits it, even one marked Keep the placeholder; the binder page shows it after its next refresh.',
+		],
+		version: 'v126',
+	},
+	{
+		date: '2026-11-27',
+		items: [
 			'Every 30th Celebration card is named Holo with its anniversary stamp, on the card page, Check spares, the Shop, and HOTARU.',
 			'Only the name changes: your copies, their saved finish, and what is for sale stay as they were.',
 		],
