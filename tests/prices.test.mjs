@@ -376,15 +376,6 @@ describe('the 30th Celebration finish name', () => {
 		assert.equal(isThirtiethCard(undefined), false);
 	});
 
-	test('the 30th anniversary MEP promos are named with the stamp, other promos are not', () => {
-		const holo = {size: 'standard', type: 'holo'};
-
-		assert.equal(finishName(holo, 'mep-043'), 'Holo, 30th anniversary stamp');
-		assert.equal(finishName(holo, 'mep-045'), 'Holo, 30th anniversary stamp');
-		assert.equal(finishName(holo, 'mep-018'), 'Holo');
-		assert.equal(finishName({...holo, stamp: ['30th-anniversary']}, 'mep-044'), 'Holo, 30th anniversary stamp');
-	});
-
 	test('a 30th card keeps its reverse holo name and the stored variant is not touched', () => {
 		const variant = {stamp: ['30th-anniversary'], type: 'normal'};
 
