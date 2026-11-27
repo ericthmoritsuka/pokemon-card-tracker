@@ -4754,6 +4754,35 @@ Two screens under Check spares, each reached by one line under its heading with 
 - **One name for an unset finish** (design review F1, 2026-11-27). Every screen says "No finish
   set" (`NO_FINISH` in `js/monprice.js`), Stats included; a finish word the catalog does not list
   reads "(not in the catalog)", never "(not listed)", which reads as for sale beside HOTARU.
+- **Piles in Check spares** (design review F8, 2026-11-27). Copies of one card with the same
+  finish, condition, and place, no note, and no For sale mark are one pile: "×6 · No finish set ·
+  Near Mint", the place, "5 free, 1 kept", a stepper "I have [6]", and Log N missing, which logs
+  that many as given away (spares first, so the copy kept goes last) with one Undo. A copy that
+  differs keeps its own row and its own buttons.
+
+### v128 Layout and Wording (design review, round 2)
+
+*(2026-11-27, each checked by eye at 360 x 740 and 390 x 844, light and dark.)*
+
+- **My Cards' first screen** (F13). On your own My Cards the search is alone on the first line;
+  Filters, Select, Sort, View, Spares, Trades, and Add by hand share one strip that scrolls
+  sideways and fades at its right edge below 600 px; Value and Stats are links on the count line
+  ("31 copies · 9 cards · Stats · Value"). The first tile moved from y 255 to y 215 at 360 px.
+- **The Shop's tools** (F4). Check live listings is a link under the publish line it checks;
+  Prices opens with Sell a card I own and More, which holds Add sealed products on HOTARU and Add
+  and sell.
+- **The publish line** (P5): one fact per line, the waiting count first ("18 new copies wait to
+  publish"), then what is live, then the pictures still missing.
+- **Card photos** (P4): the decision first ("Keeps a sharper copy for zooming. Uses about seven
+  times the space: room for about 1,800 photos instead of 13,000."), the numbers behind Details.
+- **The scanner's For** (P6): under 400 px the word stays, at 12 px, and gives way only when the
+  tray's menu needs its room.
+- **A finish HOTARU already names** (QA shop 18): when this screen cannot name a copy's finish
+  yet, the publish keeps the finish the live listing has, so it never flips between Normal and
+  none.
+- **Consign terms** (QA shop 21): a percent takes at most one decimal, and the split says when the
+  minimum commission leaves the consignor nothing. *Default chosen 2026-11-27, Eric to confirm:*
+  said, not refused.
 
 ## 12. Open Questions
 
