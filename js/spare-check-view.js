@@ -18,6 +18,14 @@
 // Eric can check one pile at a time in the order it lies (2026-11-26). The
 // choice is kept on this phone; one card's check has none.
 //
+// Finish (Eric, 2026-11-26): a copy added without its finish reads as a
+// different one, so three "regulars" may be two and a reverse holo. Each
+// copy's Finish opens the card page's own edit sheet (js/copy-sheet.js
+// openEditSheet) on that copy, with the card's printings, so the finish is
+// written, synced, and undone exactly as there; the list follows at once.
+// Each copy is named as the card page's Your copies names it
+// (js/catalog-views.js copyFinishName), so an unset finish says so.
+//
 // Checked (Eric, 2026-11-26): a card whose copies are all there leaves the
 // whole list when he taps Checked, and the next card comes up under his
 // thumb. The mark is kept on this phone only and changes no copy
@@ -25,21 +33,23 @@
 // with Not checked to bring it back.
 
 import {artOf, cardFilterItem, entryInfo, fillRecords} from './binders-view.js';
-import {catalogFor, cardIndex, printedCode, viewingLanguage} from './catalog.js';
+import {catalogFor, catalogLanguage, cardIndex, printedCode, savedOwnRecords, viewingLanguage} from './catalog.js';
+import {copyFinishName, finishChoices} from './catalog-views.js';
 import {loadDocument, onChange, storedPlaces} from './collection.js';
-import {languageName} from './copy-sheet.js';
+import {closeCopySheet, languageName, openEditSheet, rawFinishes} from './copy-sheet.js';
 import {isCustomId} from './custom-card.js';
 import {BASE, backWords, errorText, h} from './dom.js';
 import {applyFilters, FILTERS, filterBar, filterOn, sortItems, storageOf} from './filter-bar.js';
 import {formatCount, freeText, plural} from './format.js';
+import {finishLabel} from './monprice.js';
 import {applyMove, undoMove} from './moves.js';
 import {undoneText} from './moves-view.js';
 import {toast} from './shell.js';
 import {shopOwnerKnown} from './shop-owner.js';
 import {ANY, CHECK_SORTS, REASONS, SHOWS, checkedPool, checkedSignature, goneFields, isChecked, keepChecked, narrowChecks, placeLabel, spareCheck, whereOptions} from './spare-check.js';
 import {withdrawListings} from './store-publish.js';
-import {FINISHES, entryFinish, tileArt} from './tile.js';
-import {noteOnePrintings} from './wishlist.js';
+import {tileArt} from './tile.js';
+import {cardRecord, noteOnePrintings} from './wishlist.js';
 
 const UNDO_MS = 8000;
 const PAGE = 30;
@@ -108,12 +118,20 @@ function today() {
 	return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
-// "Reverse holo · Near Mint", or "Regular" for the plain print.
-function copyWords(entry) {
-	const code = entryFinish(entry);
+// What a copy's finish is called, as on the card page's Your copies:
+// "Reverse Holo", "Finish not set", or the word of a finish the catalog
+// does not list. variants: the card's printings, or null when this phone
+// has not saved its record. A hand-made card's finish is monprice's word.
+function finishText(entry, variants) {
+	if (entry.catalog === 'custom') {
+		return entry.finish_raw ? finishLabel(entry.finish_raw) : 'Finish not set';
+	}
 
-	return [code && FINISHES[code] ? FINISHES[code].label : 'Regular', entry.condition].filter(Boolean).join(' · ');
+	return copyFinishName(entry, variants || [], variants === null);
 }
+
+// "Reverse Holo · Near Mint", or "Finish not set · Played".
+const copyWords = (entry, variants) => [finishText(entry, variants), entry.condition].filter(Boolean).join(' · ');
 
 // "Hoenn, page 3, pocket 4", "Loose", or both places of a copy two binders
 // claim, so a clash shows rather than hides.
@@ -141,6 +159,9 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 	// next card has moved up into it.
 	let focusAt = null;
 	let marks = readChecked();
+	// Each card's printings from the record saved on this phone, by the
+	// key the catalog saves it under ("card:<lang>:<card id>"), or null.
+	let printings = new Map();
 	const one = cardId ? {card_id: cardId, catalog: isCustomId(cardId) ? 'custom' : catalogFor(lang)} : null;
 	const viewing = viewingLanguage();
 	const back = one ? `cards/${encodeURIComponent(lang)}/${encodeURIComponent(cardId)}` : 'trade';
@@ -354,22 +375,90 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		return h('div', {class: 'check-foot'}, button);
 	}
 
+	// The key the catalog saves a copy's full record under
+	// (js/catalog.js savedOwnRecords).
+	const recordKey = (entry) => `card:${entry.language || catalogLanguage(entry.catalog || 'international')}:${entry.card_id}`;
+	const variantsOf = (entry) => {
+		const record = printings.get(recordKey(entry));
+
+		return record && Array.isArray(record.variants_detailed) ? record.variants_detailed : null;
+	};
+
+	// The card page's edit sheet on one copy, its finish to hand. The
+	// printings are read as the card page reads them, cache first; without
+	// them the sheet offers the plain words and says the catalog is offline.
+	async function editCopy(row, info, button) {
+		const entry = row.entry;
+		let variants = [];
+		let offline = false;
+
+		// Busy, not disabled: a disabled button drops the focus, and the
+		// sheet gives the focus back to whatever had it when it opened.
+		if (button.getAttribute('aria-busy') === 'true') {
+			return;
+		}
+
+		button.setAttribute('aria-busy', 'true');
+
+		if (entry.catalog !== 'custom') {
+			try {
+				const found = await cardRecord(entry.card_id, entry.language, entry.catalog || 'international');
+
+				variants = found && Array.isArray(found.card.variants_detailed) ? found.card.variants_detailed : [];
+
+				if (found) {
+					printings = new Map(printings).set(recordKey(entry), found.card);
+				}
+			}
+			catch {
+				offline = true;
+			}
+		}
+
+		button.removeAttribute('aria-busy');
+
+		if (!alive || !button.isConnected) {
+			return;
+		}
+
+		// The pocket it is in, for the sheet's line under the title and its
+		// Remove, as the card page gives it (js/copy-sheet.js copyPlaces).
+		const pocket = row.places.find((place) => place.kind === 'pocket');
+		const sheet = openEditSheet({
+			card: {id: entry.card_id, name: info.name, number: info.number || null},
+			catalog: entry.catalog === 'custom' ? 'custom' : entry.catalog || 'international',
+			entries: [entry],
+			finishes: entry.catalog === 'custom' ? rawFinishes() : finishChoices(variants),
+			offline,
+			places: pocket ? new Map([[entry.id, pocket]]) : new Map(),
+		});
+		const select = sheet && sheet.querySelector('#copy-finish');
+
+		if (select) {
+			select.focus();
+		}
+	}
+
 	function copyItem(row, info) {
 		const reason = REASONS[row.reason];
+		const words = copyWords(row.entry, variantsOf(row.entry));
 		const button = h('button', {class: 'small check-gone', type: 'button'}, 'I don\'t have this one');
+		const finish = h('button', {'aria-haspopup': 'dialog', class: 'small check-finish', type: 'button'}, 'Finish');
 
-		button.setAttribute('aria-label', `I don't have this one: ${copyWords(row.entry)}, ${whereText(row.places)}`);
+		button.setAttribute('aria-label', `I don't have this one: ${words}, ${whereText(row.places)}`);
 		button.onclick = () => {
 			focusKey = row.groupKey;
 			giveAway(row, info, button);
 		};
+		finish.setAttribute('aria-label', `Finish: ${words}, ${whereText(row.places)}`);
+		finish.onclick = () => editCopy(row, info, finish);
 
 		return h('li', {class: row.free ? 'check-copy is-free' : 'check-copy', 'data-entry': row.entry.id},
 			h('div', {class: 'check-copy-text'},
-				h('span', {class: 'check-copy-what'}, copyWords(row.entry)),
+				h('span', {class: 'check-copy-what'}, words),
 				h('span', {class: 'check-copy-where'}, ...whereNodes(row.places)),
 				h('span', {class: 'check-copy-why'}, h('span', {class: row.free ? 'check-tag is-free' : 'check-tag'}, reason.label), ` ${reason.text}`)),
-			button);
+			h('div', {class: 'check-copy-actions'}, finish, button));
 	}
 
 	function groupNode(group) {
@@ -448,7 +537,23 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 			}, type: 'button'}, `Show ${formatCount(Math.min(more, PAGE))} more`)
 			: null;
 
+		// A redraw (a finish saved, a sync) keeps the focus on the same
+		// button of the same copy, as the card page's rows do; the edit
+		// sheet gives the focus back to Finish when it closes.
+		const was = list.contains(document.activeElement) ? document.activeElement : null;
+		const wasCopy = was && was.closest('[data-entry]') ? was.closest('[data-entry]').dataset.entry : null;
+		const wasClass = was ? ['check-finish', 'check-gone'].find((name) => was.classList.contains(name)) : null;
+
 		list.replaceChildren(...visible.map(groupNode), ...(moreButton ? [moreButton] : []));
+
+		if (wasCopy && wasClass && focusKey === null && focusAt === null) {
+			const copy = [...list.querySelectorAll('[data-entry]')].find((node) => node.dataset.entry === wasCopy);
+			const again = copy && copy.querySelector(`.${wasClass}`);
+
+			if (again) {
+				again.focus({preventScroll: true});
+			}
+		}
 
 		// After a copy goes, the focus stays at its card, or at the title
 		// when the card left the list.
@@ -518,6 +623,29 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 
 	const check = (doc) => spareCheck(doc, {codeOf: printedCode, only: one});
 
+	// The full records this phone has saved for the cards, with no request
+	// (My Cards and the card page save them), so each copy's finish is
+	// named; a card with none says its finish as its word.
+	let reading = 0;
+
+	function readPrintings() {
+		const run = ++reading;
+
+		savedOwnRecords(groups.flatMap((group) => group.rows.map((row) => row.entry))).then((found) => {
+			if (!alive || run !== reading) {
+				return;
+			}
+
+			const changed = [...found.keys()].some((key) => !printings.has(key));
+
+			printings = new Map([...printings, ...found]);
+
+			if (changed) {
+				redraw();
+			}
+		}).catch(() => {});
+	}
+
 	(async () => {
 		const [doc, found] = await Promise.all([loadDocument(), cardIndex().catch(() => new Map())]);
 
@@ -544,6 +672,7 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		}
 
 		redraw();
+		readPrintings();
 	})().catch((err) => {
 		if (alive) {
 			summary.textContent = '';
@@ -555,12 +684,14 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		if (alive && doc && Array.isArray(doc.cards)) {
 			groups = check(doc);
 			redraw();
+			readPrintings();
 		}
 	});
 
 	return () => {
 		alive = false;
 		stop();
+		closeCopySheet();
 
 		if (bar) {
 			bar.destroy();

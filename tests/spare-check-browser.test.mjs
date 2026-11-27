@@ -13,7 +13,7 @@ import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
-import {BASE, fakeServices, seed} from './my-cards-fixtures.mjs';
+import {BASE, CARDS, fakeServices, fullRecord, seed} from './my-cards-fixtures.mjs';
 import {startPagesServer} from './pages-server.mjs';
 import {copy, wireTrade} from './trade-harness.mjs';
 
@@ -68,12 +68,18 @@ after(async () => {
 	await server.close();
 });
 
-async function phone({colorScheme = 'light', copies = COPIES} = {}) {
+// routes: more fakes, set up after the others so they win, before the app
+// opens and saves any record.
+async function phone({colorScheme = 'light', copies = COPIES, routes = null} = {}) {
 	const context = await browser.newContext({colorScheme, serviceWorkers: 'block', viewport: {height: 844, width: 390}});
 
 	await fakeServices(context);
 	await fakePokeApi(context);
 	await wireTrade(context);
+
+	if (routes) {
+		await routes(context);
+	}
 
 	const page = await context.newPage();
 	const errors = [];
@@ -539,7 +545,7 @@ describe('Check spares: Checked', () => {
 
 		assert.deepEqual(after.cards, before.cards);
 		assert.deepEqual(after.moves || [], before.moves || []);
-		assert.deepEqual(Object.values(await page.evaluate(() => JSON.parse(localStorage.getItem('cardTracker.spareChecked')))), ['c-02,c-03,c-04']);
+		assert.deepEqual(Object.values(await page.evaluate(() => JSON.parse(localStorage.getItem('cardTracker.spareChecked')))).map((mark) => JSON.parse(mark)), [[['c-02', null, null], ['c-03', null, 'Reverse Holofoil'], ['c-04', null, null]]]);
 
 		// Undo puts it back, focused.
 		await page.locator('.toast', {hasText: 'Charmander checked.'}).locator('button', {hasText: 'Undo'}).click();
@@ -593,6 +599,100 @@ describe('Check spares: Checked', () => {
 
 		await page.locator('.toast', {hasText: 'logged as given away'}).locator('button', {hasText: 'Undo'}).click();
 		await summaryIs(page, '2 of 3 cards with more than one copy: 4 copies, 1 free. 1 checked.');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+// Eric, 2026-11-26: checking, he finds 2 regulars and a reverse holo where
+// the list says 3 regulars; the copy was added without its finish. Each
+// copy's Finish opens the card page's edit sheet on it, and the list and a
+// Checked mark follow. Charmander comes in two printings here, so a finish
+// picked is a different printing (the one-printing rule leaves a card of
+// one printing as it was).
+describe('Check spares: Finish', () => {
+	const summaryIs = (page, text) => page.waitForFunction((want) => document.getElementById('check-summary').textContent === want, text, TIMEOUT);
+	const twoPrintings = (context) => context.route(/api\.tcgdex\.net\/v2\/en\/cards\/tsa1-004$/, (route) => route.fulfill({
+		body: JSON.stringify({
+			...fullRecord(CARDS.find((card) => card.id === 'tsa1-004'), 'en'),
+			variants_detailed: [{size: 'standard', type: 'normal', variantId: 'v-normal'}, {size: 'standard', type: 'reverse', variantId: 'v-reverse'}],
+		}),
+		contentType: 'application/json',
+		status: 200,
+	}));
+	const charmander = (page) => page.locator('.check-group', {hasText: 'Charmander'});
+	const looseCopy = (page) => charmander(page).locator('.check-copy', {hasText: 'Loose'});
+
+	test('Finish sets the loose copy\'s finish in the card page\'s sheet; the card and its Checked mark follow, and Undo puts both back', async () => {
+		const {context, errors, page} = await phone({routes: twoPrintings});
+
+		await page.goto(`${server.origin}${BASE}trade/check`);
+		await summaryIs(page, '3 cards with more than one copy: 7 copies, 2 free.');
+
+		// The copy added with no finish says so; it was "Regular" before.
+		assert.match(await looseCopy(page).locator('.check-copy-what').textContent(), /^Finish not set · Near Mint$/);
+		assert.equal(await looseCopy(page).locator('.check-finish').getAttribute('aria-label'), 'Finish: Finish not set · Near Mint, Loose');
+		await page.screenshot({path: `${SHOTS}/spare-check-finish-row.png`});
+
+		// Checked first, so the finish set has a mark to undo.
+		await charmander(page).locator('.check-done').click();
+		await summaryIs(page, '2 of 3 cards with more than one copy: 4 copies, 1 free. 1 checked.');
+		await page.selectOption('#check-show', 'checked');
+		await summaryIs(page, '1 of 3 cards with more than one copy: 3 copies, 1 free.');
+
+		// The card page's sheet, the finish select in hand, the printings offered.
+		await looseCopy(page).locator('.check-finish').click();
+		await page.locator('#copy-sheet[open]').waitFor(TIMEOUT);
+		assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), 'copy-finish');
+
+		const offered = await page.locator('#copy-finish option').evaluateAll((nodes) => nodes.map((node) => [node.value, node.textContent]));
+		const reverse = offered.find(([value]) => value === 'v-reverse');
+
+		assert.ok(reverse, `the reverse printing is offered: ${JSON.stringify(offered)}`);
+		assert.ok(offered.some(([value]) => value === 'v-normal'), 'the normal printing is offered');
+		await page.screenshot({path: `${SHOTS}/spare-check-finish-sheet.png`});
+		await page.selectOption('#copy-finish', 'v-reverse');
+		await page.click('#copy-sheet-close');
+		await page.locator('.toast', {hasText: 'Copy saved.'}).waitFor(TIMEOUT);
+
+		// Written as the card page writes it.
+		let doc = await saved(page);
+
+		assert.deepEqual(['variant_id', 'finish_raw'].map((key) => doc.cards.find((entry) => entry.id === 'c-04')[key] ?? null), ['v-reverse', null]);
+
+		// A different list from the one checked: the mark no longer holds.
+		await summaryIs(page, 'No card is checked yet.');
+		await page.selectOption('#check-show', 'all');
+		await summaryIs(page, '3 cards with more than one copy: 7 copies, 1 free.');
+		assert.equal(await charmander(page).locator('.check-count').textContent(), '3 copies, none free');
+		assert.equal(await looseCopy(page).locator('.check-copy-what').textContent(), `${reverse[1]} · Near Mint`);
+		assert.deepEqual(await looseCopy(page).locator('.check-tag').allTextContents(), ['Kept']);
+		await page.screenshot({fullPage: true, path: `${SHOTS}/spare-check-finish-after.png`});
+
+		// Undo: the finish back, the card free again, and checked again.
+		await page.locator('.toast', {hasText: 'Copy saved.'}).locator('button', {hasText: 'Undo'}).click();
+		await summaryIs(page, '2 of 3 cards with more than one copy: 4 copies, 1 free. 1 checked.');
+		doc = await saved(page);
+		assert.equal(doc.cards.find((entry) => entry.id === 'c-04').variant_id ?? null, null);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('the focus comes back to Finish when the sheet closes, and stays there after the save redraws the list', async () => {
+		const {context, errors, page} = await phone({routes: twoPrintings});
+
+		await page.goto(`${server.origin}${BASE}trade/check`);
+		await summaryIs(page, '3 cards with more than one copy: 7 copies, 2 free.');
+		await looseCopy(page).locator('.check-finish').click();
+		await page.locator('#copy-sheet[open]').waitFor(TIMEOUT);
+		await page.selectOption('#copy-finish', 'v-reverse');
+		await page.keyboard.press('Escape');
+		await summaryIs(page, '3 cards with more than one copy: 7 copies, 1 free.');
+		await page.waitForFunction(() => {
+			const active = document.activeElement;
+
+			return Boolean(active && active.classList.contains('check-finish') && active.closest('[data-entry="c-04"]'));
+		}, null, TIMEOUT);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

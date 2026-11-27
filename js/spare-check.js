@@ -247,22 +247,43 @@ const showMatches = {
 // the list once he marks it Checked, so the next card comes up. The mark
 // is only a note on this phone, {group key: signature}: it changes no copy,
 // so a favorite stays a favorite and nothing turns free or for sale. The
-// signature is the card's copy IDs, so a card comes back when a copy is
-// added or goes (the list it was checked against no longer holds).
+// signature is each copy's ID and the finish it has stored (variant_id and
+// finish_raw, as js/copy-sheet.js finishFields writes them), so a card
+// comes back when a copy is added or goes, or when a copy's finish is set
+// or changed (2026-11-26: the list it was checked against no longer holds).
+// The stored fields, not a finish rule's key, so a later change to how
+// finishes pair (js/wishlist.js copyFinishKey) leaves every mark standing.
 
-export const checkedSignature = (group) => group.rows.map((row) => String(row.entry.id)).sort().join(',');
+// By ID in Array.prototype.sort's own order, which v122's marks used.
+const byId = (a, b) => {
+	const x = String(a.entry.id);
+	const y = String(b.entry.id);
+
+	return x < y ? -1 : x > y ? 1 : 0;
+};
+const rowsById = (group) => [...group.rows].sort(byId);
+
+export const checkedSignature = (group) => JSON.stringify(rowsById(group).map(({entry}) => [String(entry.id), entry.variant_id || null, entry.finish_raw || null]));
+
+// v122's marks were the IDs alone, joined by commas.
+const idsSignature = (group) => rowsById(group).map((row) => String(row.entry.id)).join(',');
 
 export const isChecked = (group, checked) => Boolean(checked) && Object.hasOwn(checked, group.key) && checked[group.key] === checkedSignature(group);
 
 // The marks that still hold for the groups of a whole list, so a mark on
 // a card whose copies changed is forgotten. Only for the whole list: one
-// card's check has the groups of that card alone.
+// card's check has the groups of that card alone. A v122 mark whose IDs
+// still match takes today's signature, so the cards checked before this
+// release stay checked.
 export function keepChecked(groups, checked) {
 	const kept = {};
 
 	for (const group of groups) {
 		if (isChecked(group, checked)) {
 			kept[group.key] = checked[group.key];
+		}
+		else if (checked && Object.hasOwn(checked, group.key) && checked[group.key] === idsSignature(group)) {
+			kept[group.key] = checkedSignature(group);
 		}
 	}
 
