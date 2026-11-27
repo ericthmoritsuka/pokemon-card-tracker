@@ -4508,6 +4508,39 @@ rows join only once the copy's finish is picked from the catalog's printings on 
 stores the variant ID and clears the word (`js/copy-sheet.js`). Merging by finish name would guess
 across the two finish systems, so the Shop does not. *(Decided 2026-11-24.)*
 
+**Publishing is explicit** (Eric, 2026-11-26, after opening the Shop re-listed 56 withdrawn cards;
+built 2026-11-27). A copy goes on HOTARU for the first time only from the Shop's **Publish
+changes** button, which says how many new copies will go out and shows only when there are some;
+the publish line counts them too ("3 new copies to publish"). Opening the Shop and saving a price
+run the automatic path, which sends only the copies HOTARU already holds as available or reserved
+(read with `listing_status`, 100 ids a call), so their prices stay current, and `store_sync`
+withdraws every other available single as before. *Default chosen 2026-11-27, Eric to confirm:*
+withdrawals (a live copy no longer a spare, sold, deleted, now held, or now breaking the invariant)
+and price changes to live copies keep syncing by themselves, because they only lower risk. When
+`listing_status` cannot be read, the automatic path changes nothing on HOTARU (a partial set would
+withdraw the rest) and Publish changes still sends the whole set. A copy marked For sale from the
+Shop or the card page waits for Publish changes like any other new copy.
+
+**The publish guard.** A Publish changes that would list more than 10 new copies
+(`PUBLISH_GUARD` in `js/shop-view.js`) shows them in a sheet first, with Publish and Not now.
+*Default chosen 2026-11-27, Eric to confirm:* the threshold, 10.
+
+**The listing invariant, client half** (`js/listing-invariant.js` `listingProblems(doc,
+entryIds)`, pure). Right before every `store_sync` upsert, on both paths, each copy is checked:
+`missing` (no owned, live copy with that id), `held` (in `heldCopies(doc)`), or `last` (the only
+live copy of its card, language, and finish, by `copyFinishKey`, so an unset finish never pairs
+with Normal; hand-made copies count as their catalog twin, as the Shop counts them). A copy that
+fails is skipped, fail closed, and named with its reason on the publish line; a live listing that
+fails leaves HOTARU on the automatic path, since it is not sent. **For sale exemption, as found in
+the code:** `shopGroups` already lists a copy marked For sale (`for_sale === true`) even when it is
+the last one, in a binder, or the keeper (its `marked` copies; the mark is Eric's consent and beats
+the favorite star), so such a copy is exempt from `held` and `last`, never from `missing`. Kits,
+sealed products, and consigned cards are other listing kinds, which `store_sync` never touches. The
+server half (the same check inside `store_sync`) is not built yet.
+
+**Delivered asks about unticked cards** (Eric, 2026-11-26). Delivered on an order with cards not
+ticked asks first, as Cancel does ("2 cards are not checked. Deliver anyway?"); an order with every
+card ticked, or with no cards, closes at once.
 ### Stats
 
 **A Stats screen for the collection** (2026-11-19, from a survey of other trackers). `stats` shows

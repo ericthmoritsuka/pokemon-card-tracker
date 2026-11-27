@@ -5,10 +5,13 @@
 // and Cardmarket's trend in reais, and a Use button that types the higher,
 // rounded up to the next R$ 0,50. There is no Liga link here, by Eric's
 // choice (2026-11-24): he may price above the market. Only a priced card is
-// published: opening the screen and every price saved or cleared send the
-// whole set of priced spares to the HOTARU catalog (js/store-publish.js,
+// published, and a copy goes on the HOTARU catalog for the first time only
+// from the Publish changes button (Eric, 2026-11-26). Opening the screen and
+// every price saved or cleared only bring the live listings up to date and
+// withdraw what should no longer be there (js/store-publish.js,
 // supabase/store.sql), with each card's name in its copies' language and its
-// picture copied once into the shop's public bucket.
+// picture copied once into the shop's public bucket. Every copy is checked
+// against js/listing-invariant.js before it is sent.
 //
 // Typing a price saves nothing by itself (Eric, 2026-11-24: "enter the
 // prices and press save at the end"). Each typed price is a draft, kept on
@@ -36,7 +39,7 @@ import {finishLabel} from './monprice.js';
 import {applyMove, parsePrice, priceForInput, PRICE_FORM_TEXT} from './moves.js';
 import {addPhotoButton, mainSlide, slideSrc} from './photos/index.js';
 import {euroRates, exchangeRates, extractPrices, finishFits, finishOf, formatBrl, savedEuroRates, savedRates, shortDate} from './prices.js';
-import {PRICE_FILTERS, forSalePatches, groupCopy, groupMark, hasCards, listingRows, orderCheck, ownPicturePath, priceFilter, pricePatches, saleFields, shopGroups, shopKey, shopTotals, storePicturePath, suggestion, timeLeft, undoForSalePatches, undoPricePatches} from './shop.js';
+import {PRICE_FILTERS, forSalePatches, groupCopy, groupMark, hasCards, listedOf, listingRows, orderCheck, ownPicturePath, priceFilter, pricePatches, saleFields, shopGroups, shopKey, shopTotals, storePicturePath, suggestion, timeLeft, undoForSalePatches, undoPricePatches} from './shop.js';
 import {setPicker} from './set-picker.js';
 import {consignmentSection} from './shop-consignment.js';
 import {kitsSection, openKitSheet, orderItemsNode} from './shop-kits.js';
@@ -44,7 +47,8 @@ import {alertsOn, NEW_ORDERS_EVENT, notifyPermission, turnOff, turnOn} from './o
 import {checkShopOwner, onShopOwner, setAddAndSell, setConsignPick, setShopTab, SHOP_TABS, shopOwnerKnown, shopTab} from './shop-owner.js';
 import {openDialogSheet} from './sheet.js';
 import {announceOrders, cancelOrder, DELIVERED_DAYS, deliveredErrorText, deliveredOrders, keepOrderChecks, markDelivered, markPaid, openOrders, ORDER_CHECKS_EVENT, orderChecks, orderErrorText, receiptLink, setOrderCheck, syncOrderChecks, unsavedChecks} from './store-orders.js';
-import {publishErrorText, syncListings, uploadOwnPicture, uploadPicture} from './store-publish.js';
+import {PROBLEM_TEXT, listingProblems} from './listing-invariant.js';
+import {listingStatus, publishErrorText, syncListings, uploadOwnPicture, uploadPicture} from './store-publish.js';
 import {onSyncStatus, syncStatus} from './sync.js';
 import {loadOnePrintings} from './wishlist.js';
 
@@ -64,6 +68,10 @@ const finishChoice = (label) => label.toLowerCase().replace(/holofoil/g, 'holo')
 // Reading the prices of cards never read before stops after this many
 // failures in a row (offline, or TCGdex failing), as My Cards' pass does.
 const MAX_FAILURES = 3;
+// Above this many new copies in one publish, the list is shown and Publish
+// changes asks first (Eric, 2026-11-26: 56 withdrawn cards went out in one
+// sync).
+export const PUBLISH_GUARD = 10;
 // How long an order a tick or a payment moved to another stage stays under
 // the filter it was in (Eric, 2026-11-27: five to ten seconds).
 const ORDER_MOVE_MS = 5000;
@@ -143,12 +151,18 @@ export function shopView(root) {
 	let states = {};
 	let publishing = null;
 	let publishAgain = false;
+	// An explicit publish (Publish changes) asked for, for the next run or
+	// for when the sync settles, and the new copies still to publish.
+	let publishExplicit = false;
+	let waitingExplicit = false;
+	let pendingNew = [];
 	// Waiting for the sync to settle before publishing, and its listener.
 	let stopWaiting = null;
 	// The prices typed and not saved yet, by group key, as typed.
 	const drafts = new Map(Object.entries(readDrafts()).filter(([, text]) => typeof text === 'string'));
 	let saving = false;
 	const publishLine = h('p', {'aria-live': 'polite', class: 'muted shop-publish', id: 'shop-publish'});
+	const publishButton = h('button', {class: 'primary shop-publish-changes', hidden: true, id: 'shop-publish-changes', onclick: () => publishChanges(), type: 'button'}, 'Publish changes');
 	// HOTARU's orders (step 5): those waiting for payment and the paid ones
 	// still to hand over, with the document they are checked against, the
 	// question an order is asking (paid or cancel), and the orders whose
@@ -465,6 +479,7 @@ export function shopView(root) {
 	root.append(
 		h('div', {class: 'view-head'}, h('h2', null, 'Shop')),
 		publishLine,
+		publishButton,
 		tabList,
 		panel('prices',
 			h('p', {class: 'muted shop-intro'}, 'Price your spares for HOTARU. Only cards with a price will be offered, and the suggestions stay on this screen.'),
@@ -1228,7 +1243,7 @@ export function shopView(root) {
 				input.focus();
 			}
 
-			toast(`${choice.info.name} is For sale${held.has(copy.id) ? ': it leaves its binder pocket when it sells' : ''}. ${group && group.price !== null ? 'It goes on HOTARU now.' : 'Give it a price to put it on HOTARU.'}`, {
+			toast(`${choice.info.name} is For sale${held.has(copy.id) ? ': it leaves its binder pocket when it sells' : ''}. ${group && group.price !== null ? 'Publish changes to put it on HOTARU.' : 'Give it a price to put it on HOTARU.'}`, {
 				action: () => updateCards(undo).then(reload).then(publish).catch((err) => toast(`Not put back. ${errorText(err)}`)),
 				actionLabel: 'Undo',
 				timeout: 8000,
@@ -1288,10 +1303,17 @@ export function shopView(root) {
 		}
 	}
 
-	// Sends every priced spare to the catalog and withdraws the rest, then
-	// copies the pictures the catalog does not have yet and sends the paths.
-	// One run at a time; a price saved during a run starts one more after it.
-	function publish() {
+	// Two ways to sync (Eric, 2026-11-26: opening the Shop re-listed 56
+	// withdrawn cards). publish(), run on opening and after every save, is
+	// the automatic path: it keeps the copies already live (or reserved) up
+	// to date and withdraws the rest, and never lists a new copy.
+	// publishChanges(), the Publish changes button, also lists the new ones,
+	// asking first above PUBLISH_GUARD of them. One run at a time; a change
+	// during a run starts one more after it, and an explicit publish asked
+	// for during a run is kept for that next run.
+	function publish({explicit = false} = {}) {
+		publishExplicit = publishExplicit || explicit;
+
 		if (publishing) {
 			publishAgain = true;
 
@@ -1301,7 +1323,11 @@ export function shopView(root) {
 		publishing = (async () => {
 			do {
 				publishAgain = false;
-				await publishOnce();
+
+				const mode = publishExplicit;
+
+				publishExplicit = false;
+				await publishOnce({explicit: mode});
 			} while (publishAgain && alive);
 		})().finally(() => {
 			publishing = null;
@@ -1310,7 +1336,101 @@ export function shopView(root) {
 		return publishing;
 	}
 
-	async function publishOnce() {
+	// The rows that may go out, checked against the listing invariant
+	// (js/listing-invariant.js) right before the upsert: a copy that breaks
+	// it is skipped, fail closed. Resolves to {rows, skipped, status}, where
+	// skipped is [{group, entry, reason}] and status is listing_status's
+	// answer for every priced copy, or null when it could not be read.
+	async function plan() {
+		const doc = await loadDocument();
+		const all = rowsFor(priced());
+		const problems = listingProblems(doc, all.map((row) => row.id));
+		const skipped = [];
+
+		for (const group of priced()) {
+			for (const entry of listedOf(group)) {
+				if (problems.has(entry.id)) {
+					skipped.push({entry, group, reason: problems.get(entry.id)});
+				}
+			}
+		}
+
+		let status = null;
+
+		try {
+			status = await listingStatus(all.map((row) => row.id));
+		}
+		catch {
+			status = null;
+		}
+
+		return {problems, rows: all.filter((row) => !problems.has(row.id)), skipped, status};
+	}
+
+	const isLiveStatus = (value) => value === 'available' || value === 'reserved';
+
+	// The copies a publish would list for the first time, from plan().
+	const newRows = ({rows, status}) => rows.filter((row) => !status || !isLiveStatus(status[row.id]));
+
+	function skippedText(skipped) {
+		if (!skipped.length) {
+			return '';
+		}
+
+		const named = skipped.slice(0, 5).map(({group, reason}) => `${group.info.name || group.card_id} (${PROBLEM_TEXT[reason]})`);
+
+		return ` Skipped ${plural(skipped.length, 'copy', 'copies')}: ${named.join(', ')}${skipped.length > 5 ? ', and more' : ''}.`;
+	}
+
+	// The Publish changes button: hidden with nothing new to list, and
+	// saying how many copies will go out.
+	function drawPending() {
+		const count = pendingNew.length;
+
+		publishButton.hidden = !count;
+		publishButton.textContent = count ? `Publish changes: ${plural(count, 'new copy', 'new copies')}` : 'Publish changes';
+	}
+
+	// Lists the new copies too. More than PUBLISH_GUARD of them shows the
+	// list in a sheet and asks first.
+	async function publishChanges() {
+		const planned = await plan();
+		const fresh = newRows(planned);
+
+		if (fresh.length > PUBLISH_GUARD && !(await confirmBatch(fresh, planned.skipped))) {
+			return;
+		}
+
+		await publish({explicit: true});
+	}
+
+	function confirmBatch(fresh, skipped) {
+		return new Promise((resolve) => {
+			const sheet = h('dialog', {'aria-labelledby': 'shop-guard-title', class: 'sheet shop-guard', id: 'shop-guard'});
+			let answer = false;
+			const close = (value) => {
+				answer = value;
+				sheet.close();
+			};
+
+			sheet.append(
+				h('div', {class: 'sheet-head'}, h('h2', {id: 'shop-guard-title'}, `List ${plural(fresh.length, 'new copy', 'new copies')} on HOTARU?`)),
+				h('p', {class: 'muted'}, `This publish puts more than ${formatCount(PUBLISH_GUARD)} new copies on HOTARU at once. Check the list before they go out.`),
+				h('ul', {class: 'shop-guard-list', id: 'shop-guard-list'}, ...fresh.map((row) => h('li', null, `${row.name}${row.number ? ` ${row.number}` : ''} · ${languageLabel(row.language) || row.language || ''}${row.finish ? ` · ${row.finish}` : ''} · ${formatBrl(row.price_brl)}`))),
+				skipped.length ? h('p', {class: 'status', id: 'shop-guard-skipped'}, skippedText(skipped).trim()) : null,
+				h('div', {class: 'shop-guard-actions'},
+					h('button', {class: 'primary', id: 'shop-guard-publish', onclick: () => close(true), type: 'button'}, 'Publish'),
+					h('button', {id: 'shop-guard-cancel', onclick: () => close(false), type: 'button'}, 'Not now'))
+			);
+			document.body.append(sheet);
+			openDialogSheet(sheet, {onClose: () => {
+				sheet.remove();
+				resolve(answer);
+			}});
+		});
+	}
+
+	async function publishOnce({explicit = false} = {}) {
 		if (!currentUser()) {
 			publishLine.textContent = 'Sign in to publish your priced spares to HOTARU.';
 
@@ -1318,7 +1438,7 @@ export function shopView(root) {
 		}
 
 		if (!navigator.onLine) {
-			publishLine.textContent = 'Offline: your prices are saved, and they reach HOTARU when you open the Shop online.';
+			publishLine.textContent = 'Offline: your prices are saved. Live listings catch up when you open the Shop online.';
 
 			return;
 		}
@@ -1332,6 +1452,10 @@ export function shopView(root) {
 		if (sync.phase !== 'synced' || sync.pending) {
 			publishLine.textContent = 'Waiting for your cards to sync before publishing to HOTARU…';
 
+			if (explicit) {
+				waitingExplicit = true;
+			}
+
 			if (!stopWaiting) {
 				stopWaiting = onSyncStatus((next) => {
 					if (next.phase === 'synced' && !next.pending && stopWaiting) {
@@ -1342,7 +1466,10 @@ export function shopView(root) {
 							stop();
 
 							if (alive) {
-								reload().then(publish);
+								const again = waitingExplicit;
+
+								waitingExplicit = false;
+								reload().then(() => publish({explicit: again}));
 							}
 						});
 					}
@@ -1355,13 +1482,37 @@ export function shopView(root) {
 		publishLine.textContent = 'Publishing to HOTARU…';
 
 		try {
-			states = await syncListings(rowsFor(priced()));
+			const planned = await plan();
+
+			if (!alive) {
+				return;
+			}
+
+			// The automatic path never lists a new copy. When it cannot tell
+			// which copies are live, it changes nothing: sending a partial set
+			// would withdraw the rest.
+			if (!explicit && !planned.status) {
+				pendingNew = planned.rows;
+				drawPending();
+				publishLine.textContent = `Could not read what is on HOTARU, so nothing changed there.${skippedText(planned.skipped)}`;
+
+				return;
+			}
+
+			const allowed = new Set((explicit ? planned.rows : planned.rows.filter((row) => isLiveStatus(planned.status[row.id]))).map((row) => row.id));
+			const send = (list) => rowsFor(list).filter((row) => allowed.has(row.id));
+			// Live copies that break the invariant leave HOTARU now.
+			const pulled = planned.skipped.filter(({entry}) => planned.status && planned.status[entry.id] === 'available').length;
+
+			states = await syncListings(send(priced()));
+			pendingNew = explicit ? [] : newRows(planned);
 
 			if (!alive) {
 				return;
 			}
 
 			drawMarks();
+			drawPending();
 
 			// The pictures still missing, one per card. The finishes of a card
 			// share its picture: one already in the bucket is only named, and
@@ -1370,8 +1521,9 @@ export function shopView(root) {
 			// A card is missing its picture while any listed copy lacks one:
 			// a copy listed after the first keeps none of its own (v111,
 			// Eric 2026-11-25). A sibling copy's picture is reused as is.
+			const sent = (entry) => allowed.has(entry.id);
 			const pictureOf = (entry) => (states[entry.id] && states[entry.id].image_path) || null;
-			const missing = priced().filter((group) => group.listed.length && group.listed.some((entry) => !pictureOf(entry))
+			const missing = priced().filter((group) => group.listed.some(sent) && group.listed.some((entry) => sent(entry) && !pictureOf(entry))
 				&& (group.pictureBase || group.ownPhoto || group.listed.some(pictureOf)));
 			const stored = new Set(Object.values(states || {}).map((one) => one && one.image_path).filter(Boolean));
 			const copied = new Map();
@@ -1387,14 +1539,14 @@ export function shopView(root) {
 				}
 
 				const path = group.pictureBase ? storePicturePath(group.pictureBase) : ownPicturePath(group.ownPhoto);
-				const send = () => (group.pictureBase ? uploadPicture(group.pictureBase, path) : uploadOwnPicture(group.ownPhoto, path));
+				const sendPicture = () => (group.pictureBase ? uploadPicture(group.pictureBase, path) : uploadOwnPicture(group.ownPhoto, path));
 
 				if (!alive || !path) {
 					continue;
 				}
 
 				if (!stored.has(path) && !copied.has(path)) {
-					copied.set(path, await send().catch(() => false));
+					copied.set(path, await sendPicture().catch(() => false));
 				}
 
 				if (stored.has(path) || copied.get(path)) {
@@ -1405,7 +1557,7 @@ export function shopView(root) {
 			if (uploaded.length && alive) {
 				const withPictures = new Map(uploaded.map((group) => [group.key, group]));
 
-				states = await syncListings(rowsFor(priced().map((group) => withPictures.get(group.key) || group)));
+				states = await syncListings(send(priced().map((group) => withPictures.get(group.key) || group)));
 			}
 
 			if (!alive) {
@@ -1416,11 +1568,22 @@ export function shopView(root) {
 
 			const live = priced().filter((group) => groupMark(group, states) === 'published').length;
 			const copies = priced().filter((group) => groupMark(group, states) === 'published').reduce((n, group) => n + group.listed.length, 0);
-			const noPicture = priced().filter((group) => group.listed.length && group.listed.some((entry) => !(states[entry.id] && states[entry.id].image_path))).length;
+			const noPicture = priced().filter((group) => group.listed.some((entry) => sent(entry) && !(states[entry.id] && states[entry.id].image_path))).length;
+			const parts = [
+				live
+					? `On HOTARU: ${plural(live, 'card', 'cards')}, ${plural(copies, 'copy', 'copies')}.${noPicture ? ` ${plural(noPicture, 'card has', 'cards have')} no picture yet.` : ''}`
+					: (pendingNew.length ? 'Nothing on HOTARU yet.' : 'Nothing on HOTARU yet: give a card a price to offer it.'),
+			];
 
-			publishLine.textContent = live
-				? `On HOTARU: ${plural(live, 'card', 'cards')}, ${plural(copies, 'copy', 'copies')}.${noPicture ? ` ${plural(noPicture, 'card has', 'cards have')} no picture yet.` : ''}`
-				: 'Nothing on HOTARU yet: give a card a price to offer it.';
+			if (pendingNew.length) {
+				parts.push(`${plural(pendingNew.length, 'new copy', 'new copies')} to publish.`);
+			}
+
+			if (pulled) {
+				parts.push(`Withdrew ${plural(pulled, 'copy', 'copies')} that should not be listed.`);
+			}
+
+			publishLine.textContent = parts.join(' ') + skippedText(planned.skipped);
 
 			// A kit whose copy is gone takes another copy of the same card.
 			await kits.refill(states).catch(() => {});
@@ -1766,6 +1929,15 @@ export function shopView(root) {
 				h('button', {disabled: busy, onclick: () => ask(null), type: 'button'}, 'Back'),
 			];
 		}
+		else if (question === 'delivered') {
+			const unticked = (order.items || []).filter((item) => !orderChecks(order.code).has(item.listing_id)).length;
+
+			actions = [
+				h('p', {class: 'shop-order-ask'}, `${plural(unticked, 'card is', 'cards are')} not checked. Deliver anyway?`),
+				h('button', {disabled: busy, onclick: () => delivered(order), type: 'button'}, 'Deliver anyway'),
+				h('button', {disabled: busy, onclick: () => ask(null), type: 'button'}, 'Back'),
+			];
+		}
 		else if (pending) {
 			actions = [
 				h('button', {class: 'primary', disabled: busy || missing.length > 0, onclick: () => ask('paid'), type: 'button'}, 'Payment received'),
@@ -1775,7 +1947,7 @@ export function shopView(root) {
 		else {
 			actions = [
 				logged ? null : h('button', {class: 'primary', disabled: busy, onclick: () => logSale(order), type: 'button'}, 'Log the sale'),
-				h('button', {class: logged ? 'primary' : '', disabled: busy, onclick: () => delivered(order), type: 'button'}, 'Delivered'),
+				h('button', {class: logged ? 'primary' : '', disabled: busy, onclick: () => (allTicked(order) ? delivered(order) : ask('delivered')), type: 'button'}, 'Delivered'),
 			];
 		}
 

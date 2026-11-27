@@ -286,6 +286,7 @@ const SHELL = [
 	'js/trade-view.js',
 	'js/shop.js',
 	'js/shop-view.js',
+	'js/listing-invariant.js',
 	'js/shop-kits.js',
 	'js/kits.js',
 	'js/shop-consignment.js',

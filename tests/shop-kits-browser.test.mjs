@@ -78,6 +78,9 @@ async function attachStore(page, {kits = [], orders = [], setUp = true, statuses
 	const reply = (route, body, status = 200) => route.fulfill({body: JSON.stringify(body), contentType: 'application/json', status});
 
 	await page.route('**/rest/v1/rpc/store_sync', (route) => reply(route, {}));
+	// listing_status: nothing is live, so opening the Shop syncs an empty set
+	// and the refill still runs after it (js/shop-view.js publish).
+	await page.route('**/rest/v1/rpc/listing_status', (route) => reply(route, {}));
 	await page.route('**/rest/v1/rpc/store_orders_open', (route) => reply(route, orders));
 	await page.route(/\/rest\/v1\/rpc\/(store_bundles_admin|save_bundle|delete_bundle)$/, (route) => {
 		const name = route.request().url().split('/rpc/')[1];

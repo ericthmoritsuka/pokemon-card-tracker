@@ -98,6 +98,18 @@ async function attachStore(page, store, {owner = true} = {}) {
 
 		return route.fulfill({body: JSON.stringify(store.sync(listings)), contentType: 'application/json', status: 200});
 	});
+	// listing_status (supabase/store-orders.sql): what the Shop reads to tell
+	// a live copy from a new one.
+	await page.route('**/rest/v1/rpc/listing_status', async (route) => {
+		const {ids} = route.request().postDataJSON();
+		const status = (id) => {
+			const row = store.listings.get(id);
+
+			return row && ['available', 'reserved'].includes(row.status) ? row.status : 'gone';
+		};
+
+		return route.fulfill({body: JSON.stringify(Object.fromEntries(ids.map((id) => [id, status(id)]))), contentType: 'application/json', status: 200});
+	});
 	await page.route('**/storage/v1/object/store/**', (route) => {
 		store.uploads.push(decodeURIComponent(new URL(route.request().url()).pathname.split('/object/store/')[1]));
 
@@ -163,6 +175,13 @@ async function openShop(page) {
 	await page.click('#shop-filter input[value="all"] + span');
 }
 
+// Publish changes, the only way a new copy goes on HOTARU (Eric,
+// 2026-11-26).
+async function publishNew(page) {
+	await page.locator('#shop-publish-changes:not([hidden])').waitFor(TIMEOUT);
+	await page.click('#shop-publish-changes');
+}
+
 const publishLine = async (page) => plain(await page.locator('#shop-publish').textContent());
 
 const waitLine = (page, pattern) => page.waitForFunction((source) => new RegExp(source).test(document.querySelector('#shop-publish').textContent.replace(/\s+/g, ' ')), pattern.source, TIMEOUT);
@@ -181,6 +200,7 @@ describe('Shop publishing', () => {
 		await openShop(page);
 		await page.fill(`${CHARMANDER_EN} .shop-price-input`, '2,30');
 		await page.click('#shop-save-all');
+		await publishNew(page);
 		await waitLine(page, /^On HOTARU: 1 card, 1 copy\.$/);
 		assert.deepEqual([...store.listings.values()].map((row) => [row.id, row.image_path]), [['c-04', 'tcgdex/en/tsa/tsa1/004.webp']]);
 		assert.deepEqual(errors, []);
@@ -197,6 +217,7 @@ describe('Shop publishing', () => {
 		await openShop(page);
 		await page.fill(`${CHARMANDER_EN} .shop-price-input`, '2,30');
 		await page.click('#shop-save-all');
+		await publishNew(page);
 		await waitLine(page, /^On HOTARU: 1 card, 2 copies\.$/);
 		assert.equal(store.listings.get('c-16').image_path, 'tcgdex/en/tsa/tsa1/004.webp');
 		assert.equal(store.listings.get('c-04').image_path, 'tcgdex/en/tsa/tsa1/004.webp');
@@ -223,6 +244,7 @@ describe('Shop publishing', () => {
 		await openShop(page);
 		await page.fill(`${CHARMANDER_EN} .shop-price-input`, '2,30');
 		await page.click('#shop-save-all');
+		await publishNew(page);
 		await page.waitForFunction(() => /no picture yet|On HOTARU/.test(document.querySelector('#shop-publish').textContent), null, TIMEOUT);
 		release();
 		await page.waitForFunction(() => /^On HOTARU: 1 card, 1 copy\.$/.test(document.querySelector('#shop-publish').textContent.replace(/\s+/g, ' ').trim()), null, TIMEOUT);
@@ -304,6 +326,7 @@ describe('Shop publishing', () => {
 		await page.fill(`${CHARMANDER_EN} .shop-price-input`, '2,30');
 		await page.fill(`${CHARMANDER_EN_REVERSE} .shop-price-input`, '6');
 		await page.click('#shop-save-all');
+		await publishNew(page);
 		await waitLine(page, /^On HOTARU: 2 cards, 2 copies\.$/);
 
 		const rows = [...store.listings.values()].sort((a, b) => a.id.localeCompare(b.id));
@@ -381,6 +404,7 @@ describe('Shop publishing', () => {
 		assert.match(plain(await page.locator(`${BULBASAUR} .shop-meta`).textContent()), /1 copy for sale$/);
 		await page.fill(`${BULBASAUR} .shop-price-input`, '4');
 		await page.click('#shop-save-all');
+		await publishNew(page);
 		// Bulbasaur has no picture in this index, which the line says too.
 		await waitLine(page, /^On HOTARU: 1 card, 1 copy\./);
 		assert.equal(store.listings.get('c-01').status, 'available');
@@ -492,6 +516,7 @@ describe('Shop publishing', () => {
 
 		await openShop(page);
 		assert.equal(await page.inputValue(`${CHARIZARD} .shop-price-input`), '5,00');
+		await publishNew(page);
 		await waitLine(page, /^On HOTARU: 1 card, 1 copy\./);
 
 		const listed = [...store.listings.values()].filter((row) => row.card_id === 'tsa1-006' && row.status === 'available');
@@ -537,6 +562,7 @@ describe('Shop publishing', () => {
 		assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), `${BULBASAUR.slice(1)}-price`, 'its price field, ready to type');
 		await page.keyboard.type('4');
 		await page.click('#shop-save-all');
+		await publishNew(page);
 		await waitLine(page, /^On HOTARU: 1 card, 1 copy\./);
 		assert.equal(store.listings.get('c-01').status, 'available');
 		assert.equal(store.listings.get('c-01').price_brl, 4);
@@ -577,6 +603,7 @@ describe('Shop publishing', () => {
 		await page.waitForTimeout(300);
 
 		await openShop(page);
+		await publishNew(page);
 		await waitLine(page, /^On HOTARU: 1 card, 1 copy\./);
 
 		const rows = [...store.listings.values()].filter((row) => row.card_id === 'tsa1-001' && row.status === 'available');
@@ -619,6 +646,7 @@ describe('Shop publishing', () => {
 		await page.fill(`${CHARMANDER_EN} .shop-price-input`, '2,30');
 		await page.fill(`${CHARMANDER_EN_REVERSE} .shop-price-input`, '6');
 		await page.click('#shop-save-all');
+		await publishNew(page);
 		await waitLine(page, /^On HOTARU: 2 cards, 2 copies\.$/);
 
 		// The star: the priced copies are asked for, the two listed ones go,
@@ -671,6 +699,7 @@ describe('Shop publishing', () => {
 		await openShop(page);
 		await page.fill(`${CHARIZARD} .shop-price-input`, '150');
 		await page.click('#shop-save-all');
+		await publishNew(page);
 		await waitLine(page, /^On HOTARU: 1 card, 1 copy\.$/);
 
 		const path = `own/${photoId}.webp`;
@@ -703,6 +732,62 @@ describe('Shop publishing', () => {
 
 		assert.deepEqual(sent, {empty: false, good: true, missing: false});
 		assert.deepEqual(store.uploads, ['own/p1.webp'], 'only the photo that was read is sent');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('opening the Shop lists no new copy: withdrawn ones stay off, live ones keep their prices, and gone ones are withdrawn (Eric, 2026-11-26)', async () => {
+		// Charizard EN's spare c-08 and Charmander EN's c-04 are priced, as
+		// after a run of Check spares; c-08 was withdrawn before, as the 56
+		// cards re-listed at 20:08 were, and c-04 is live at an old price.
+		// c-99 is live but no longer in the cards.
+		const copies = SPARE_COPIES.map((one) => (['c-02', 'c-04'].includes(one.id) ? {...one, sale_price: 3} : ['c-07', 'c-08'].includes(one.id) ? {...one, sale_price: 9} : one));
+		const {context, errors, page, store} = await ownerPhone({copies});
+
+		store.listings.set('c-04', {id: 'c-04', image_path: 'tcgdex/en/tsa/tsa1/004.webp', price_brl: 2, status: 'available'});
+		store.listings.set('c-08', {id: 'c-08', image_path: null, price_brl: 9, status: 'withdrawn'});
+		store.listings.set('c-99', {id: 'c-99', image_path: null, price_brl: 1, status: 'available'});
+		await openShop(page);
+		await waitLine(page, /^On HOTARU: 1 card, 1 copy\. 1 new copy to publish\.$/);
+		assert.equal(store.listings.get('c-04').status, 'available');
+		assert.equal(store.listings.get('c-04').price_brl, 3, 'a live copy\'s price syncs by itself');
+		assert.equal(store.listings.get('c-08').status, 'withdrawn', 'opening the Shop re-lists nothing');
+		assert.equal(store.listings.get('c-99').status, 'withdrawn', 'a copy no longer in the cards leaves');
+		assert.equal(plain(await page.locator('#shop-publish-changes').textContent()), 'Publish changes: 1 new copy');
+		await page.screenshot({path: `${SHOTS}/shop-publish-pending.png`});
+
+		await page.click('#shop-publish-changes');
+		await waitLine(page, /^On HOTARU: 2 cards, 2 copies\./);
+		assert.equal(store.listings.get('c-08').status, 'available');
+		await page.locator('#shop-publish-changes').waitFor({state: 'hidden', ...TIMEOUT});
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a publish of more than 10 new copies shows them and asks first', async () => {
+		// Charizard EN with 12 more copies: 13 spares, all priced.
+		const extra = Array.from({length: 12}, (_, i) => copy(`c-${30 + i}`, 'tsa1-006', {sale_price: 5}));
+		const copies = [...SPARE_COPIES.map((one) => (['c-07', 'c-08'].includes(one.id) ? {...one, sale_price: 5} : one)), ...extra];
+		const {context, errors, page, store} = await ownerPhone({copies});
+
+		await openShop(page);
+		await waitLine(page, /13 new copies to publish\.$/);
+		await page.click('#shop-publish-changes');
+		await page.locator('#shop-guard[open]').waitFor(TIMEOUT);
+		assert.equal(plain(await page.locator('#shop-guard-title').textContent()), 'List 13 new copies on HOTARU?');
+		assert.equal(await page.locator('#shop-guard-list li').count(), 13);
+		await page.screenshot({path: `${SHOTS}/shop-publish-guard.png`});
+
+		// Not now sends nothing new.
+		await page.click('#shop-guard-cancel');
+		await page.locator('#shop-guard').waitFor({state: 'detached', ...TIMEOUT});
+		assert.equal([...store.listings.values()].filter((row) => row.status === 'available').length, 0);
+
+		await page.click('#shop-publish-changes');
+		await page.locator('#shop-guard[open]').waitFor(TIMEOUT);
+		await page.click('#shop-guard-publish');
+		await waitLine(page, /^On HOTARU: 1 card, 13 copies\./);
+		assert.equal([...store.listings.values()].filter((row) => row.status === 'available').length, 13);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

@@ -44,6 +44,35 @@ export async function syncListings(rows) {
 	return data || {};
 }
 
+// What HOTARU holds for each copy id: {<id>: 'available' | 'reserved' |
+// 'gone'} (listing_status, supabase/store-orders.sql, 100 ids a call). The
+// Shop reads it to tell a copy already live, whose price change and
+// withdrawal sync by themselves, from a new one, which only Publish changes
+// lists. Throws supabase-js's error, so a caller that cannot tell changes
+// nothing.
+export async function listingStatus(ids, {chunk = 100} = {}) {
+	const list = [...new Set(ids || [])];
+	const out = {};
+
+	if (!list.length) {
+		return out;
+	}
+
+	const client = await getClient();
+
+	for (let start = 0; start < list.length; start += chunk) {
+		const {data, error} = await client.rpc('listing_status', {ids: list.slice(start, start + chunk)});
+
+		if (error) {
+			throw error;
+		}
+
+		Object.assign(out, data || {});
+	}
+
+	return out;
+}
+
 // Copies one card picture into the bucket at path (js/shop.js
 // storePicturePath). base is the TCGdex picture address without a size.
 // Resolves true once it is there, false when the picture could not be read

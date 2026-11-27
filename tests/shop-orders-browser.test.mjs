@@ -350,8 +350,15 @@ describe('Shop orders', () => {
 		assert.deepEqual([sale.kind, sale.who, sale.price, sale.note, [...sale.out].sort().join()], ['sold', 'Ana', 5, 'HOTARU HTR-0007', 'c-03,c-04']);
 
 		// Under Separating, where the paid order is however long the sale took.
+		// Neither card is ticked, so Delivered asks first, as Cancel does
+		// (Eric, 2026-11-26); Back keeps the order, Deliver anyway closes it.
 		await showStage(page, 'separating');
 		await order(page, 'HTR-0007').locator('button:has-text("Delivered")').click();
+		assert.equal(await text(order(page, 'HTR-0007').locator('.shop-order-ask')), '2 cards are not checked. Deliver anyway?');
+		assert.equal(store.calls.filter(([name]) => name === 'mark_delivered').length, 0, 'nothing is sent before the answer');
+		await order(page, 'HTR-0007').locator('button:has-text("Back")').click();
+		await order(page, 'HTR-0007').locator('button:has-text("Delivered")').click();
+		await order(page, 'HTR-0007').locator('button:has-text("Deliver anyway")').click();
 		await order(page, 'HTR-0007').waitFor({state: 'detached', ...TIMEOUT});
 
 		// Delivered lists it, with the day, its cards, and nothing to do.
