@@ -17,6 +17,15 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-27
 
+- **v126:** a card in two binders is held in both without a refresh. `07e6b7a`, `fc9b187`, `3ccc178`
+  - Fixed (Eric: an Illumise 30th, one copy in each of two list binders, stayed spare on Check spares until he
+    refreshed 30 anos): a list pocket with no stored copy (a placeholder at its last refresh, a sold or skipped
+    default, or a card its list gained since) claimed nothing. Now every pocket in claim order takes a free copy that
+    fits it, preferring one no other pocket shows, and a set list or a set and language filter counts cards new to it.
+    `js/binders.js` (`copyClaims`). A copy added later fills a Keep the placeholder pocket at once; the binder page
+    shows it after its next refresh. Add to binder on a list binder no longer counts the binder's own claim as a copy
+    in use elsewhere, so it still shows the newest free copy (`js/binder-add.js` `copyToShow`).
+
 - **v125:** every 30th Celebration card is named Holo with its anniversary stamp. `74d6d30`, `f7b7c51`
   - Changed (Eric: every card in the 30th Celebration is physically holo with the 30th-anniversary stamp, though
     TCGdex types the commons and rares there "Normal"): wherever a finish name shows for a 30th card, it reads "Holo,
