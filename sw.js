@@ -294,6 +294,7 @@ const SHELL = [
 	'js/shop-audit.js',
 	'js/shop-audit-view.js',
 	'js/held-free.js',
+	'js/listing-guard.js',
 	'js/listing-invariant.js',
 	'js/shop-kits.js',
 	'js/kits.js',

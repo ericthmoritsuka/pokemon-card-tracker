@@ -72,6 +72,7 @@ import {closeSheets} from './js/sheet.js';
 import {shellRoute, startShell, toast} from './js/shell.js';
 import {onSyncStatus, startSync, statusText, syncNow} from './js/sync.js';
 import {WISHLIST_ACCOUNT_VIEWS, WISHLIST_ROUTES} from './js/wishlist-view.js';
+import {startListingGuard} from './js/listing-guard.js';
 import {applyUpdate, showWhatsNewOnce, updateApplying} from './js/whats-new.js';
 import {keepFamilyWishlistsCached, loadOnePrintings} from './js/wishlist.js';
 
@@ -397,6 +398,8 @@ async function startAccount(authReturn) {
 	// The cards with one printing, for every screen that counts spares
 	// (js/wishlist.js loadOnePrintings); the Shop and Check spares wait for it.
 	loadOnePrintings();
+	// A listed copy that leaves sale on any screen leaves HOTARU at once.
+	startListingGuard();
 
 	if (authReturn && authReturn.error) {
 		setSignInNotice(signInErrorText(authReturn.error));
