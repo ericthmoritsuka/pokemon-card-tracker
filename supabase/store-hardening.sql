@@ -50,7 +50,8 @@ $$;
 -- which now checks the listing invariant. Version 3 (v128 review H1, H2)
 -- counts copies in open orders as leaving and replaces store_sync(jsonb)
 -- with store_sync(jsonb, boolean), which revives a withdrawn listing only
--- when asked.
+-- when asked; release_expired and cancel_order (store-orders.sql) check a
+-- released card against the invariant before it goes back on sale.
 create or replace function private.store_hardening_version()
 returns int
 language sql
@@ -868,6 +869,174 @@ $$;
 revoke all on function public.store_sync(jsonb, boolean) from public, anon;
 grant execute on function public.store_sync(jsonb, boolean) to authenticated;
 
+-- ------------------------------------------- released cards (QA shop 5)
+
+-- An order that expires or is cancelled puts its cards back on sale. Before,
+-- they went back with no check, so a copy since put in a pocket, deleted, or
+-- left as the last of its finish (the keeper changed while the order was
+-- open) was on HOTARU again. Each released single now passes the listing
+-- invariant first, read from the store owner's document (the one group's
+-- owner, setup.sql), with every other copy on sale, reserved, or sold
+-- counted as leaving; one that fails is withdrawn instead. Same rules and
+-- key as store_sync above. Returns how many were withdrawn.
+create or replace function private.recheck_released(released text[])
+returns int
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+	doc jsonb;
+	cards jsonb;
+	live jsonb;
+	counts jsonb;
+	held text[];
+	leaving jsonb := '{}';
+	pulled text[] := '{}';
+	listing_id text;
+	entry jsonb;
+	k text;
+begin
+	if released is null or cardinality(released) = 0 then
+		return 0;
+	end if;
+
+	select d.doc into doc
+	from public.documents d
+	where d.user_id = (select g.owner_id from public.groups g order by g.id limit 1);
+	cards := case when jsonb_typeof(doc -> 'cards') = 'array' then doc -> 'cards' else '[]' end;
+
+	select coalesce(jsonb_object_agg(c.value ->> 'id', c.value), '{}')
+	into live
+	from jsonb_array_elements(cards) c
+	where private.listing_invariant_live(c.value) and coalesce(c.value ->> 'id', '') <> '';
+
+	select coalesce(jsonb_object_agg(x.k, x.n), '{}')
+	into counts
+	from (
+		select private.listing_invariant_key(c.value) as k, count(*) as n
+		from jsonb_array_elements(cards) c
+		where private.listing_invariant_live(c.value) and coalesce(c.value ->> 'id', '') <> ''
+		group by 1
+	) x;
+
+	select coalesce(array_agg(distinct s.value ->> 'entry_id'), '{}')
+	into held
+	from jsonb_array_elements(case when jsonb_typeof(doc -> 'binders') = 'array' then doc -> 'binders' else '[]' end) b
+	cross join lateral jsonb_array_elements(case when jsonb_typeof(b.value -> 'slots') = 'array' then b.value -> 'slots' else '[]' end) s
+	where private.listing_invariant_live(b.value) and coalesce(s.value ->> 'entry_id', '') <> '';
+
+	-- Every other copy out of the house: on sale, in an order, or sold.
+	for listing_id in
+		select l.id from public.store_listings l
+		where l.kind = 'single' and l.status in ('available', 'reserved', 'sold') and not (l.id = any (released)) and live ? l.id
+	loop
+		k := private.listing_invariant_key(live -> listing_id);
+		leaving := jsonb_set(leaving, array[k], to_jsonb(coalesce((leaving ->> k)::int, 0) + 1));
+	end loop;
+
+	foreach listing_id in array released loop
+		entry := live -> listing_id;
+
+		if entry is null then
+			pulled := pulled || listing_id;
+
+			continue;
+		end if;
+
+		k := private.listing_invariant_key(entry);
+
+		if entry -> 'for_sale' is distinct from 'true'::jsonb
+			and (listing_id = any (held) or coalesce((leaving ->> k)::int, 0) + 1 >= coalesce((counts ->> k)::int, 0))
+		then
+			pulled := pulled || listing_id;
+
+			continue;
+		end if;
+
+		leaving := jsonb_set(leaving, array[k], to_jsonb(coalesce((leaving ->> k)::int, 0) + 1));
+	end loop;
+
+	update public.store_listings l
+	set status = 'withdrawn', updated_at = now()
+	where l.id = any (pulled) and l.kind = 'single' and l.status = 'available';
+
+	return cardinality(pulled);
+end;
+$$;
+
+revoke all on function private.recheck_released(text[]) from public, anon, authenticated;
+
+-- From store-orders.sql; the released cards are checked again.
+create or replace function private.release_expired()
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+	released text[];
+begin
+	with gone as (
+		update public.store_orders o
+		set status = 'expired', ended_at = now()
+		where o.status = 'pending' and o.reserved_until < now()
+		returning o.id
+	), back as (
+		update public.store_listings l
+		set status = 'available', order_id = null, updated_at = now()
+		from gone
+		where l.order_id = gone.id and l.status = 'reserved'
+		returning l.id, l.kind
+	)
+	select coalesce(array_agg(back.id) filter (where back.kind = 'single'), '{}') into released from back;
+
+	perform private.recheck_released(released);
+end;
+$$;
+
+revoke all on function private.release_expired() from public, anon;
+grant execute on function private.release_expired() to authenticated;
+
+-- From store-orders.sql; the released cards are checked again.
+create or replace function public.cancel_order(order_code text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+	o public.store_orders%rowtype;
+	released text[];
+begin
+	if not private.is_store_owner() then
+		raise exception 'Only the shop owner can do this.' using errcode = '42501';
+	end if;
+
+	select * into o from public.store_orders where code = order_code for update;
+
+	if not found or o.status <> 'pending' then
+		raise exception 'Order % is not pending.', order_code using errcode = '22023';
+	end if;
+
+	update public.store_orders set status = 'cancelled', ended_at = now() where id = o.id;
+
+	with back as (
+		update public.store_listings set status = 'available', order_id = null, updated_at = now()
+		where order_id = o.id and status = 'reserved'
+		returning id, kind
+	)
+	select coalesce(array_agg(back.id) filter (where back.kind = 'single'), '{}') into released from back;
+
+	perform private.recheck_released(released);
+
+	return jsonb_build_object('code', o.code, 'status', 'cancelled');
+end;
+$$;
+
+revoke all on function public.cancel_order(text) from public, anon;
+grant execute on function public.cancel_order(text) to authenticated;
+
 -- ------------------------------------------------------------- M6 verify
 
 -- M6: says whether the live functions are the ones the store needs, or
@@ -932,6 +1101,16 @@ begin
 		or to_regprocedure('public.store_sync(jsonb)') is not null
 	then
 		missing := array_append(missing, 'store_sync (store-hardening.sql)');
+	end if;
+
+	body := (select pg_get_functiondef(p.oid) from pg_proc p where p.oid = to_regprocedure('private.release_expired()'));
+	if body is null or body not like '%recheck_released%' then
+		missing := array_append(missing, 'release_expired (store-hardening.sql)');
+	end if;
+
+	body := (select pg_get_functiondef(p.oid) from pg_proc p where p.oid = to_regprocedure('public.cancel_order(text)'));
+	if body is null or body not like '%recheck_released%' then
+		missing := array_append(missing, 'cancel_order (store-hardening.sql)');
 	end if;
 
 	if cardinality(missing) > 0 then

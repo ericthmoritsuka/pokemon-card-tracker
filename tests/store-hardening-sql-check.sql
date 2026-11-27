@@ -182,7 +182,9 @@ select t.ok((select count(*) from public.store_orders where code = 'HTR-1000') =
 
 -- Free the cap for the rest of the checks.
 update public.store_orders set status = 'cancelled', ended_at = now() where status = 'pending';
-update public.store_listings set status = 'available', order_id = null where status = 'reserved';
+-- With no owner document yet, the cancels above withdrew their cards
+-- (QA shop 5 fails closed: every released card is missing); put them back.
+update public.store_listings set status = 'available', order_id = null where status in ('reserved', 'withdrawn') and kind = 'single' and id like 'c0%';
 
 select setval('public.store_order_number', 10010);
 set role anon;
@@ -338,6 +340,39 @@ select t.ok(t.sync(array['pair-1', 'flip-a'], true) -> 'flip-a' ->> 'status' = '
 reset role;
 select t.ok(to_regprocedure('public.store_sync(jsonb)') is null, 'H2: the one-argument store_sync is gone, so a v127 client fails closed');
 select t.ok(private.store_hardening_version() = 3, 'M6: the guard is at version 3');
+
+-- QA shop 5: a card an expired or cancelled order puts back passes the
+-- invariant first. flip-a is on sale; flip-b comes back from an order.
+insert into public.store_orders (id, code, name, phone, total, reserved_until, status)
+values ('20000000-0000-0000-0000-000000000001', 'HTR-9001', 'Buyer A', '000', 5, now() - interval '1 hour', 'pending');
+update public.store_listings set status = 'reserved', order_id = '20000000-0000-0000-0000-000000000001' where id = 'flip-b';
+update public.store_listings set status = 'available' where id = 'flip-a';
+delete from public.store_listings where id = 'flip-c';
+select private.release_expired();
+select t.ok((select status from public.store_listings where id = 'flip-b') = 'available', 'QA5: a released card that keeps one copy home goes back on sale');
+
+insert into public.store_orders (id, code, name, phone, total, reserved_until, status)
+values ('20000000-0000-0000-0000-000000000002', 'HTR-9002', 'Buyer A', '000', 5, now() - interval '1 hour', 'pending');
+update public.store_listings set status = 'reserved', order_id = '20000000-0000-0000-0000-000000000002' where id = 'flip-b';
+insert into public.store_listings (id, kind, card_id, catalog, language, name, price_brl, status)
+values ('flip-c', 'single', 'sv01-010', 'international', 'en', 'flip-c', 5, 'available');
+select private.release_expired();
+select t.ok((select status from public.store_listings where id = 'flip-b') = 'withdrawn', 'QA5: an expired order never puts back the last copy at home');
+
+insert into public.store_orders (id, code, name, phone, total, reserved_until, status)
+values ('20000000-0000-0000-0000-000000000003', 'HTR-9003', 'Buyer A', '000', 5, now() + interval '1 hour', 'pending');
+update public.store_listings set status = 'reserved', order_id = '20000000-0000-0000-0000-000000000003' where id = 'flip-b';
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+select public.cancel_order('HTR-9003');
+reset role;
+select t.ok((select status from public.store_listings where id = 'flip-b') = 'withdrawn', 'QA5: a cancelled order never puts back the last copy at home');
+update public.store_listings set status = 'reserved', order_id = '20000000-0000-0000-0000-000000000003' where id = 'pocket';
+update public.store_orders set status = 'pending' where code = 'HTR-9003';
+set role authenticated;
+select public.cancel_order('HTR-9003');
+reset role;
+select t.ok(coalesce((select status from public.store_listings where id = 'pocket'), 'withdrawn') <> 'available', 'QA5: a cancelled order never puts a card in a pocket back on sale');
 set role authenticated;
 
 -- No document at all: every single is skipped.
