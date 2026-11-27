@@ -202,6 +202,8 @@ describe('Check spares', () => {
 
 		assert.equal(await charmander.locator('.check-count').textContent(), '3 copies, 1 free');
 		assert.deepEqual(await charmander.locator('.check-copy-where').allTextContents(), ['Loose', 'Region, page 1, pocket 1', '30 anos, page 1, pocket 1']);
+		// Each pocket links to its page, opening that pocket (?pocket=N).
+		assert.deepEqual(await charmander.locator('.check-copy-where a.check-copy-pocket').evaluateAll((links) => links.map((link) => link.getAttribute('href').replace(/^.*\/binders\//, 'binders/'))), ['binders/b-1/1?pocket=1', 'binders/b-2/1?pocket=1']);
 		assert.deepEqual(await charmander.locator('.check-tag').allTextContents(), ['Spare', 'In a pocket', 'In a pocket']);
 		assert.deepEqual(await page.locator('.check-group', {hasText: 'Charizard ex'}).locator('.check-tag').allTextContents(), ['Not for sale', 'Kept']);
 		assert.doesNotMatch(await page.locator('#check-list').textContent(), /null/);
