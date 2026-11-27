@@ -46,6 +46,7 @@ import {openDialogSheet} from './sheet.js';
 import {announceOrders, cancelOrder, DELIVERED_DAYS, deliveredErrorText, deliveredOrders, keepOrderChecks, markDelivered, markPaid, openOrders, orderChecks, orderErrorText, receiptLink, setOrderCheck, syncOrderChecks} from './store-orders.js';
 import {publishErrorText, syncListings, uploadOwnPicture, uploadPicture} from './store-publish.js';
 import {onSyncStatus, syncStatus} from './sync.js';
+import {loadOnePrintings} from './wishlist.js';
 
 const SHOW_KEY = 'cardTracker.shopShow';
 // HOTARU's admin page for sealed products (ericthmoritsuka/hotaru).
@@ -2068,7 +2069,9 @@ export function shopView(root) {
 	window.addEventListener(NEW_ORDERS_EVENT, ordersOnNew);
 
 	async function reload() {
-		const [cards, doc] = await Promise.all([listCards(), loadDocument()]);
+		// loadOnePrintings first, so what the Shop publishes never depends on
+		// how fast the card index read (js/wishlist.js copyFinishKey).
+		const [cards, doc] = await Promise.all([listCards(), loadDocument(), loadOnePrintings()]);
 
 		if (!alive) {
 			return;

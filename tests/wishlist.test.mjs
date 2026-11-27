@@ -8,6 +8,8 @@ import test, {describe} from 'node:test';
 import {mergeDocuments, nextStamp, sameContent} from '../js/merge.js';
 import {
 	copyFinishKey,
+	forgetOnePrintings,
+	noteOnePrintings,
 	copyFits,
 	deletedWish,
 	displayLanguage,
@@ -170,6 +172,64 @@ describe('spares', () => {
 		assert.equal(copyFinishKey(cards[0]), `v:${NORMAL}`);
 		assert.equal(copyFinishKey(cards[1]), '');
 		assert.equal(copyFinishKey(cards[2]), 'raw:Reverse Holo');
+	});
+});
+
+describe('a card with one printing: an unset copy is that printing (Eric, 2026-11-26)', () => {
+	const VARIANT = '15i9grynjbpddvzw7dk089qr7vfcowuo';
+	// Vulpix 30th-009, as TCGdex lists it: one printing, normal, 30th stamp.
+	const vulpixRecord = {catalog: 'international', id: '30th-009', variants_detailed: [{size: 'standard', stamp: ['30th-anniversary'], subtype: null, type: 'normal', variantId: VARIANT}]};
+	const vulpix = (id, fields = {}) => copy(id, '30th-009', {created_at: at(Number(id.slice(1))), language: 'pt', ...fields});
+	// One copy matched to the printing (in the 30 anos binder), one with no
+	// finish set, added first and loose.
+	const cards = [vulpix('v1'), vulpix('v2', {variant_id: VARIANT})];
+
+	test('with the record read, the loose unset copy is a spare beside the binder copy', () => {
+		noteOnePrintings([vulpixRecord]);
+
+		try {
+			assert.equal(copyFinishKey(cards[0]), `v:${VARIANT}`);
+			assert.deepEqual(spareEntries(cards, {held: new Set(['v2'])}).map((entry) => entry.id), ['v1']);
+			assert.deepEqual(spareEntries(cards).map((entry) => entry.id), ['v2'], 'no binder: the one added first is kept');
+			assert.equal(copyFinishKey(vulpix('v3', {finish_raw: 'NORMAL'})), `v:${VARIANT}`, 'a monprice word that fits');
+			assert.equal(copyFinishKey(vulpix('v4', {finish_raw: 'REVERSE_HOLOFOIL'})), 'raw:REVERSE_HOLOFOIL', 'a word that says otherwise stays apart');
+			assert.equal(copyFinishKey(vulpix('v5', {finish_raw: 'Holo'})), 'raw:Holo', 'an unknown word stays apart');
+		}
+		finally {
+			forgetOnePrintings();
+		}
+	});
+
+	test('without the record, each stays apart (the safe side), and no spare is made up', () => {
+		assert.equal(copyFinishKey(cards[0]), '');
+		assert.deepEqual(spareEntries(cards, {held: new Set(['v2'])}), []);
+	});
+
+	test('a card with two printings keeps an unset copy apart (Eric, 2026-11-26)', () => {
+		const two = {catalog: 'international', id: '30th-009', variants_detailed: [vulpixRecord.variants_detailed[0], {size: 'standard', stamp: [], subtype: 'reverse', type: 'reverse', variantId: 'rev'}]};
+
+		noteOnePrintings([vulpixRecord]);
+		noteOnePrintings([two]);
+
+		try {
+			assert.equal(copyFinishKey(cards[0]), '', 'the later record has two printings');
+			assert.deepEqual(spareEntries(cards, {held: new Set(['v2'])}), []);
+		}
+		finally {
+			forgetOnePrintings();
+		}
+	});
+
+	test('a printing with no variant ID is not trusted, and another catalog is another card', () => {
+		noteOnePrintings([{catalog: 'international', id: '30th-009', variants_detailed: [{size: 'standard', type: 'normal'}]}]);
+		noteOnePrintings([{...vulpixRecord, catalog: 'ja'}]);
+
+		try {
+			assert.equal(copyFinishKey(cards[0]), '');
+		}
+		finally {
+			forgetOnePrintings();
+		}
 	});
 });
 

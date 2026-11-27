@@ -68,7 +68,7 @@ import {shellRoute, startShell, toast} from './js/shell.js';
 import {onSyncStatus, startSync, statusText, syncNow} from './js/sync.js';
 import {WISHLIST_ACCOUNT_VIEWS, WISHLIST_ROUTES} from './js/wishlist-view.js';
 import {applyUpdate, showWhatsNewOnce, updateApplying} from './js/whats-new.js';
-import {keepFamilyWishlistsCached} from './js/wishlist.js';
+import {keepFamilyWishlistsCached, loadOnePrintings} from './js/wishlist.js';
 
 const ROUTES = [
 	{pattern: /^cards$/, render: myCardsView, tab: 'cards', title: 'My Cards | Card Tracker'},
@@ -384,6 +384,9 @@ async function startAccount(authReturn) {
 	});
 
 	startSync();
+	// The cards with one printing, for every screen that counts spares
+	// (js/wishlist.js loadOnePrintings); the Shop and Check spares wait for it.
+	loadOnePrintings();
 	keepFamilyWishlistsCached();
 	startPhotoSync();
 	startReportSync();

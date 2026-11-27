@@ -8,6 +8,7 @@
 import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 import {heldCopies} from '../js/binders.js';
+import {forgetOnePrintings, noteOnePrintings} from '../js/wishlist.js';
 
 import {
 	finishKey,
@@ -171,6 +172,25 @@ describe('one copy, one pocket: copies two list binders stored are both held (Er
 
 		assert.deepEqual([...held].sort(), ['a', 'ccc']);
 		assert.deepEqual(listingRows(shopGroups(cards, {held})).map((row) => row.id), ['bb']);
+	});
+});
+
+describe('a card with one printing (Eric, 2026-11-26)', () => {
+	test('the binder copy is kept and the loose unset copy is listed, in that printing\'s row', () => {
+		noteOnePrintings([{catalog: 'international', id: 'sv10-001', variants_detailed: [{size: 'standard', type: 'normal', variantId: 'only'}]}]);
+
+		try {
+			const cards = [copy('a', {sale_price: 2}), copy('bb', {sale_price: 2, variant_id: 'only'})];
+			const groups = shopGroups(cards, {held: new Set(['bb'])});
+
+			assert.deepEqual(groups.map((group) => group.finish_key), ['v:only']);
+			assert.deepEqual(listingRows(groups).map((row) => row.id), ['a']);
+		}
+		finally {
+			forgetOnePrintings();
+		}
+
+		assert.deepEqual(listingRows(shopGroups([copy('a', {sale_price: 2}), copy('bb', {sale_price: 2, variant_id: 'only'})], {held: new Set(['bb'])})), [], 'record not read: apart, nothing listed');
 	});
 });
 
