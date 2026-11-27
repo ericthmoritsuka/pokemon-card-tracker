@@ -385,8 +385,13 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 	// The key the catalog saves a copy's full record under
 	// (js/catalog.js savedOwnRecords).
 	const recordKey = (entry) => `card:${entry.language || catalogLanguage(entry.catalog || 'international')}:${entry.card_id}`;
+	// The printings are the same in every language of a catalog card, so a
+	// record saved in another language (My Cards reads the viewing
+	// language's) names the finish too (QA collection 2: Portuguese copies
+	// read "Finish (catalog offline)" while online).
 	const variantsOf = (entry) => {
-		const record = printings.get(recordKey(entry));
+		const other = entry.catalog === 'custom' ? null : [...printings.entries()].find(([key, value]) => key.endsWith(`:${entry.card_id}`) && value && Array.isArray(value.variants_detailed));
+		const record = printings.get(recordKey(entry)) || (other && other[1]);
 
 		return record && Array.isArray(record.variants_detailed) ? record.variants_detailed : null;
 	};
@@ -734,7 +739,11 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 	function readPrintings() {
 		const run = ++reading;
 
-		savedOwnRecords(groups.flatMap((group) => group.rows.map((row) => row.entry))).then((found) => {
+		const entries = groups.flatMap((group) => group.rows.map((row) => row.entry));
+		// Each international card's English record too (variantsOf, above).
+		const english = entries.filter((entry) => (entry.catalog || 'international') === 'international' && entry.language && entry.language !== 'en').map((entry) => ({...entry, language: 'en'}));
+
+		savedOwnRecords([...entries, ...english]).then((found) => {
 			if (!alive || run !== reading) {
 				return;
 			}
