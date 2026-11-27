@@ -21,6 +21,14 @@ import {toast} from './shell.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-27',
+		items: [
+			'Every 30th Celebration card is named Holo with its anniversary stamp, on the card page, Check spares, the Shop, and HOTARU.',
+			'Only the name changes: your copies, their saved finish, and what is for sale stay as they were.',
+		],
+		version: 'v125',
+	},
+	{
 		date: '2026-11-26',
 		items: [
 			'Each binder pocket now holds its own copy: a second copy goes to the next binder that has that card, so it is no longer for sale. A pocket you keep empty on purpose needs Keep the placeholder, or its card stops being for sale.',
