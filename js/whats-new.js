@@ -23,6 +23,16 @@ export const RELEASES = [
 	{
 		date: '2026-11-26',
 		items: [
+			'Each binder pocket now holds its own copy: a second copy goes to the next binder that has that card, so it is no longer for sale. A pocket you keep empty on purpose needs Keep the placeholder, or its card stops being for sale.',
+			'A card with only one printing counts a copy with no finish as that printing.',
+			'Tap a pocket on Check spares to open it, with Keep the placeholder two taps away.',
+			'Fix a copy\'s finish from Check spares.',
+		],
+		version: 'v124',
+	},
+	{
+		date: '2026-11-26',
+		items: [
 			'Orders has four filters: Unpaid, Separating, Ready, and Delivered. All is gone, since the four cover every order.',
 			'A paid order is Separating until you tick every card, then Ready to hand over. No extra button.',
 			'Ticks are saved online, so the phone and the computer show the same ones. A tick made offline goes up when you are back.',
