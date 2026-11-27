@@ -243,8 +243,27 @@ export const sizeName = (variant) => (isStandardSize(variant) ? null : sentence(
 // Only the name changes, never the stored variant or finish word.
 export const isThirtiethCard = (cardId) => String(cardId || '').startsWith('30th-');
 
+// The three Mega Evolution promos handed out for the 30th anniversary carry
+// its Pikachu stamp (Eric, 2026-11-27, from his copies), though TCGdex lists
+// them as plain Holo (mep-043 Rowlet, mep-044 Litten, mep-045 Popplio,
+// checked 2026-11-27). Their names gain the stamp, so HOTARU shows its
+// 30 anos tag; the stored variant stays as it is.
+const THIRTIETH_STAMPED = new Set(['mep-043', 'mep-044', 'mep-045']);
+
 export function printedVariant(variant, cardId) {
-	return variant && isThirtiethCard(cardId) && finishType(variant) === 'normal' ? {...variant, type: 'Holo'} : variant;
+	if (!variant) {
+		return variant;
+	}
+
+	if (isThirtiethCard(cardId) && finishType(variant) === 'normal') {
+		return {...variant, type: 'Holo'};
+	}
+
+	if (THIRTIETH_STAMPED.has(String(cardId || '')) && !(variant.stamp || []).some((stamp) => fold(stamp) === fold('30th-anniversary'))) {
+		return {...variant, stamp: [...(variant.stamp || []), '30th-anniversary']};
+	}
+
+	return variant;
 }
 
 // A finish's name in English, read the same way on an English or a
