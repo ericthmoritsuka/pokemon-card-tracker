@@ -23,6 +23,16 @@ export const RELEASES = [
 	{
 		date: '2026-11-27',
 		items: [
+			'Opening the Shop no longer puts new cards on HOTARU. Tap Publish changes, which says how many copies go out, and a batch of more than 10 shows them first.',
+			'A copy held in a binder, in an open order, or the last of its finish is never listed, and a copy you sell, delete, star, or put in a pocket leaves HOTARU at once.',
+			'Check live listings in the Shop shows any listing that breaks those rules. Check spares adds the import check for duplicate copies and a screen to set missing finishes in bulk.',
+			'Delivered asks first when an order has cards not checked, and Orders calls a checked card Separated.',
+		],
+		version: 'v128',
+	},
+	{
+		date: '2026-11-27',
+		items: [
 			'When you check an order\'s last card, it moves to Ready on its own five seconds later. Uncheck it in that time and it stays in Separating. A payment moves an order from Unpaid to Separating the same way.',
 			'A check that has not reached the server yet says "not saved yet", because your other devices do not see it. It goes out the next time the app reaches the server.',
 			'A check the server refuses, such as one on an order that is no longer open, is unchecked, and a message says why.',
