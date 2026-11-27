@@ -6,8 +6,10 @@
 -- using up numbers (H2), lets the sealed admin form send the quantity it
 -- loaded so a stale save cannot bring back sold or reserved units (H3), keeps
 -- an order with a receipt from expiring under the buyer (M4), caps receipt
--- uploads per order (M5), and refuses to let an older store script run over
--- these fixes without saying so (M6).
+-- uploads per order (M5), refuses to let an older store script run over
+-- these fixes without saying so (M6), and makes store_sync skip a copy that
+-- breaks the listing invariant (missing, in a binder, or the last of its
+-- finish) instead of publishing it.
 --
 -- Run it LAST, after every other store script (store.sql, store-orders.sql,
 -- store-sealed.sql, store-withdraw.sql, store-own-pictures.sql,
@@ -44,14 +46,15 @@ $$;
 -- store-orders.sql, store-sealed.sql, store-own-pictures.sql, and
 -- store-bundles.sql) to refuse to run, unless Eric types
 -- `set store.allow_rerun = on;` above it on purpose. Bump the number when
--- this file changes what it replaces.
+-- this file changes what it replaces. Version 2 adds store_sync (store.sql),
+-- which now checks the listing invariant.
 create or replace function private.store_hardening_version()
 returns int
 language sql
 immutable
 set search_path = ''
 as $$
-	select 1;
+	select 2;
 $$;
 
 revoke all on function private.store_hardening_version() from public, anon, authenticated;
@@ -544,6 +547,295 @@ $$;
 revoke all on function public.save_product(jsonb) from public, anon;
 grant execute on function public.save_product(jsonb) to authenticated;
 
+-- ------------------------------------------------------------- store_sync
+
+-- The listing invariant, server half (plans/roadmap.md, "Backlog:
+-- preventing wrong listings"; js/listing-invariant.js listingProblems is
+-- the client half, Eric 2026-11-26). The client checks before it calls;
+-- this repeats the check before the upsert, so a client bug (a lone
+-- reverse holo, a copy in a binder) cannot put a card on HOTARU.
+--
+-- The owner's collection is the caller's row in public.documents
+-- (setup.sql; patch_document in patch-document.sql writes the same row):
+-- doc -> 'cards' is the copies, doc -> 'binders' the binders. store_sync
+-- reads it as saved; the Shop publishes only once the phone has synced.
+--
+-- A single row is skipped, not upserted, when its copy:
+--   missing  is not a live copy in the document (no entry with that id, or
+--            the entry has deleted_at), or there is no document at all
+--   held     sits in a pocket of a live binder: any entry_id in its slots.
+--            Only pockets. A binder made from a list keeps its slots empty
+--            and holds copies by claims the app computes (js/binders.js
+--            copyClaims: refresh snapshots, picks, allocation order), too
+--            much to repeat here, so those are the client's check alone.
+--            Every live binder's slots count, even a list binder's stale
+--            ones and pockets off the grid, which the app ignores: stricter.
+--   last     is the last live copy of its card + language + finish left at
+--            home once the earlier rows of this same call leave, the
+--            client's batch rule: copies marked For sale leave first, then
+--            the others in the order sent, and each row passes only while
+--            at least one other copy of its key stays home.
+-- A copy with for_sale true is exempt from held and last, never from
+-- missing, as in the client.
+--
+-- The key, as js/listing-invariant.js lastKey: catalog (empty is
+-- 'international'), card_id, language (empty is ''), and finish:
+-- 'v:' || variant_id, else 'raw:' || finish_raw, else '' (unset, its own
+-- key, never paired with Normal). Two things the client merges stay apart
+-- here: js/wishlist.js copyFinishKey also reads a card's only printing from
+-- the phone's catalog, and js/shop.js catalogTwins counts a hand-made copy
+-- as the catalog card it matches. The server has neither catalog, so it
+-- counts such copies under their own key. Splitting a key only lowers its
+-- count, and every key this file keeps home one copy of sits inside a
+-- client key, so the server can skip a copy the client would list (a
+-- false skip, which Eric sees and fixes) but never lists one the client
+-- would not (a false listing). False skips are acceptable; false listings
+-- are not.
+--
+-- Fail closed: a skipped copy is not upserted and, being absent from the
+-- call, its available listing is withdrawn, so a kit holding it leaves the
+-- catalog too. Rows store_sync never changed are not judged: an id whose
+-- listing is reserved, sold, or not a single (sealed, consigned) passes
+-- through untouched, as before, though a copy among them still counts as
+-- leaving. Kit, sealed, and consignment tables are not touched. A
+-- repeated id keeps its first row.
+--
+-- The answer keeps its shape ({<id>: {status, image_path}}), and gains one
+-- key, "_skipped": [{id, reason}], only when a row was skipped
+-- (js/store-publish.js syncListings, js/shop-view.js).
+create or replace function private.listing_invariant_key(entry jsonb)
+returns text
+language sql
+immutable
+set search_path = ''
+as $$
+	select jsonb_build_array(
+		coalesce(nullif(entry ->> 'catalog', ''), 'international'),
+		entry ->> 'card_id',
+		coalesce(entry ->> 'language', ''),
+		case
+			when coalesce(entry ->> 'variant_id', '') <> '' then 'v:' || (entry ->> 'variant_id')
+			when coalesce(entry ->> 'finish_raw', '') <> '' then 'raw:' || (entry ->> 'finish_raw')
+			else ''
+		end
+	)::text;
+$$;
+
+revoke all on function private.listing_invariant_key(jsonb) from public, anon, authenticated;
+
+-- A copy or binder is live while deleted_at is missing, null, or empty
+-- (the client's !entry.deleted_at; anything else counts as deleted).
+create or replace function private.listing_invariant_live(entry jsonb)
+returns boolean
+language sql
+immutable
+set search_path = ''
+as $$
+	select jsonb_typeof(entry) = 'object' and coalesce(entry ->> 'deleted_at', '') in ('', 'false');
+$$;
+
+revoke all on function private.listing_invariant_live(jsonb) from public, anon, authenticated;
+
+-- From store.sql's store_sync; the upsert, withdraw, and answer are its own.
+create or replace function public.store_sync(listings jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+	ids text[] := '{}';
+	result jsonb;
+	doc jsonb;
+	cards jsonb;
+	live jsonb;
+	counts jsonb;
+	held text[];
+	leaving jsonb := '{}';
+	accepted jsonb := '[]';
+	skipped jsonb := '[]';
+	seen text[] := '{}';
+	item jsonb;
+	entry jsonb;
+	listing_id text;
+	k text;
+begin
+	if not private.is_store_owner() then
+		raise exception 'Only the shop owner can publish.' using errcode = '42501';
+	end if;
+
+	if jsonb_typeof(listings) is distinct from 'array' then
+		raise exception 'listings must be a JSON array.' using errcode = '22023';
+	end if;
+
+	if jsonb_array_length(listings) > 2000 then
+		raise exception 'At most 2,000 listings at once.' using errcode = '22023';
+	end if;
+
+	-- listing_invariant: the owner's document, its live copies by id, how
+	-- many live copies each key has, and the copies in binder pockets.
+	select d.doc into doc from public.documents d where d.user_id = (select auth.uid());
+	cards := case when jsonb_typeof(doc -> 'cards') = 'array' then doc -> 'cards' else '[]' end;
+
+	select coalesce(jsonb_object_agg(c.value ->> 'id', c.value), '{}')
+	into live
+	from jsonb_array_elements(cards) c
+	where private.listing_invariant_live(c.value) and coalesce(c.value ->> 'id', '') <> '';
+
+	select coalesce(jsonb_object_agg(x.k, x.n), '{}')
+	into counts
+	from (
+		select private.listing_invariant_key(c.value) as k, count(*) as n
+		from jsonb_array_elements(cards) c
+		where private.listing_invariant_live(c.value) and coalesce(c.value ->> 'id', '') <> ''
+		group by 1
+	) x;
+
+	select coalesce(array_agg(distinct s.value ->> 'entry_id'), '{}')
+	into held
+	from jsonb_array_elements(case when jsonb_typeof(doc -> 'binders') = 'array' then doc -> 'binders' else '[]' end) b
+	cross join lateral jsonb_array_elements(case when jsonb_typeof(b.value -> 'slots') = 'array' then b.value -> 'slots' else '[]' end) s
+	where private.listing_invariant_live(b.value) and coalesce(s.value ->> 'entry_id', '') <> '';
+
+	-- Copies marked For sale leave first (Eric's consent).
+	for item in select e.value from jsonb_array_elements(listings) e loop
+		listing_id := item ->> 'id';
+
+		if listing_id is null or listing_id = any (seen) then
+			continue;
+		end if;
+
+		seen := seen || listing_id;
+		entry := live -> listing_id;
+
+		if entry is not null and entry -> 'for_sale' = 'true'::jsonb then
+			k := private.listing_invariant_key(entry);
+			leaving := jsonb_set(leaving, array[k], to_jsonb(coalesce((leaving ->> k)::int, 0) + 1));
+		end if;
+	end loop;
+
+	seen := '{}';
+
+	for item in select e.value from jsonb_array_elements(listings) e loop
+		listing_id := item ->> 'id';
+
+		if listing_id is null then
+			skipped := skipped || jsonb_build_object('id', null, 'reason', 'missing');
+
+			continue;
+		end if;
+
+		if listing_id = any (seen) then
+			continue;
+		end if;
+
+		seen := seen || listing_id;
+		entry := live -> listing_id;
+
+		-- A row store_sync never changes passes through untouched.
+		if exists (
+			select 1 from public.store_listings l
+			where l.id = listing_id and (l.kind <> 'single' or l.status not in ('available', 'withdrawn'))
+		) then
+			if entry is not null and entry -> 'for_sale' is distinct from 'true'::jsonb then
+				k := private.listing_invariant_key(entry);
+				leaving := jsonb_set(leaving, array[k], to_jsonb(coalesce((leaving ->> k)::int, 0) + 1));
+			end if;
+
+			accepted := accepted || item;
+
+			continue;
+		end if;
+
+		if entry is null then
+			skipped := skipped || jsonb_build_object('id', listing_id, 'reason', 'missing');
+
+			continue;
+		end if;
+
+		if entry -> 'for_sale' = 'true'::jsonb then
+			accepted := accepted || item;
+
+			continue;
+		end if;
+
+		if listing_id = any (held) then
+			skipped := skipped || jsonb_build_object('id', listing_id, 'reason', 'held');
+
+			continue;
+		end if;
+
+		k := private.listing_invariant_key(entry);
+
+		if coalesce((leaving ->> k)::int, 0) + 1 >= coalesce((counts ->> k)::int, 0) then
+			skipped := skipped || jsonb_build_object('id', listing_id, 'reason', 'last');
+
+			continue;
+		end if;
+
+		leaving := jsonb_set(leaving, array[k], to_jsonb(coalesce((leaving ->> k)::int, 0) + 1));
+		accepted := accepted || item;
+	end loop;
+
+	select coalesce(array_agg(e.value ->> 'id'), '{}') into ids from jsonb_array_elements(accepted) as e(value);
+
+	insert into public.store_listings as l (id, kind, card_id, catalog, language, finish, condition, name, set_name, number, rarity, image_path, price_brl, status, published_at, updated_at)
+	select
+		e.value->>'id',
+		'single',
+		e.value->>'card_id',
+		e.value->>'catalog',
+		e.value->>'language',
+		e.value->>'finish',
+		e.value->>'condition',
+		e.value->>'name',
+		e.value->>'set_name',
+		e.value->>'number',
+		e.value->>'rarity',
+		e.value->>'image_path',
+		(e.value->>'price_brl')::numeric(10, 2),
+		'available',
+		now(),
+		now()
+	from jsonb_array_elements(accepted) as e(value)
+	on conflict (id) do update
+	set
+		card_id = excluded.card_id,
+		catalog = excluded.catalog,
+		language = excluded.language,
+		finish = excluded.finish,
+		condition = excluded.condition,
+		name = excluded.name,
+		set_name = excluded.set_name,
+		number = excluded.number,
+		rarity = excluded.rarity,
+		image_path = coalesce(excluded.image_path, l.image_path),
+		price_brl = excluded.price_brl,
+		status = 'available',
+		published_at = case when l.status = 'withdrawn' then now() else l.published_at end,
+		updated_at = now()
+	where l.kind = 'single' and l.status in ('available', 'withdrawn');
+
+	update public.store_listings l
+	set status = 'withdrawn', updated_at = now()
+	where l.kind = 'single' and l.status = 'available' and not (l.id = any (ids));
+
+	select coalesce(jsonb_object_agg(l.id, jsonb_build_object('image_path', l.image_path, 'status', l.status)), '{}')
+	into result
+	from public.store_listings l
+	where l.id = any (ids);
+
+	if jsonb_array_length(skipped) > 0 then
+		result := result || jsonb_build_object('_skipped', skipped);
+	end if;
+
+	return result;
+end;
+$$;
+
+revoke all on function public.store_sync(jsonb) from public, anon;
+grant execute on function public.store_sync(jsonb) to authenticated;
+
 -- ------------------------------------------------------------- M6 verify
 
 -- M6: says whether the live functions are the ones the store needs, or
@@ -601,6 +893,11 @@ begin
 	body := (select pg_get_functiondef(p.oid) from pg_proc p where p.oid = to_regprocedure('public.order_status(uuid[])'));
 	if body is null or body not like '%bundle_name%' then
 		missing := array_append(missing, 'order_status (store-bundles.sql)');
+	end if;
+
+	body := (select pg_get_functiondef(p.oid) from pg_proc p where p.oid = to_regprocedure('public.store_sync(jsonb)'));
+	if body is null or body not like '%listing_invariant%' then
+		missing := array_append(missing, 'store_sync (store-hardening.sql)');
 	end if;
 
 	if cardinality(missing) > 0 then

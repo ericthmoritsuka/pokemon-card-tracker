@@ -232,6 +232,98 @@ select t.err($$select public.attach_receipt(gen_random_uuid(), 'x/r.jpg')$$, '22
 reset role;
 select t.ok((select reserved_until > now() + interval '47 hours' from public.store_orders where code = (select j ->> 'code' from t.v where k = 'm')), 'M4: a receipt moves the deadline to 48 hours from now');
 
+-- ============================================ after: the listing invariant
+
+-- The owner's document (supabase/setup.sql). Keys are card + language +
+-- finish; each copy below is named for the rule it exercises.
+insert into public.documents (user_id, doc) values ('00000000-0000-0000-0000-00000000000a', $doc${
+	"cards": [
+		{"id": "pair-1", "card_id": "sv01-001", "catalog": "international", "language": "en", "variant_id": "holo"},
+		{"id": "pair-2", "card_id": "sv01-001", "catalog": "international", "language": "en", "variant_id": "holo"},
+		{"id": "lone-rh", "card_id": "sv01-002", "language": "en", "finish_raw": "Reverse Holo"},
+		{"id": "lone-rh-normal", "card_id": "sv01-002", "language": "en", "variant_id": "normal"},
+		{"id": "unset", "card_id": "sv01-003", "language": "en"},
+		{"id": "unset-normal", "card_id": "sv01-003", "language": "en", "variant_id": "normal"},
+		{"id": "marked", "card_id": "sv01-004", "language": "en", "variant_id": "holo", "for_sale": true},
+		{"id": "marked-held", "card_id": "sv01-005", "language": "en", "for_sale": true},
+		{"id": "pocket", "card_id": "sv01-006", "language": "en"},
+		{"id": "pocket-loose", "card_id": "sv01-006", "language": "en"},
+		{"id": "gone", "card_id": "sv01-007", "language": "en", "deleted_at": "2026-11-26T10:00:00Z"},
+		{"id": "gone-twin", "card_id": "sv01-007", "language": "en"},
+		{"id": "old-binder", "card_id": "sv01-008", "language": "en"},
+		{"id": "old-binder-2", "card_id": "sv01-008", "language": "en"},
+		{"id": "pt", "card_id": "sv01-009", "language": "pt"},
+		{"id": "pt-en", "card_id": "sv01-009", "language": "en"}
+	],
+	"binders": [
+		{"id": "b1", "name": "Hand", "rows": 3, "cols": 3, "page_count": 2, "slots": [
+			{"page": 1, "position": 1, "entry_id": "pocket"},
+			{"page": 1, "position": 2, "entry_id": "marked-held"}
+		]},
+		{"id": "b2", "name": "Gone", "rows": 3, "cols": 3, "page_count": 1, "deleted_at": "2026-11-20T10:00:00Z", "slots": [
+			{"page": 1, "position": 1, "entry_id": "old-binder"}
+		]}
+	]
+}$doc$);
+
+create function t.row(id text) returns jsonb language sql immutable as
+	$$ select jsonb_build_object('id', id, 'card_id', 'x', 'catalog', 'international', 'language', 'en', 'name', id, 'price_brl', 5) $$;
+create function t.sync(ids text[]) returns jsonb language sql as
+	$$ select public.store_sync((select coalesce(jsonb_agg(t.row(i) order by o), '[]') from unnest(ids) with ordinality u(i, o))) $$;
+create function t.reason(answer jsonb, id text) returns text language sql immutable as
+	$$ select s ->> 'reason' from jsonb_array_elements(coalesce(answer -> '_skipped', '[]')) s where s ->> 'id' = id $$;
+create function t.verify_error() returns text language plpgsql as $$
+begin
+	perform private.store_verify();
+	return '';
+exception when others then
+	return sqlerrm;
+end $$;
+grant execute on all functions in schema t to anon, authenticated;
+
+select count(*) as items into temp kit_items from public.store_bundle_items;
+grant select on kit_items to authenticated;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+
+insert into t.v select 'inv', t.sync(array['pair-1', 'pair-2', 'lone-rh', 'unset', 'marked', 'marked-held', 'pocket', 'pocket-loose', 'gone', 'nope', 'old-binder', 'pt', 'c040', (select l.id from public.store_listings l where l.kind = 'sealed' and l.status = 'available' limit 1)]);
+
+select t.ok(j -> 'pair-1' ->> 'status' = 'available' and t.reason(j, 'pair-1') is null, 'invariant: the first of two loose copies is listed') from t.v where k = 'inv';
+select t.ok(t.reason(j, 'pair-2') = 'last' and not j ? 'pair-2', 'invariant: a batch of two loose copies keeps the second home') from t.v where k = 'inv';
+select t.ok(t.reason(j, 'lone-rh') = 'last', 'invariant: a lone reverse holo is the last of its finish') from t.v where k = 'inv';
+select t.ok(t.reason(j, 'unset') = 'last', 'invariant: an unset finish never pairs with Normal') from t.v where k = 'inv';
+select t.ok(j -> 'marked' ->> 'status' = 'available', 'invariant: a last copy marked For sale is listed') from t.v where k = 'inv';
+select t.ok(j -> 'marked-held' ->> 'status' = 'available', 'invariant: a copy in a pocket marked For sale is listed') from t.v where k = 'inv';
+select t.ok(t.reason(j, 'pocket') = 'held', 'invariant: a copy in a hand binder pocket is held') from t.v where k = 'inv';
+select t.ok(j -> 'pocket-loose' ->> 'status' = 'available', 'invariant: its loose twin is listed (the pocket copy stays home)') from t.v where k = 'inv';
+select t.ok(t.reason(j, 'gone') = 'missing', 'invariant: a deleted copy is missing') from t.v where k = 'inv';
+select t.ok(t.reason(j, 'nope') = 'missing', 'invariant: an unknown copy is missing') from t.v where k = 'inv';
+select t.ok(j -> 'old-binder' ->> 'status' = 'available', 'invariant: a deleted binder holds nothing') from t.v where k = 'inv';
+select t.ok(t.reason(j, 'pt') = 'last', 'invariant: another language is another key') from t.v where k = 'inv';
+select t.ok(j -> 'c040' ->> 'status' = 'reserved' and t.reason(j, 'c040') is null, 'invariant: a reserved row passes through untouched') from t.v where k = 'inv';
+select t.ok(jsonb_array_length(j -> '_skipped') = 7, 'invariant: seven rows skipped, nothing else') from t.v where k = 'inv';
+select t.ok((select count(*) from public.store_listings where id in ('pair-2', 'lone-rh', 'unset', 'pocket', 'gone', 'nope', 'pt')) = 0, 'invariant: no skipped row reached the catalog');
+select t.ok((select count(*) from public.store_listings where kind = 'sealed' and status = 'available') > 0, 'invariant: sealed units untouched');
+select t.ok((select count(*) from public.store_bundle_items) = (select items from kit_items), 'invariant: kit items untouched');
+
+-- A copy listed earlier that breaks the rule now is withdrawn (fail closed),
+-- and a clean call keeps the answer's old shape.
+select t.ok(t.reason(t.sync(array['pair-2', 'pair-1']), 'pair-1') = 'last', 'invariant: order decides which copy stays home');
+select t.ok((select status from public.store_listings where id = 'pair-1') = 'withdrawn', 'invariant: a skipped copy listed before is withdrawn');
+select t.ok(not (t.sync(array['pair-1']) ? '_skipped'), 'invariant: no _skipped key when nothing is skipped');
+
+-- No document at all: every single is skipped.
+reset role;
+delete from t.v where k = 'doc';
+insert into t.v select 'doc', to_jsonb(d) from public.documents d;
+delete from public.documents;
+set role authenticated;
+select t.ok(t.reason(t.sync(array['pair-1']), 'pair-1') = 'missing', 'invariant: without a document every copy is missing');
+reset role;
+insert into public.documents (user_id, doc) select (j ->> 'user_id')::uuid, j -> 'doc' from t.v where k = 'doc';
+reset request.jwt.claim.sub;
+
 -- =================================================================== M6
 
 -- An older script refuses to run over the hardening, and nothing changes.
@@ -258,6 +350,18 @@ reset store.allow_rerun;
 \ir ../supabase/store-consignment.sql
 \ir ../supabase/store-hardening.sql
 select t.ok(private.store_verify() = 'store ok', 'M6: the recovery brings everything back');
+
+-- store.sql run again puts back the store_sync that skips nothing.
+set store.allow_rerun = on;
+\ir ../supabase/store.sql
+reset store.allow_rerun;
+select t.ok(position('store_sync' in t.verify_error()) > 0, 'M6: store_verify names store_sync after store.sql ran');
+set store.allow_rerun = on;
+\ir ../supabase/store-bundles.sql
+reset store.allow_rerun;
+\ir ../supabase/store-consignment.sql
+\ir ../supabase/store-hardening.sql
+select t.ok(private.store_verify() = 'store ok', 'M6: the hardening brings store_sync back');
 
 \o
 select 'store-hardening: all checks passed';

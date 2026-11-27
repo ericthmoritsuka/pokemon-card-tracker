@@ -4547,6 +4547,23 @@ store-hardening. The decisions:
   store-hardening.sql again. `select private.store_verify();` names any function an older script
   put back, and the hardening file ends by running it. A guard plus a check was smaller than moving
   every function into one owner file.
+- **The listing invariant, server half** (2026-11-27, version 2 of the guard; the client half is
+  `js/listing-invariant.js`). `store_sync` now reads the owner's document (the caller's
+  `public.documents` row, which `patch_document` also writes) and, before the upsert, skips every
+  single whose copy is `missing` (no live entry with that id, or no document), `held` (an
+  `entry_id` in the slots of any live binder), or `last` (the last live copy of its catalog, card,
+  language, and finish once the earlier rows of the same call leave: For sale copies first, then
+  the order sent). A copy with `for_sale` true is exempt from held and last, never from missing.
+  The finish key is the client's: `v:` variant, else `raw:` finish word, else unset, which never
+  pairs with Normal. Skipped rows are not upserted and so are withdrawn if listed (a kit holding
+  one leaves the catalog); the answer keeps its shape and gains `_skipped: [{id, reason}]` only when
+  something was skipped, which the Shop names on the publish line. Rows `store_sync` never changed
+  (reserved, sold, sealed, consigned) pass through unjudged. Limits, all on the strict side, since
+  a false skip is acceptable and a false listing is not: a list binder's computed claims are not
+  repeated (too complex for SQL), so only the client checks those; every live binder's slots count,
+  even stale or off-grid ones the app ignores; and a hand-made copy matched to a catalog twin, or a
+  copy whose finish the app infers from a card's only printing, counts under its own key. Splitting
+  a key can only skip more, never list a copy the client would keep home.
 
 ### Stats
 

@@ -44,7 +44,7 @@ import {alertsOn, NEW_ORDERS_EVENT, notifyPermission, turnOff, turnOn} from './o
 import {checkShopOwner, onShopOwner, setAddAndSell, setConsignPick, setShopTab, SHOP_TABS, shopOwnerKnown, shopTab} from './shop-owner.js';
 import {openDialogSheet} from './sheet.js';
 import {announceOrders, cancelOrder, DELIVERED_DAYS, deliveredErrorText, deliveredOrders, keepOrderChecks, markDelivered, markPaid, openOrders, ORDER_CHECKS_EVENT, orderChecks, orderErrorText, receiptLink, setOrderCheck, syncOrderChecks, unsavedChecks} from './store-orders.js';
-import {publishErrorText, syncListings, uploadOwnPicture, uploadPicture} from './store-publish.js';
+import {SERVER_SKIP_TEXT, publishErrorText, serverSkipped, syncListings, uploadOwnPicture, uploadPicture} from './store-publish.js';
 import {onSyncStatus, syncStatus} from './sync.js';
 import {loadOnePrintings} from './wishlist.js';
 
@@ -1418,9 +1418,20 @@ export function shopView(root) {
 			const copies = priced().filter((group) => groupMark(group, states) === 'published').reduce((n, group) => n + group.listed.length, 0);
 			const noPicture = priced().filter((group) => group.listed.length && group.listed.some((entry) => !(states[entry.id] && states[entry.id].image_path))).length;
 
-			publishLine.textContent = live
+			// Copies the server refused (the listing invariant), named the way
+			// the publish line names any skipped copy.
+			const refused = serverSkipped(states);
+			const nameOf = (id) => {
+				const group = priced().find((one) => one.listed.some((entry) => entry.id === id));
+
+				return group ? (group.publishInfo && group.publishInfo.name) || group.card_id : id;
+			};
+			const named = refused.slice(0, 5).map(({id, reason}) => `${nameOf(id)} (${SERVER_SKIP_TEXT[reason]})`);
+			const skippedText = refused.length ? ` Skipped ${plural(refused.length, 'copy', 'copies')}: ${named.join(', ')}${refused.length > 5 ? ', and more' : ''}.` : '';
+
+			publishLine.textContent = (live
 				? `On HOTARU: ${plural(live, 'card', 'cards')}, ${plural(copies, 'copy', 'copies')}.${noPicture ? ` ${plural(noPicture, 'card has', 'cards have')} no picture yet.` : ''}`
-				: 'Nothing on HOTARU yet: give a card a price to offer it.';
+				: 'Nothing on HOTARU yet: give a card a price to offer it.') + skippedText;
 
 			// A kit whose copy is gone takes another copy of the same card.
 			await kits.refill(states).catch(() => {});
