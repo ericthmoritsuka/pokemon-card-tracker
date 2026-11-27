@@ -4780,6 +4780,15 @@ Two screens under Check spares, each reached by one line under its heading with 
 - **A finish HOTARU already names** (QA shop 18): when this screen cannot name a copy's finish
   yet, the publish keeps the finish the live listing has, so it never flips between Normal and
   none.
+- **One index read before held and free** (QA collection 1). `printingsReady()` in
+  `js/wishlist.js` is a single shared read of the card index; Trade, the My Cards badge, and app
+  start wait on it, as Check spares and the Shop already did, so no screen works out spares before
+  a one-printing card's finishes join. A failed read is tried again by the next caller.
+- **Check spares' finish names** (QA collection 2) fall back to a saved record of the same card in
+  another language, since a catalog card's printings do not change with the language.
+- **The Pokédex range** (QA collection 6) applies as typed, so Show's count is what Show applies.
+- **Focus after a redraw** (QA collection 7): `keepFocus` in `js/dom.js` returns the focus to the
+  redrawn Favorite, wishlist, or Select all control.
 - **Consign terms** (QA shop 21): a percent takes at most one decimal, and the split says when the
   minimum commission leaves the consignor nothing. *Default chosen 2026-11-27, Eric to confirm:*
   said, not refused.
