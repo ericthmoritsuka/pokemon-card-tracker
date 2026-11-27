@@ -120,18 +120,18 @@ function today() {
 }
 
 // What a copy's finish is called, as on the card page's Your copies:
-// "Reverse Holo", "Finish not set", or the word of a finish the catalog
+// "Reverse Holo", "No finish set", or the word of a finish the catalog
 // does not list. variants: the card's printings, or null when this phone
 // has not saved its record. A hand-made card's finish is monprice's word.
 function finishText(entry, variants) {
 	if (entry.catalog === 'custom') {
-		return entry.finish_raw ? finishLabel(entry.finish_raw) : 'Finish not set';
+		return entry.finish_raw ? finishLabel(entry.finish_raw) : 'No finish set';
 	}
 
 	return copyFinishName(entry, variants || [], variants === null);
 }
 
-// "Reverse Holo · Near Mint", or "Finish not set · Played".
+// "Reverse Holo · Near Mint", or "No finish set · Played".
 const copyWords = (entry, variants) => [finishText(entry, variants), entry.condition].filter(Boolean).join(' · ');
 
 // "Hoenn, page 3, pocket 4", "Loose", or both places of a copy two binders
@@ -319,8 +319,10 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 				timeout: UNDO_MS,
 			});
 
-			// Off HOTARU now, rather than at the next publish.
-			if (row.free && shopOwnerKnown() === true && navigator.onLine) {
+			// Off HOTARU now, rather than at the next publish, whether or not
+			// the copy was free: a held copy listed by mistake must go too
+			// (QA shop 15).
+			if (shopOwnerKnown() === true && navigator.onLine) {
 				withdrawListings([row.entry.id]).catch(() => {});
 			}
 		}

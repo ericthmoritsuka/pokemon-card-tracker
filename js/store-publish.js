@@ -32,6 +32,19 @@ export function publishErrorText(error) {
 	return `Not published. ${message || 'The server did not answer.'}`;
 }
 
+// How long a publish call may take before the Shop says so (QA shop 13: a
+// call that never answered left "Publishing to HOTARU…" for good).
+export const ANSWER_MS = 20000;
+
+export function answerWithin(promise, ms = ANSWER_MS) {
+	let timer = null;
+	const late = new Promise((resolve, reject) => {
+		timer = setTimeout(() => reject(new Error('HOTARU did not answer in time. Try again in a moment.')), ms);
+	});
+
+	return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
+
 // Calls store_sync with the rows (js/shop.js listingRows). relist: whether
 // a withdrawn listing among them may go back on sale, which only Publish
 // changes asks for (v128 review H2; supabase/store-hardening.sql, version
@@ -39,7 +52,7 @@ export function publishErrorText(error) {
 // Resolves to {<id>: {status, image_path}}; throws supabase-js's error.
 export async function syncListings(rows, {relist = false} = {}) {
 	const client = await getClient();
-	const {data, error} = await client.rpc('store_sync', {listings: rows, relist: relist === true});
+	const {data, error} = await answerWithin(client.rpc('store_sync', {listings: rows, relist: relist === true}));
 
 	if (error) {
 		throw error;
@@ -65,13 +78,20 @@ export async function listingStatus(ids, {chunk = 100} = {}) {
 	const client = await getClient();
 
 	for (let start = 0; start < list.length; start += chunk) {
-		const {data, error} = await client.rpc('listing_status', {ids: list.slice(start, start + chunk)});
+		const asked = list.slice(start, start + chunk);
+		const {data, error} = await answerWithin(client.rpc('listing_status', {ids: asked}));
 
 		if (error) {
 			throw error;
 		}
 
-		Object.assign(out, data || {});
+		// An answer that leaves an id out is not an answer (QA shop 8): read
+		// as "not live", it would withdraw that listing.
+		if (!data || typeof data !== 'object' || asked.some((id) => typeof data[id] !== 'string')) {
+			throw new Error('HOTARU did not say what it holds for every card.');
+		}
+
+		Object.assign(out, data);
 	}
 
 	return out;

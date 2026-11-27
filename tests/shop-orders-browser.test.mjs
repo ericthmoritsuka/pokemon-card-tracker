@@ -354,7 +354,7 @@ describe('Shop orders', () => {
 		// (Eric, 2026-11-26); Back keeps the order, Deliver anyway closes it.
 		await showStage(page, 'separating');
 		await order(page, 'HTR-0007').locator('button:has-text("Delivered")').click();
-		assert.equal(await text(order(page, 'HTR-0007').locator('.shop-order-ask')), '2 cards are not checked. Deliver anyway?');
+		assert.equal(await text(order(page, 'HTR-0007').locator('.shop-order-ask')), '2 cards are not separated yet. Deliver anyway?');
 		assert.equal(store.calls.filter(([name]) => name === 'mark_delivered').length, 0, 'nothing is sent before the answer');
 		await order(page, 'HTR-0007').locator('button:has-text("Back")').click();
 		await order(page, 'HTR-0007').locator('button:has-text("Delivered")').click();
@@ -383,14 +383,14 @@ describe('Shop orders', () => {
 		await openShop(page);
 		await order(page, 'HTR-0007').waitFor(TIMEOUT);
 		assert.equal(await boxes('HTR-0007').count(), 2);
-		assert.equal(await progress('HTR-0007'), 'Checked 0 of 2');
+		assert.equal(await progress('HTR-0007'), 'Separated 0 of 2');
 
 		// The whole line is the target: a tap on the card's words ticks it.
 		await order(page, 'HTR-0007').locator('.shop-order-check span').first().click();
-		assert.equal(await progress('HTR-0007'), 'Checked 1 of 2');
+		assert.equal(await progress('HTR-0007'), 'Separated 1 of 2');
 		assert.equal(await order(page, 'HTR-0007').locator('.shop-order-checked').count(), 1);
 		await boxes('HTR-0007').nth(1).check();
-		assert.equal(await progress('HTR-0007'), 'All 2 checked');
+		assert.equal(await progress('HTR-0007'), 'All 2 separated');
 		assert.equal(await order(page, 'HTR-0007').locator('.shop-order-progress-done').count(), 1);
 		assert.equal(await text(order(page, 'HTR-0007').locator('.shop-order-state')).then((line) => line.startsWith('Waiting for payment')), true, 'an unpaid order stays Unpaid, ticked or not');
 		await page.waitForFunction(() => JSON.parse(localStorage.getItem('cardTracker.orderChecksQueue') || '[]').length === 0, null, TIMEOUT);
@@ -402,7 +402,7 @@ describe('Shop orders', () => {
 		await showStage(page, 'separating');
 		assert.deepEqual(await labels(), ['Unpaid 2', 'Separating 1', 'Ready 0', 'Delivered 0']);
 		await boxes('HTR-0006').first().check();
-		assert.equal(await progress('HTR-0006'), 'Checked');
+		assert.equal(await progress('HTR-0006'), 'Separated');
 		assert.equal(await text(order(page, 'HTR-0006').locator('.shop-order-state')), 'Paid · ready to hand over');
 		assert.deepEqual(await labels(), ['Unpaid 2', 'Separating 0', 'Ready 1', 'Delivered 0']);
 		assert.deepEqual(await shownCodes(page), ['HTR-0006']);
@@ -411,12 +411,12 @@ describe('Shop orders', () => {
 		assert.deepEqual(await shownCodes(page), ['HTR-0006']);
 		await showStage(page, 'separating');
 		assert.deepEqual(await shownCodes(page), []);
-		assert.equal(await text(page.locator('#shop-orders-none')), 'Nothing to separate: every paid order has its cards checked.');
+		assert.equal(await text(page.locator('#shop-orders-none')), 'Nothing to separate: every paid order has its cards separated.');
 
 		// Unticking counts down; the ticks survive a reload.
 		await showStage(page, 'pending');
 		await boxes('HTR-0007').first().uncheck();
-		assert.equal(await progress('HTR-0007'), 'Checked 1 of 2');
+		assert.equal(await progress('HTR-0007'), 'Separated 1 of 2');
 		await page.waitForFunction(() => JSON.parse(localStorage.getItem('cardTracker.orderChecksQueue') || '[]').length === 0, null, TIMEOUT);
 		await page.reload();
 		await order(page, 'HTR-0007').waitFor(TIMEOUT);
@@ -459,7 +459,7 @@ describe('Shop orders', () => {
 		assert.deepEqual(await queue(), [{code: 'HTR-0007', listing_id: 'c-03', on: true}, {code: 'HTR-0007', listing_id: 'c-04', on: true}]);
 		// The ticks the server could not take say so, since the other
 		// devices do not see them.
-		assert.equal(await progress('HTR-0007'), 'All 2 checked · 2 not saved yet');
+		assert.equal(await progress('HTR-0007'), 'All 2 separated · 2 not saved yet');
 		assert.equal(await order(page, 'HTR-0007').locator('.shop-order-progress-unsaved').count(), 1);
 		await showStage(page, 'delivered');
 		assert.equal(await text(page.locator('#shop-orders-none')), 'Delivered orders show once supabase/store-order-stages.sql is run in the Supabase SQL Editor.');
@@ -479,12 +479,12 @@ describe('Shop orders', () => {
 		await boxes('HTR-0007').nth(1).check();
 		await page.waitForTimeout(300);
 		assert.deepEqual(await queue(), [{code: 'HTR-0007', listing_id: 'c-04', on: true}]);
-		assert.equal(await progress('HTR-0007'), 'All 2 checked · 1 not saved yet');
+		assert.equal(await progress('HTR-0007'), 'All 2 separated · 1 not saved yet');
 		await context.setOffline(false);
 		await backInFront(page);
 		await page.waitForFunction(() => JSON.parse(localStorage.getItem('cardTracker.orderChecksQueue') || '[]').length === 0, null, TIMEOUT);
 		assert.deepEqual(serverTicks(store), {'HTR-0007': ['c-03', 'c-04']});
-		await page.waitForFunction(() => document.querySelector('#order-HTR-0007 .shop-order-progress').textContent === 'All 2 checked', null, TIMEOUT);
+		await page.waitForFunction(() => document.querySelector('#order-HTR-0007 .shop-order-progress').textContent === 'All 2 separated', null, TIMEOUT);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
@@ -541,7 +541,7 @@ describe('Shop orders', () => {
 		assert.deepEqual(await shownCodes(page), ['HTR-0006']);
 		await page.clock.runFor(200);
 		await order(page, 'HTR-0006').waitFor({state: 'detached', ...TIMEOUT});
-		assert.equal(await text(page.locator('#shop-orders-none')), 'Nothing to separate: every paid order has its cards checked.');
+		assert.equal(await text(page.locator('#shop-orders-none')), 'Nothing to separate: every paid order has its cards separated.');
 		await showStage(page, 'ready');
 		assert.deepEqual(await shownCodes(page), ['HTR-0006']);
 
@@ -876,7 +876,7 @@ describe('Shop orders', () => {
 		await showStage(page, 'separating');
 		assert.deepEqual(await shownCodes(page), ['HTR-0006']);
 		await showStage(page, 'ready');
-		assert.equal(await text(page.locator('#shop-orders-none')), 'Nothing ready: no paid order has every card checked.');
+		assert.equal(await text(page.locator('#shop-orders-none')), 'Nothing ready: no paid order has every card separated.');
 		await showStage(page, 'delivered');
 		assert.deepEqual(await shownCodes(page), ['HTR-0003']);
 

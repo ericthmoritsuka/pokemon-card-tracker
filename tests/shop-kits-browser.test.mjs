@@ -77,10 +77,12 @@ async function attachStore(page, {kits = [], orders = [], setUp = true, statuses
 	};
 	const reply = (route, body, status = 200) => route.fulfill({body: JSON.stringify(body), contentType: 'application/json', status});
 
-	await page.route('**/rest/v1/rpc/store_sync', (route) => reply(route, {}));
-	// listing_status: nothing is live, so opening the Shop syncs an empty set
-	// and the refill still runs after it (js/shop-view.js publish).
-	await page.route('**/rest/v1/rpc/listing_status', (route) => reply(route, {}));
+	// Every priced copy is live (or as statuses says), so the automatic path
+	// sends them back and the refill reads them as on HOTARU (v128 review,
+	// Low 1: a kit takes only a copy store_sync names as available).
+	await page.route('**/rest/v1/rpc/store_sync', (route) => reply(route, Object.fromEntries((route.request().postDataJSON().listings || []).map((one) => [one.id, {image_path: null, status: statuses[one.id] || 'available'}]))));
+	await page.route('**/rest/v1/rpc/listing_status', (route) => reply(route, Object.fromEntries((route.request().postDataJSON().ids || []).map((id) => [id, statuses[id] || 'available']))));
+	await page.route('**/rest/v1/rpc/store_catalog', (route) => reply(route, []));
 	await page.route('**/rest/v1/rpc/store_orders_open', (route) => reply(route, orders));
 	await page.route(/\/rest\/v1\/rpc\/(store_bundles_admin|save_bundle|delete_bundle)$/, (route) => {
 		const name = route.request().url().split('/rpc/')[1];

@@ -59,14 +59,23 @@ function fakeStore() {
 	// Copy ids the server's listing invariant refuses (supabase/
 	// store-hardening.sql), each with its reason.
 	const refuse = new Map();
+	// Open orders (store_orders_open), and whether reading them or the
+	// catalog fails; the relist flag of each store_sync call.
+	const orders = [];
+	const fail = {catalog: false, orders: false};
+	const relists = [];
 
 	return {
 		calls: () => calls,
+		fail,
 		listings,
+		orders,
 		refuse,
 		relayed,
-		sync(all) {
+		relists,
+		sync(all, relist = false) {
 			calls++;
+			relists.push(relist);
 
 			const skipped = all.filter((row) => refuse.has(row.id)).map((row) => ({id: row.id, reason: refuse.get(row.id)}));
 			const rows = all.filter((row) => !refuse.has(row.id));
@@ -76,7 +85,7 @@ function fakeStore() {
 			for (const row of rows) {
 				const old = listings.get(row.id);
 
-				if (old && !['available', 'withdrawn'].includes(old.status)) {
+				if (old && !(old.status === 'available' || (old.status === 'withdrawn' && relist))) {
 					continue;
 				}
 
@@ -99,14 +108,22 @@ function fakeStore() {
 
 async function attachStore(page, store, {owner = true} = {}) {
 	await page.route('**/rest/v1/rpc/store_sync', async (route) => {
-		const {listings} = route.request().postDataJSON();
+		const {listings, relist} = route.request().postDataJSON();
 
 		if (!owner) {
 			return route.fulfill({body: JSON.stringify({code: '42501', details: null, hint: null, message: 'Only the shop owner can publish.'}), contentType: 'application/json', status: 403});
 		}
 
-		return route.fulfill({body: JSON.stringify(store.sync(listings)), contentType: 'application/json', status: 200});
+		return route.fulfill({body: JSON.stringify(store.sync(listings, relist)), contentType: 'application/json', status: 200});
 	});
+	// store_orders_open and store_catalog (the live singles), which every
+	// publish reads (v128 review H1 and M1).
+	await page.route(/\/rest\/v1\/rpc\/store_orders_open$/, (route) => (store.fail.orders
+		? route.fulfill({body: JSON.stringify({code: '57014', details: null, hint: null, message: 'timeout'}), contentType: 'application/json', status: 500})
+		: route.fulfill({body: JSON.stringify(store.orders), contentType: 'application/json', status: 200})));
+	await page.route(/\/rest\/v1\/rpc\/store_catalog$/, (route) => (store.fail.catalog
+		? route.fulfill({body: JSON.stringify({code: '57014', details: null, hint: null, message: 'timeout'}), contentType: 'application/json', status: 500})
+		: route.fulfill({body: JSON.stringify([...store.listings.values()].filter((row) => row.status === 'available').map((row) => ({kind: 'single', ...row}))), contentType: 'application/json', status: 200})));
 	// listing_status (supabase/store-orders.sql): what the Shop reads to tell
 	// a live copy from a new one.
 	await page.route('**/rest/v1/rpc/listing_status', async (route) => {
@@ -225,7 +242,7 @@ describe('Shop publishing', () => {
 		await page.fill(`${CHARMANDER_EN} .shop-price-input`, '2,30');
 		await page.click('#shop-save-all');
 		await publishNew(page);
-		await waitLine(page, /Skipped 1 copy: Charmander \(held in a binder\)\.$/);
+		await waitLine(page, /Staying home \(1\): Charmander[^:]*: in a binder pocket\.$/);
 		assert.equal(store.listings.has('c-16'), false);
 		assert.equal(store.listings.get('c-04').status, 'available');
 		assert.deepEqual(errors, []);
@@ -437,7 +454,7 @@ describe('Shop publishing', () => {
 		// My Cards tags the copy on HOTARU, and only it.
 		await page.goto(`${server.origin}${BASE}cards`);
 		await page.locator('a.tile[href$="/tsa1-001"] .tile-for-sale').waitFor(TIMEOUT);
-		assert.equal(plain(await page.locator('a.tile[href$="/tsa1-001"] .tile-for-sale').textContent()), 'For sale');
+		assert.match(plain(await page.locator('a.tile[href$="/tsa1-001"] .tile-for-sale').textContent()), /^R\$ [0-9,]+ on sale$/, 'the pill names the shop price (design review F9)');
 		assert.equal(await page.locator('a.tile[href$="/tsa1-004"] .tile-for-sale').count(), 0, 'Charmander has no price');
 		await page.screenshot({path: `${SHOTS}/shop-for-sale-tile.png`});
 
@@ -773,7 +790,7 @@ describe('Shop publishing', () => {
 		store.listings.set('c-08', {id: 'c-08', image_path: null, price_brl: 9, status: 'withdrawn'});
 		store.listings.set('c-99', {id: 'c-99', image_path: null, price_brl: 1, status: 'available'});
 		await openShop(page);
-		await waitLine(page, /^On HOTARU: 1 card, 1 copy\. 1 new copy to publish\.$/);
+		await waitLine(page, /^On HOTARU: 1 card, 1 copy\. 1 new copy to publish\. Withdrew 1 copy that should not be listed\.$/);
 		assert.equal(store.listings.get('c-04').status, 'available');
 		assert.equal(store.listings.get('c-04').price_brl, 3, 'a live copy\'s price syncs by itself');
 		assert.equal(store.listings.get('c-08').status, 'withdrawn', 'opening the Shop re-lists nothing');
@@ -800,7 +817,15 @@ describe('Shop publishing', () => {
 		await page.click('#shop-publish-changes');
 		await page.locator('#shop-guard[open]').waitFor(TIMEOUT);
 		assert.equal(plain(await page.locator('#shop-guard-title').textContent()), 'List 13 new copies on HOTARU?');
-		assert.equal(await page.locator('#shop-guard-list li').count(), 13);
+		// One line per card, finish, and price, with a count and a total
+		// (design review F6); no stray "null", the question in view, and Not
+		// now focused (design review B1).
+		assert.ok(await page.locator('#shop-guard-list li').count() < 13);
+		assert.match(plain(await page.locator('#shop-guard-list').textContent()), /×\d+/);
+		assert.match(plain(await page.locator('#shop-guard-total').textContent()), /^13 copies · R\$/);
+		assert.doesNotMatch(await page.locator('#shop-guard').textContent(), /null/);
+		assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), 'shop-guard-cancel');
+		assert.equal(await page.evaluate(() => document.getElementById('shop-guard').scrollTop), 0);
 		await page.screenshot({path: `${SHOTS}/shop-publish-guard.png`});
 
 		// Not now sends nothing new.
@@ -813,6 +838,45 @@ describe('Shop publishing', () => {
 		await page.click('#shop-guard-publish');
 		await waitLine(page, /^On HOTARU: 1 card, 13 copies\./);
 		assert.equal([...store.listings.values()].filter((row) => row.status === 'available').length, 13);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('Publish changes refuses when the open orders cannot be read, and the automatic path never revives (v128 review H1, H2)', async () => {
+		const copies = SPARE_COPIES.map((one) => (['c-07', 'c-08'].includes(one.id) ? {...one, sale_price: 9} : one));
+		const {context, errors, page, store} = await ownerPhone({copies});
+
+		store.listings.set('c-08', {id: 'c-08', image_path: null, price_brl: 9, status: 'withdrawn'});
+		store.fail.orders = true;
+		await openShop(page);
+		await waitLine(page, /^Could not read HOTARU's open orders, so nothing changed there\.$/);
+		await page.click('#shop-publish-changes');
+		await waitLine(page, /^Could not read HOTARU's open orders, so nothing was published\./);
+		assert.equal(store.listings.get('c-08').status, 'withdrawn');
+		assert.equal(store.calls(), 0, 'nothing was sent');
+
+		store.fail.orders = false;
+		await page.click('#shop-publish-changes');
+		await waitLine(page, /^On HOTARU: 1 card, 1 copy\./);
+		assert.equal(store.listings.get('c-08').status, 'available');
+		assert.equal(store.relists.at(-1), true, 'Publish changes asks to relist');
+		assert.ok(store.relists.slice(0, -1).every((one) => one === false) || store.relists.length === 1);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a copy in an open order is never kept home in its place (v128 review H1)', async () => {
+		// Charizard EN c-07 and c-08 both priced; c-07, the older, is in an
+		// open order, so it is not the copy kept: c-08 stays home.
+		const copies = SPARE_COPIES.map((one) => (['c-07', 'c-08'].includes(one.id) ? {...one, sale_price: 9} : one));
+		const {context, errors, page, store} = await ownerPhone({copies});
+
+		store.orders.push({code: 'HTR-0001', items: [{kind: 'single', listing_id: 'c-07'}]});
+		store.listings.set('c-07', {id: 'c-07', image_path: null, price_brl: 9, status: 'reserved'});
+		await openShop(page);
+		await page.click('#shop-publish-changes').catch(() => {});
+		await page.waitForTimeout(1500);
+		assert.notEqual((store.listings.get('c-08') || {}).status, 'available', 'the last loose copy stays home');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

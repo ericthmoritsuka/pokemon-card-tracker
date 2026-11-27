@@ -264,16 +264,29 @@
 
 .shop-publish {
 	margin: 0 0 var(--space-2);
+	white-space: pre-line;
 }
 
 .shop-mark {
-	font-size: 0.9em;
+	border: 1px solid currentColor;
+	border-radius: 999px;
+	display: inline-block;
+	font-size: 0.85em;
 	font-weight: 600;
+	margin: 2px 0;
+	padding: 1px 10px;
+}
+
+/* Live versus waiting at a glance (design review F3): live in the
+   accent tint, waiting in amber with dark text. */
+.shop-mark-published {
+	background: color-mix(in srgb, var(--accent, currentColor) 14%, transparent);
 }
 
 .shop-mark-pending {
-	font-weight: 400;
-	opacity: 0.8;
+	background: var(--warn);
+	border-color: var(--warn-ink);
+	color: var(--warn-ink);
 }
 
 /* Prices typed and not saved yet: the row is marked, and the bar above the
@@ -710,4 +723,80 @@
 
 .shop-alerts p {
 	margin: 0;
+}
+
+/* Publish changes, on Prices only, in a bar above the tab bar (design
+   review F4). */
+.shop-publish-bar {
+	background: var(--surface, var(--bg));
+	bottom: calc(64px + env(safe-area-inset-bottom));
+	box-shadow: 0 -8px 24px rgb(0 0 0 / 0.24);
+	margin: var(--space-2) calc(-1 * var(--space-2)) 0;
+	padding: var(--space-2);
+	position: sticky;
+	z-index: 2;
+}
+
+.shop-publish-bar .shop-publish-changes {
+	width: 100%;
+}
+
+.shop-publish-hint {
+	display: block;
+	margin: 0 0 var(--space-2);
+	text-align: left;
+}
+
+/* The guard sheet: the question and the answer stay in view while the
+   list scrolls between them (design review B1). */
+.shop-guard .sheet-head {
+	background: var(--surface, var(--bg));
+	position: sticky;
+	top: 0;
+	z-index: 1;
+}
+
+.shop-guard-actions {
+	background: var(--surface, var(--bg));
+	bottom: 0;
+	padding-top: 12px;
+	position: sticky;
+}
+
+.shop-guard-total {
+	font-weight: 600;
+}
+
+.shop-staying-list {
+	margin: 0;
+	padding-left: 1.2em;
+}
+
+/* Tab counts as pills (design review F5). */
+.shop-tabs .lists-switch-item {
+	white-space: nowrap;
+}
+
+.shop-tabs .tab-count {
+	background: var(--accent);
+	border-radius: 999px;
+	color: var(--on-accent, #fff);
+	font-size: 11px;
+	font-weight: 700;
+	margin-left: 4px;
+	padding: 1px 6px;
+}
+
+/* Under 2 hours left (design review F11). */
+.shop-order-urgent {
+	background: var(--warn);
+	border-radius: var(--radius-pill, 999px);
+	color: var(--warn-ink);
+	display: inline-block;
+	font-weight: 700;
+	padding: 1px 10px;
+}
+
+.shop-order-receipt {
+	text-align: left;
 }

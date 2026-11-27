@@ -31,15 +31,16 @@ import {entryInfo, fillRecords as fillCardRecords} from './binders-view.js';
 import {heldCopies} from './binders.js';
 import {loadedSpeciesNames} from './catalog-views.js';
 import {cardIndex, compareNumbers, importApi, indexKey, pricesDue, printedCode, readPriceRecord, savedCardRecords, saveToCardIndex, setFacts, setIdOfCard, setList, shopSetMark, viewingLanguage} from './catalog.js';
-import {listCards, loadDocument, updateCards} from './collection.js';
+import {listCards, loadDocument, onChange, updateCards} from './collection.js';
 import {BASE, errorText, go, h, segmentCounts} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {catalogFor, languageLabel} from './languages.js';
-import {finishLabel} from './monprice.js';
-import {applyMove, parsePrice, priceForInput, PRICE_FORM_TEXT} from './moves.js';
+import {finishLabel, NO_FINISH as NO_FINISH_TEXT} from './monprice.js';
+import {applyMove, parseSalePrice, priceForInput, PRICE_FORM_TEXT} from './moves.js';
 import {addPhotoButton, mainSlide, slideSrc} from './photos/index.js';
 import {euroRates, exchangeRates, extractPrices, finishFits, finishOf, formatBrl, savedEuroRates, savedRates, shortDate} from './prices.js';
-import {PRICE_FILTERS, forSalePatches, groupCopy, groupMark, hasCards, listedOf, listingRows, orderCheck, ownPicturePath, priceFilter, pricePatches, saleFields, shopGroups, shopKey, shopTotals, storePicturePath, suggestion, timeLeft, undoForSalePatches, undoPricePatches} from './shop.js';
+import {PRICE_FILTERS, forSalePatches, groupCopy, groupMark, hasCards, listedOf, listingRows, openOrderCopyIds, orderCheck, ownPicturePath, priceFilter, pricePatches, saleFields, shopGroups, shopKey, shopTotals, storePicturePath, suggestion, timeLeft, unchangedRow, undoForSalePatches, undoPricePatches} from './shop.js';
+import {readLiveListings} from './shop-audit.js';
 import {setPicker} from './set-picker.js';
 import {consignmentSection} from './shop-consignment.js';
 import {kitsSection, openKitSheet, orderItemsNode} from './shop-kits.js';
@@ -47,7 +48,7 @@ import {alertsOn, NEW_ORDERS_EVENT, notifyPermission, turnOff, turnOn} from './o
 import {checkShopOwner, onShopOwner, setAddAndSell, setConsignPick, setShopTab, SHOP_TABS, shopOwnerKnown, shopTab} from './shop-owner.js';
 import {openDialogSheet} from './sheet.js';
 import {announceOrders, cancelOrder, DELIVERED_DAYS, deliveredErrorText, deliveredOrders, keepOrderChecks, markDelivered, markPaid, openOrders, ORDER_CHECKS_EVENT, orderChecks, orderErrorText, receiptLink, setOrderCheck, syncOrderChecks, unsavedChecks} from './store-orders.js';
-import {PROBLEM_TEXT, listingProblems} from './listing-invariant.js';
+import {PROBLEM_TEXT, keptByChoice, listingProblems} from './listing-invariant.js';
 import {listingStatus, publishErrorText, serverSkipped, syncListings, uploadOwnPicture, uploadPicture} from './store-publish.js';
 import {onSyncStatus, syncStatus} from './sync.js';
 import {loadOnePrintings} from './wishlist.js';
@@ -60,7 +61,7 @@ const DRAFTS_KEY = 'cardTracker.shopDrafts';
 const SHOW_LABELS = {all: 'All', priced: 'Priced', unpriced: 'Not priced'};
 // The finish filter's name for the rows whose finish is not set, as the row
 // itself says.
-const NO_FINISH = 'Finish not set';
+const NO_FINISH = NO_FINISH_TEXT;
 
 // One filter choice per finish however its row spells it: a monprice word
 // kept as typed ("Reverse Holofoil") and the catalog's "Reverse holo".
@@ -72,6 +73,9 @@ const MAX_FAILURES = 3;
 // changes asks first (Eric, 2026-11-26: 56 withdrawn cards went out in one
 // sync).
 export const PUBLISH_GUARD = 10;
+// Why Publish changes sent nothing when the open orders could not be read
+// (v128 review H1).
+const ORDERS_UNREAD = 'Could not read HOTARU\'s open orders, so nothing was published. Try Publish changes again in a moment.';
 // How long an order a tick or a payment moved to another stage stays under
 // the filter it was in (Eric, 2026-11-27: five to ten seconds).
 const ORDER_MOVE_MS = 5000;
@@ -80,10 +84,10 @@ function readShow() {
 	try {
 		const value = localStorage.getItem(SHOW_KEY);
 
-		return PRICE_FILTERS.includes(value) ? value : 'unpriced';
+		return PRICE_FILTERS.includes(value) ? value : null;
 	}
 	catch {
-		return 'unpriced';
+		return null;
 	}
 }
 
@@ -135,7 +139,10 @@ export function shopView(root) {
 	let saved = new Map();
 	let rates = savedRates();
 	let euroRate = savedEuroRates();
-	let show = readShow();
+	// With no choice kept, the Shop opens on Not priced only while something
+	// is unpriced, else on All (design review F3).
+	let showChosen = readShow() !== null;
+	let show = readShow() || 'unpriced';
 	// True once the pass that reads missing records has ended.
 	let filled = false;
 	let query = '';
@@ -153,15 +160,28 @@ export function shopView(root) {
 	let publishAgain = false;
 	// An explicit publish (Publish changes) asked for, for the next run or
 	// for when the sync settles, and the new copies still to publish.
+	// publishOnly and waitingOnly: the new copies the guard sheet showed, so
+	// a publish sends only what Eric confirmed (null: every new copy).
 	let publishExplicit = false;
+	let publishOnly = null;
 	let waitingExplicit = false;
+	let waitingOnly = null;
 	let pendingNew = [];
+	// The copies in open HOTARU orders, as last read (v128 review H1): never
+	// the copy kept, and counted as leaving by the listing invariant.
+	let awayIds = new Set();
+	// Whether the card index was read on the last reload (v128 review M2).
+	let indexRead = true;
+	// The copies whose price was cleared on this screen (automaticBatch).
+	const unpricedHere = new Set();
 	// Waiting for the sync to settle before publishing, and its listener.
 	let stopWaiting = null;
 	// The prices typed and not saved yet, by group key, as typed.
 	const drafts = new Map(Object.entries(readDrafts()).filter(([, text]) => typeof text === 'string'));
 	let saving = false;
 	const publishLine = h('p', {'aria-live': 'polite', class: 'muted shop-publish', id: 'shop-publish'});
+	// On the other tabs, one quiet line says copies wait, and leads to Prices.
+	const publishHint = h('button', {class: 'link-button muted shop-publish-hint', hidden: true, id: 'shop-publish-hint', onclick: () => showTab('prices', {focus: true}), type: 'button'});
 	const publishButton = h('button', {class: 'primary shop-publish-changes', hidden: true, id: 'shop-publish-changes', onclick: () => publishChanges(), type: 'button'}, 'Publish changes');
 	// HOTARU's orders (step 5): those waiting for payment and the paid ones
 	// still to hand over, with the document they are checked against, the
@@ -262,6 +282,7 @@ export function shopView(root) {
 		PRICE_FILTERS.map((value) => h('label', null,
 			h('input', {checked: value === show, name: 'shop-filter', onchange: () => {
 				show = value;
+				showChosen = true;
 				keepShow(value);
 				drawList();
 			}, type: 'radio', value}),
@@ -365,7 +386,11 @@ export function shopView(root) {
 		const button = tabButtons[name];
 
 		if (button) {
-			button.textContent = count ? `${TAB_NAMES[name]} (${formatCount(count)})` : TAB_NAMES[name];
+			// The count as a pill on the word's line, so "Orders" never wraps
+			// at 360 px (design review F5); read aloud as "Orders (3)".
+			button.replaceChildren(...(count
+				? [TAB_NAMES[name], h('span', {class: 'visually-hidden'}, ' ('), h('span', {class: 'tab-count'}, formatCount(count)), h('span', {class: 'visually-hidden'}, ')')]
+				: [TAB_NAMES[name]]));
 		}
 	}
 
@@ -386,6 +411,7 @@ export function shopView(root) {
 			tabButtons[name].focus();
 		}
 
+		publishHint.hidden = !pendingNew.length || name === 'prices';
 		drawSelBar();
 	}
 
@@ -480,7 +506,7 @@ export function shopView(root) {
 	root.append(
 		h('div', {class: 'view-head'}, h('h2', null, 'Shop')),
 		publishLine,
-		publishButton,
+		publishHint,
 		tabList,
 		panel('prices',
 			h('p', {class: 'muted shop-intro'}, 'Price your spares for HOTARU. Only cards with a price will be offered, and the suggestions stay on this screen.'),
@@ -492,7 +518,10 @@ export function shopView(root) {
 			bulkError,
 			list,
 			empty,
-			selBar),
+			selBar,
+			// The button lives on Prices alone, in a bar that stays in reach
+			// (design review F4), so it never shouts over an order.
+			h('div', {class: 'shop-publish-bar', id: 'shop-publish-bar'}, publishButton)),
 		panel('kits', kits.node),
 		panel('orders', ordersBox, alertsBox),
 		// Consigned cards have a tab of their own (Eric, 2026-11-26).
@@ -684,7 +713,8 @@ export function shopView(root) {
 	}
 
 	const MARKS = {
-		pending: 'Not on HOTARU yet',
+		// The new habit, said where it applies (design review F3).
+		pending: 'Waiting for Publish changes',
 		published: 'On HOTARU',
 		reserved: 'Reserved by an order',
 	};
@@ -704,7 +734,7 @@ export function shopView(root) {
 	// Keeps what was typed as a draft, or drops the draft when it says what
 	// is saved already.
 	function setDraft(group, text) {
-		const typed = parsePrice(text);
+		const typed = parseSalePrice(text);
 		const same = !typed.error && typed.value === group.price;
 
 		if (same) {
@@ -766,7 +796,7 @@ export function shopView(root) {
 		const dirty = drafts.has(group.key);
 		// Each finish is its own row and price, so every row names its finish.
 		const named = finishName(groupCopy(group), group);
-		const finish = named || 'Finish not set';
+		const finish = named || 'No finish set';
 		const input = h('input', {'aria-describedby': `${id}-error`, 'aria-label': `Sale price for ${info.name}, ${finish}`, autocomplete: 'off', class: 'search shop-price-input', enterkeyhint: 'next', id: `${id}-price`, inputmode: 'decimal', placeholder: 'Not priced', type: 'text', value: fieldText(group)});
 		const error = h('p', {class: 'form-error', hidden: true, id: `${id}-error`, role: 'alert'});
 		const found = suggestion(group, recordOf(group), {euroRates: euroRate, rates});
@@ -811,7 +841,9 @@ export function shopView(root) {
 			artNode(group),
 			h('div', {class: 'shop-body'},
 				h('a', {class: 'shop-name', 'data-link': info.route, href: BASE + info.route}, info.name),
-				h('p', {class: 'shop-finish-line'}, h('span', {class: `shop-finish${named ? '' : ' shop-finish-unset'}`}, finish)),
+				// HOTARU reads an unset finish as Normal, a known limitation
+				// (design review F14), so the row says so.
+				h('p', {class: 'shop-finish-line'}, h('span', {class: `shop-finish${named ? '' : ' shop-finish-unset'}`}, finish), named ? null : h('span', {class: 'muted shop-finish-hotaru'}, ' · Shows as Normal on HOTARU')),
 				h('p', {class: 'muted shop-meta'}, meta),
 				h('p', {class: 'shop-state'}, stateText(group)),
 				h('p', {class: 'shop-draft', hidden: !dirty}, 'Changed, not saved yet'),
@@ -967,7 +999,8 @@ export function shopView(root) {
 				drawList();
 				await kits.load();
 			},
-			states,
+			// Before the visit's first publish answers, the server decides.
+			states: Object.keys(states || {}).length ? states : null,
 			toast,
 		});
 	}
@@ -1029,7 +1062,7 @@ export function shopView(root) {
 				continue;
 			}
 
-			const typed = parsePrice(text);
+			const typed = parseSalePrice(text);
 
 			if (typed.error) {
 				bad.push(group);
@@ -1064,6 +1097,20 @@ export function shopView(root) {
 
 		const patches = changes.flatMap(({group, price}) => pricePatches([group], price));
 		const undo = undoPricePatches(changes.map(({group}) => group), patches);
+
+		// A price cleared here takes its copies off HOTARU on the automatic
+		// path; a price merely unknown here (another device's, not merged
+		// yet) does not (v128 review M1).
+		for (const {group, price} of changes) {
+			for (const entry of group.copies || []) {
+				if (price === null) {
+					unpricedHere.add(entry.id);
+				}
+				else {
+					unpricedHere.delete(entry.id);
+				}
+			}
+		}
 		const n = changes.length;
 
 		saving = true;
@@ -1106,7 +1153,7 @@ export function shopView(root) {
 	// Types one price into the ticked cards, or every card shown when none
 	// is ticked, as drafts; the ticks are then cleared.
 	function fillShown(input = bulkInput, error = bulkError) {
-		const typed = parsePrice(input.value);
+		const typed = parseSalePrice(input.value);
 		const visible = selected.size ? groups.filter((group) => selected.has(group.key)) : shown();
 
 		if (typed.error || typed.value === null) {
@@ -1312,7 +1359,11 @@ export function shopView(root) {
 	// asking first above PUBLISH_GUARD of them. One run at a time; a change
 	// during a run starts one more after it, and an explicit publish asked
 	// for during a run is kept for that next run.
-	function publish({explicit = false} = {}) {
+	function publish({explicit = false, only = null} = {}) {
+		if (explicit) {
+			publishOnly = publishExplicit ? (publishOnly && only ? new Set([...publishOnly, ...only]) : null) : only;
+		}
+
 		publishExplicit = publishExplicit || explicit;
 
 		if (publishing) {
@@ -1326,9 +1377,11 @@ export function shopView(root) {
 				publishAgain = false;
 
 				const mode = publishExplicit;
+				const only = publishOnly;
 
 				publishExplicit = false;
-				await publishOnce({explicit: mode});
+				publishOnly = null;
+				await publishOnce({explicit: mode, only});
 			} while (publishAgain && alive);
 		})().finally(() => {
 			publishing = null;
@@ -1342,10 +1395,34 @@ export function shopView(root) {
 	// it is skipped, fail closed. Resolves to {rows, skipped, status}, where
 	// skipped is [{group, entry, reason}] and status is listing_status's
 	// answer for every priced copy, or null when it could not be read.
-	async function plan() {
+	// away is the copy ids in open orders, or null when the orders could not
+	// be read; live, with {live: true}, HOTARU's available singles
+	// (store_catalog), or null when they could not be read.
+	async function plan({live: readLive = false} = {}) {
+		// Planned from the latest merged document, never the screen's last
+		// read (QA shop 1 to 3: a star, Not for sale, or a price from
+		// another device).
+		await reload();
+
+		let away = null;
+
+		try {
+			away = openOrderCopyIds(await openOrders());
+		}
+		catch {
+			away = null;
+		}
+
+		// A copy newly in an order can no longer be the copy kept, so the
+		// groups are worked out again before anything is sent.
+		if (away && (away.size !== awayIds.size || [...away].some((id) => !awayIds.has(id)))) {
+			awayIds = away;
+			await reload();
+		}
+
 		const doc = await loadDocument();
 		const all = rowsFor(priced());
-		const problems = listingProblems(doc, all.map((row) => row.id));
+		const problems = listingProblems(doc, all.map((row) => row.id), away ? [...away] : []);
 		const skipped = [];
 
 		for (const group of priced()) {
@@ -1365,7 +1442,49 @@ export function shopView(root) {
 			status = null;
 		}
 
-		return {problems, rows: all.filter((row) => !problems.has(row.id)), skipped, status};
+		let live = null;
+
+		if (readLive) {
+			try {
+				live = await readLiveListings();
+			}
+			catch {
+				live = null;
+			}
+		}
+
+		return {away, doc, live, problems, rows: all.filter((row) => !problems.has(row.id)), skipped, status};
+	}
+
+	// The automatic path's batch (v128 review M1, the interim without new
+	// SQL): every copy live on HOTARU is sent again, this screen's row where
+	// it has one and HOTARU's own row unchanged where it does not, so a
+	// screen that has not caught up with another device never withdraws a
+	// listing it merely does not know. A live copy leaves only when this
+	// device's document says so: the copy is gone, held, the last of its
+	// finish, taken off sale, or its finish lost its price here. Resolves the
+	// ids to withdraw too.
+	function automaticBatch(planned) {
+		const {away, doc, live, status} = planned;
+		const mine = rowsFor(priced());
+		const mineIds = new Set(mine.map((row) => row.id));
+		const byId = new Map(((doc && doc.cards) || []).filter((entry) => entry && entry.id && !entry.deleted_at).map((entry) => [entry.id, entry]));
+		const kept = keptByChoice(doc);
+		const offSale = (id) => {
+			const entry = byId.get(id);
+
+			return entry && (kept.has(id) || unpricedHere.has(id));
+		};
+		const candidates = [
+			...mine.filter((row) => isLiveStatus(status[row.id])),
+			...(live || []).filter((row) => !mineIds.has(row.id) && !offSale(row.id)).map(unchangedRow),
+		];
+		const problems = listingProblems(doc, candidates.map((row) => row.id), [...(away || [])]);
+		const rows = candidates.filter((row) => !problems.has(row.id));
+		const sent = new Set(rows.map((row) => row.id));
+		const withdrawn = (live || []).filter((row) => !sent.has(row.id)).map((row) => row.id);
+
+		return {extra: rows.filter((row) => !mineIds.has(row.id)), ids: sent, problems, withdrawn};
 	}
 
 	const isLiveStatus = (value) => value === 'available' || value === 'reserved';
@@ -1373,14 +1492,30 @@ export function shopView(root) {
 	// The copies a publish would list for the first time, from plan().
 	const newRows = ({rows, status}) => rows.filter((row) => !status || !isLiveStatus(status[row.id]));
 
+	// The copies kept home, as the guard and the publish line both say them
+	// (design review F6 and F7): "Staying home (2):", one per line, each
+	// with the shared reason (js/listing-invariant.js REASONS).
+	const stayingLine = ({entry, group, reason}) => {
+		const info = (group && (group.publishInfo || group.info)) || {};
+		const name = [info.name || (group && group.card_id) || (entry && entry.id), info.number].filter(Boolean).join(' ');
+
+		return `${name}: ${PROBLEM_TEXT[reason]}`;
+	};
+
 	function skippedText(skipped) {
 		if (!skipped.length) {
 			return '';
 		}
 
-		const named = skipped.slice(0, 5).map(({group, reason}) => `${group.info.name || group.card_id} (${PROBLEM_TEXT[reason]})`);
+		const named = skipped.slice(0, 5).map(stayingLine);
 
-		return ` Skipped ${plural(skipped.length, 'copy', 'copies')}: ${named.join(', ')}${skipped.length > 5 ? ', and more' : ''}.`;
+		return ` Staying home (${formatCount(skipped.length)}): ${named.join('; ')}${skipped.length > 5 ? '; and more' : ''}.`;
+	}
+
+	function stayingHomeNode(skipped, id) {
+		return h('div', {class: 'shop-staying', id},
+			h('p', {class: 'status'}, `Staying home (${formatCount(skipped.length)}):`),
+			h('ul', {class: 'shop-staying-list'}, ...skipped.map((one) => h('li', null, stayingLine(one)))));
 	}
 
 	// The Publish changes button: hidden with nothing new to list, and
@@ -1389,6 +1524,9 @@ export function shopView(root) {
 		const count = pendingNew.length;
 
 		publishButton.hidden = !count;
+		publishButton.parentElement && (publishButton.parentElement.hidden = !count);
+		publishHint.hidden = !count || tab === 'prices';
+		publishHint.textContent = count ? `${plural(count, 'new copy waits', 'new copies wait')} to publish · Prices` : '';
 		publishButton.textContent = count ? `Publish changes: ${plural(count, 'new copy', 'new copies')}` : 'Publish changes';
 	}
 
@@ -1396,42 +1534,75 @@ export function shopView(root) {
 	// list in a sheet and asks first.
 	async function publishChanges() {
 		const planned = await plan();
+
+		if (!planned.away) {
+			publishLine.textContent = ORDERS_UNREAD;
+
+			return;
+		}
+
 		const fresh = newRows(planned);
 
 		if (fresh.length > PUBLISH_GUARD && !(await confirmBatch(fresh, planned.skipped))) {
 			return;
 		}
 
-		await publish({explicit: true});
+		// Only the copies shown (and so confirmed) go out as new; one priced
+		// in the meantime waits for the next Publish changes (v128 review,
+		// Low 2).
+		await publish({explicit: true, only: new Set(fresh.map((row) => row.id))});
+	}
+
+	// The guard list, one line per card, language, finish, and price with
+	// a count (design review F6), and the total.
+	function guardLines(fresh) {
+		const lines = new Map();
+
+		for (const row of fresh) {
+			const text = `${row.name}${row.number ? ` ${row.number}` : ''} · ${languageLabel(row.language) || row.language || ''} · ${row.finish || NO_FINISH} · ${formatBrl(row.price_brl)}`;
+
+			lines.set(text, (lines.get(text) || 0) + 1);
+		}
+
+		return [...lines].map(([text, n]) => (n > 1 ? `${text} ×${n}` : text));
 	}
 
 	function confirmBatch(fresh, skipped) {
 		return new Promise((resolve) => {
 			const sheet = h('dialog', {'aria-labelledby': 'shop-guard-title', class: 'sheet shop-guard', id: 'shop-guard'});
+			const total = fresh.reduce((sum, row) => sum + (Number(row.price_brl) || 0), 0);
+			const cancel = h('button', {id: 'shop-guard-cancel', onclick: () => close(false), type: 'button'}, 'Not now');
 			let answer = false;
 			const close = (value) => {
 				answer = value;
 				sheet.close();
 			};
 
-			sheet.append(
-				h('div', {class: 'sheet-head'}, h('h2', {id: 'shop-guard-title'}, `List ${plural(fresh.length, 'new copy', 'new copies')} on HOTARU?`)),
+			// Built from h() children, never a bare null (design review B1:
+			// append() printed it as "null").
+			sheet.append(...[
+				h('div', {class: 'sheet-head'}, h('h2', {id: 'shop-guard-title', tabindex: '-1'}, `List ${plural(fresh.length, 'new copy', 'new copies')} on HOTARU?`)),
 				h('p', {class: 'muted'}, `This publish puts more than ${formatCount(PUBLISH_GUARD)} new copies on HOTARU at once. Check the list before they go out.`),
-				h('ul', {class: 'shop-guard-list', id: 'shop-guard-list'}, ...fresh.map((row) => h('li', null, `${row.name}${row.number ? ` ${row.number}` : ''} · ${languageLabel(row.language) || row.language || ''}${row.finish ? ` · ${row.finish}` : ''} · ${formatBrl(row.price_brl)}`))),
-				skipped.length ? h('p', {class: 'status', id: 'shop-guard-skipped'}, skippedText(skipped).trim()) : null,
+				h('ul', {class: 'shop-guard-list', id: 'shop-guard-list'}, ...guardLines(fresh).map((line) => h('li', null, line))),
+				h('p', {class: 'shop-guard-total', id: 'shop-guard-total'}, `${plural(fresh.length, 'copy', 'copies')} · ${formatBrl(Math.round(total * 100) / 100)}`),
+				skipped.length ? stayingHomeNode(skipped, 'shop-guard-skipped') : null,
 				h('div', {class: 'shop-guard-actions'},
 					h('button', {class: 'primary', id: 'shop-guard-publish', onclick: () => close(true), type: 'button'}, 'Publish'),
-					h('button', {id: 'shop-guard-cancel', onclick: () => close(false), type: 'button'}, 'Not now'))
-			);
+					cancel),
+			].filter(Boolean));
 			document.body.append(sheet);
 			openDialogSheet(sheet, {onClose: () => {
 				sheet.remove();
 				resolve(answer);
 			}});
+			// The question first and Not now focused, so one tap never
+			// publishes the batch unread (design review B1).
+			sheet.scrollTop = 0;
+			cancel.focus();
 		});
 	}
 
-	async function publishOnce({explicit = false} = {}) {
+	async function publishOnce({explicit = false, only = null} = {}) {
 		if (!currentUser()) {
 			publishLine.textContent = 'Sign in to publish your priced spares to HOTARU.';
 
@@ -1454,6 +1625,7 @@ export function shopView(root) {
 			publishLine.textContent = 'Waiting for your cards to sync before publishing to HOTARU…';
 
 			if (explicit) {
+				waitingOnly = waitingExplicit ? null : only;
 				waitingExplicit = true;
 			}
 
@@ -1468,9 +1640,11 @@ export function shopView(root) {
 
 							if (alive) {
 								const again = waitingExplicit;
+								const againOnly = waitingOnly;
 
 								waitingExplicit = false;
-								reload().then(() => publish({explicit: again}));
+								waitingOnly = null;
+								reload().then(() => publish({explicit: again, only: againOnly}));
 							}
 						});
 					}
@@ -1483,30 +1657,60 @@ export function shopView(root) {
 		publishLine.textContent = 'Publishing to HOTARU…';
 
 		try {
-			const planned = await plan();
+			const planned = await plan({live: !explicit});
 
 			if (!alive) {
 				return;
 			}
 
+			// Without the open orders, a copy on its way to a buyer would count
+			// as at home, so nothing is sent (v128 review H1).
+			if (!planned.away) {
+				pendingNew = planned.status ? newRows(planned) : pendingNew;
+				drawPending();
+				publishLine.textContent = explicit ? ORDERS_UNREAD : 'Could not read HOTARU\'s open orders, so nothing changed there.';
+
+				return;
+			}
+
 			// The automatic path never lists a new copy. When it cannot tell
-			// which copies are live, it changes nothing: sending a partial set
-			// would withdraw the rest.
-			if (!explicit && !planned.status) {
-				pendingNew = planned.rows;
+			// which copies are live, or the card index (which tells finishes
+			// apart) could not be read, it changes nothing: a partial set would
+			// withdraw the rest.
+			if (!explicit && !indexRead) {
+				pendingNew = planned.status ? newRows(planned) : pendingNew;
+				drawPending();
+				publishLine.textContent = 'Could not read the card index, so nothing changed on HOTARU.';
+
+				return;
+			}
+
+			if (!explicit && (!planned.status || !planned.live)) {
+				pendingNew = planned.status ? newRows(planned) : pendingNew;
 				drawPending();
 				publishLine.textContent = `Could not read what is on HOTARU, so nothing changed there.${skippedText(planned.skipped)}`;
 
 				return;
 			}
 
-			const allowed = new Set((explicit ? planned.rows : planned.rows.filter((row) => isLiveStatus(planned.status[row.id]))).map((row) => row.id));
-			const send = (list) => rowsFor(list).filter((row) => allowed.has(row.id));
-			// Live copies that break the invariant leave HOTARU now.
-			const pulled = planned.skipped.filter(({entry}) => planned.status && planned.status[entry.id] === 'available').length;
+			const auto = explicit ? null : automaticBatch(planned);
+			const allowed = explicit
+				? new Set(planned.rows.filter((row) => !only || only.has(row.id) || (planned.status && isLiveStatus(planned.status[row.id]))).map((row) => row.id))
+				: auto.ids;
+			const extra = auto ? auto.extra : [];
+			const send = (list) => [...rowsFor(list).filter((row) => allowed.has(row.id)), ...extra];
+			// Live copies that break the invariant, or that this device took
+			// off sale, leave HOTARU now.
+			const pulled = explicit
+				? planned.skipped.filter(({entry}) => planned.status && planned.status[entry.id] === 'available').length
+				: auto.withdrawn.length;
 
-			states = await syncListings(send(priced()));
-			pendingNew = explicit ? [] : newRows(planned);
+			// Known before the call, so a failed sync still offers the button
+			// (QA shop 12).
+			pendingNew = explicit ? newRows(planned).filter((row) => !allowed.has(row.id)) : newRows(planned);
+			drawPending();
+			states = await syncListings(send(priced()), {relist: explicit});
+			pendingNew = explicit ? newRows(planned).filter((row) => !allowed.has(row.id)) : newRows(planned);
 
 			if (!alive) {
 				return;
@@ -1558,7 +1762,7 @@ export function shopView(root) {
 			if (uploaded.length && alive) {
 				const withPictures = new Map(uploaded.map((group) => [group.key, group]));
 
-				states = await syncListings(send(priced().map((group) => withPictures.get(group.key) || group)));
+				states = await syncListings(send(priced().map((group) => withPictures.get(group.key) || group)), {relist: explicit});
 			}
 
 			if (!alive) {
@@ -1567,8 +1771,11 @@ export function shopView(root) {
 
 			drawMarks();
 
-			const live = priced().filter((group) => groupMark(group, states) === 'published').length;
-			const copies = priced().filter((group) => groupMark(group, states) === 'published').reduce((n, group) => n + group.listed.length, 0);
+			// A card counts as on HOTARU while any listed copy is (QA shop 10:
+			// a half-live card counted as none).
+			const isOn = (entry) => Boolean(states[entry.id]) && states[entry.id].status === 'available';
+			const live = priced().filter((group) => group.listed.some(isOn)).length;
+			const copies = priced().reduce((n, group) => n + group.listed.filter(isOn).length, 0);
 			const noPicture = priced().filter((group) => group.listed.some((entry) => sent(entry) && !(states[entry.id] && states[entry.id].image_path))).length;
 			const parts = [
 				live
@@ -1594,7 +1801,8 @@ export function shopView(root) {
 				return {group: {card_id: group ? group.card_id : id, info: {name}}, reason};
 			});
 
-			publishLine.textContent = parts.join(' ') + skippedText([...planned.skipped, ...refused]);
+			// One fact per line, not one run-on paragraph (design review P5).
+			publishLine.textContent = [...parts, skippedText([...planned.skipped, ...refused]).trim()].filter(Boolean).join('\n');
 
 			// A kit whose copy is gone takes another copy of the same card.
 			await kits.refill(states).catch(() => {});
@@ -1844,8 +2052,14 @@ export function shopView(root) {
 
 		return allTicked(order) ? 'ready' : 'separating';
 	};
+	const URGENT_MS = 2 * 60 * 60 * 1000;
+	const urgent = (order) => order.status === 'pending' && Date.parse(order.reserved_until) - Date.now() < URGENT_MS;
 	const stageText = (order) => ({
-		pending: () => `Waiting for payment · ${timeLeft(order.reserved_until)}`,
+		// Under 2 hours, the time leads, and a receipt says to check the Pix
+		// (design review F11).
+		pending: () => (urgent(order)
+			? `${timeLeft(order.reserved_until)}${order.receipt_path ? ' · Receipt sent: check the Pix' : ' · Waiting for payment'}`
+			: `Waiting for payment · ${timeLeft(order.reserved_until)}`),
 		ready: () => 'Paid · ready to hand over',
 		separating: () => 'Paid · separating',
 	})[orderStage(order)]();
@@ -1864,8 +2078,8 @@ export function shopView(root) {
 			const done = Boolean(items.length) && count === items.length;
 			const unsaved = unsavedChecks(order.code);
 			const line = done
-				? (items.length === 1 ? 'Checked' : `All ${formatCount(items.length)} checked`)
-				: `Checked ${formatCount(count)} of ${formatCount(items.length)}`;
+				? (items.length === 1 ? 'Separated' : `All ${formatCount(items.length)} separated`)
+				: `Separated ${formatCount(count)} of ${formatCount(items.length)}`;
 
 			// Ticks the server has not taken yet show on this device only.
 			progress.textContent = unsaved ? `${line} · ${formatCount(unsaved)} not saved yet` : line;
@@ -1876,7 +2090,9 @@ export function shopView(root) {
 		progressDrawers.set(order.code, drawProgress);
 		const check = (item, text) => {
 			const on = ticked.has(item.listing_id);
-			const box = h('input', {checked: on, onchange: (event) => {
+			// The stage's own word (design review F2): "Checked" is Check
+			// spares' word for a verified copy.
+			const box = h('input', {'aria-label': `Separated: ${text}`, checked: on, onchange: (event) => {
 				const value = event.target.checked;
 
 				if (value) {
@@ -1905,7 +2121,7 @@ export function shopView(root) {
 
 	function orderCard(order) {
 		const {logged, missing} = orderCheck(order, orderDoc);
-		const state = h('p', {class: 'shop-order-state'}, stageText(order));
+		const state = h('p', {class: `shop-order-state${urgent(order) ? ' shop-order-urgent' : ''}`}, stageText(order));
 		const checklist = orderChecklist(order, () => {
 			holdInView(order.code);
 			state.textContent = stageText(order);
@@ -1941,13 +2157,18 @@ export function shopView(root) {
 			];
 		}
 		else if (question === 'delivered') {
-			const unticked = (order.items || []).filter((item) => !orderChecks(order.code).has(item.listing_id)).length;
+			const left = (order.items || []).filter((item) => !orderChecks(order.code).has(item.listing_id));
+			const unticked = left.length;
+			const named = unticked === 1 ? [left[0].name, left[0].number ? `#${left[0].number}` : null].filter(Boolean).join(' ') : '';
+			// Back is focused, so a stray tap never delivers (design review P9).
+			const back = h('button', {disabled: busy, id: `shop-deliver-back-${order.code}`, onclick: () => ask(null), type: 'button'}, 'Back');
 
 			actions = [
-				h('p', {class: 'shop-order-ask'}, `${plural(unticked, 'card is', 'cards are')} not checked. Deliver anyway?`),
-				h('button', {disabled: busy, onclick: () => delivered(order), type: 'button'}, 'Deliver anyway'),
-				h('button', {disabled: busy, onclick: () => ask(null), type: 'button'}, 'Back'),
+				h('p', {class: 'shop-order-ask'}, `${named ? `${named} is` : plural(unticked, 'card is', 'cards are')} not separated yet. Deliver anyway?`),
+				h('button', {class: 'primary', disabled: busy, onclick: () => delivered(order), type: 'button'}, 'Deliver anyway'),
+				back,
 			];
+			queueMicrotask(() => back.isConnected && back.focus());
 		}
 		else if (pending) {
 			actions = [
@@ -1969,7 +2190,7 @@ export function shopView(root) {
 				order.note ? ` · ${order.note}` : null),
 			state,
 			order.receipt_path
-				? h('p', {class: 'shop-order-receipt'}, 'Receipt sent ', h('button', {class: 'link-button', onclick: () => openReceipt(order), type: 'button'}, 'Receipt'))
+				? h('p', {class: 'shop-order-receipt'}, h('button', {class: 'small', onclick: () => openReceipt(order), type: 'button'}, 'Open receipt'))
 				: (pending ? h('p', {class: 'muted shop-order-receipt'}, 'No receipt yet') : null),
 			orderItemsNode(order.items, itemLine, checklist.check),
 			checklist.progress,
@@ -2105,6 +2326,13 @@ export function shopView(root) {
 		const shown = orderFilter === 'delivered'
 			? deliveredList
 			: orders.filter((order) => orderStage(order) === orderFilter || heldInView.has(order.code));
+
+		// Unpaid: receipt sent first, then the least time left (design
+		// review F11).
+		if (orderFilter === 'pending') {
+			shown.sort((a, b) => Number(Boolean(b.receipt_path)) - Number(Boolean(a.receipt_path))
+				|| String(a.reserved_until).localeCompare(String(b.reserved_until)));
+		}
 		// The radios are drawn anew with the list; the one that had the
 		// focus gets it back.
 		const hadFocus = orderFilterNode.contains(document.activeElement);
@@ -2118,8 +2346,8 @@ export function shopView(root) {
 				? deliveredErrorText(deliveredError)
 				: `Nothing delivered in the last ${formatCount(DELIVERED_DAYS)} days.`,
 			pending: 'Nothing waiting for payment.',
-			ready: 'Nothing ready: no paid order has every card checked.',
-			separating: 'Nothing to separate: every paid order has its cards checked.',
+			ready: 'Nothing ready: no paid order has every card separated.',
+			separating: 'Nothing to separate: every paid order has its cards separated.',
 		};
 
 		progressDrawers.clear();
@@ -2315,16 +2543,43 @@ export function shopView(root) {
 
 	window.addEventListener(ORDER_CHECKS_EVENT, ordersOnChecks);
 
+	// Back online, live listings catch up at once (QA shop 17).
+	const onOnline = () => {
+		if (alive) {
+			publish();
+		}
+	};
+
+	window.addEventListener('online', onOnline);
+
+	// Another device's change (a star, Not for sale, a new price) reaches
+	// this screen: its groups and the pending count follow it (QA shop 1 to
+	// 3), and a change that touches a live listing syncs.
+	let changeTimer = null;
+	const stopChanges = onChange((doc, {source} = {}) => {
+		if (source === 'local' || !alive) {
+			return;
+		}
+
+		clearTimeout(changeTimer);
+		changeTimer = setTimeout(() => {
+			if (alive && !saving) {
+				reload().then(() => publish()).catch(() => {});
+			}
+		}, 400);
+	});
+
 	async function reload() {
 		// loadOnePrintings first, so what the Shop publishes never depends on
 		// how fast the card index read (js/wishlist.js copyFinishKey).
-		const [cards, doc] = await Promise.all([listCards(), loadDocument(), loadOnePrintings()]);
+		const [cards, doc, read] = await Promise.all([listCards(), loadDocument(), loadOnePrintings()]);
 
 		if (!alive) {
 			return;
 		}
 
-		groups = shopGroups(cards, {codeOf: printedCode, held: heldCopies(doc)});
+		indexRead = read !== false;
+		groups = shopGroups(cards, {away: awayIds, codeOf: printedCode, held: heldCopies(doc)});
 		groups.forEach(describe);
 		// Opened from its address, the Shop can draw before the species
 		// names are read; the searches take the English names when they are.
@@ -2350,7 +2605,7 @@ export function shopView(root) {
 		// is saved (another phone saved it), is dropped.
 		for (const [key, text] of drafts) {
 			const group = groups.find((one) => one.key === key);
-			const typed = parsePrice(text);
+			const typed = parseSalePrice(text);
 
 			if (!group || (!typed.error && typed.value === group.price)) {
 				drafts.delete(key);
@@ -2358,6 +2613,15 @@ export function shopView(root) {
 		}
 
 		keepDrafts(drafts);
+
+		if (!showChosen) {
+			show = groups.some((group) => group.price === null) ? 'unpriced' : 'all';
+
+			for (const input of filter.querySelectorAll('input[name="shop-filter"]')) {
+				input.checked = input.value === show;
+			}
+		}
+
 		drawSummary();
 		drawSelects();
 		drawList();
@@ -2491,6 +2755,9 @@ export function shopView(root) {
 
 	return () => {
 		alive = false;
+		stopChanges();
+		clearTimeout(changeTimer);
+		window.removeEventListener('online', onOnline);
 		stopOwner();
 		kits.stop();
 		consignment.stop();
