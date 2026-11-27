@@ -29,8 +29,10 @@ const isLive = (entry) => Boolean(entry) && !entry.deleted_at;
 // The key the last-copy check counts by: card, language, and finish.
 const lastKey = (entry) => `${entry.catalog || 'international'}|${entry.card_id}|${entry.language || ''}|${copyFinishKey(entry)}`;
 
-// doc: {binders, binder_picks, cards}. entryIds: the copy ids about to be
-// listed. Returns a Map of entry id to 'missing', 'held', or 'last' for each
+// doc: {binders, binder_picks, cards}. entryIds: every copy id about to be
+// listed (or live), read as one batch: a copy is 'last' when listing it
+// with the others before it would leave no copy of its card, language, and
+// finish at home. Returns a Map of entry id to 'missing', 'held', or 'last' for each
 // id that breaks the invariant; an id that keeps it is not in the map.
 export function listingProblems(doc, entryIds) {
 	const problems = new Map();
@@ -47,7 +49,23 @@ export function listingProblems(doc, entryIds) {
 		counts.set(key, (counts.get(key) || 0) + 1);
 	}
 
-	for (const id of entryIds || []) {
+	const ids = [...new Set(entryIds || [])];
+	// Copies of each key this batch takes out of the house: every copy
+	// marked For sale first (Eric's consent), then the others in order, so
+	// one copy of each card, language, and finish always stays home.
+	const leaving = new Map();
+
+	for (const id of ids) {
+		const entry = byId.get(id);
+
+		if (entry && entry.for_sale === true) {
+			const key = lastKey(asCard(entry));
+
+			leaving.set(key, (leaving.get(key) || 0) + 1);
+		}
+	}
+
+	for (const id of ids) {
 		const entry = byId.get(id);
 
 		if (!entry) {
@@ -64,9 +82,17 @@ export function listingProblems(doc, entryIds) {
 
 		if (held.has(id)) {
 			problems.set(id, 'held');
+
+			continue;
 		}
-		else if ((counts.get(lastKey(asCard(entry))) || 0) < 2) {
+
+		const key = lastKey(asCard(entry));
+
+		if ((leaving.get(key) || 0) + 1 >= (counts.get(key) || 0)) {
 			problems.set(id, 'last');
+		}
+		else {
+			leaving.set(key, (leaving.get(key) || 0) + 1);
 		}
 	}
 

@@ -4541,6 +4541,27 @@ server half (the same check inside `store_sync`) is not built yet.
 **Delivered asks about unticked cards** (Eric, 2026-11-26). Delivered on an order with cards not
 ticked asks first, as Cancel does ("2 cards are not checked. Deliver anyway?"); an order with every
 card ticked, or with no cards, closes at once.
+
+### Held and Free, and the Shop Audit
+
+**One source of truth** (Eric, 2026-11-26; plans/roadmap.md, "Backlog: preventing wrong
+listings"). Trade, Check spares, the tile's ×N | M badge, the binders, and the Shop read a copy's
+state from `js/held-free.js` `copyState`: held is `heldCopies`, spare is what `shopGroups` frees
+(the spare rule, with a hand-made copy paired with its catalog twin), and free is `freeCopyIds`,
+every spare not taken off sale plus every copy marked For sale. Trade now lists the free copies,
+so a spare taken off sale leaves Spares and a copy marked For sale joins it, and a hand-made twin
+pairs with its catalog copy there as it already did in the Shop and Check spares. Before, Trade
+ran the spare rule alone and disagreed with Check spares, which calls an off-sale spare "stays
+yours". `tests/held-free.test.mjs` checks the five agree on `tests/fixtures/collection-shape.mjs`,
+an invented collection with every shape that listed a card by mistake. *(Decided 2026-11-27.)*
+
+**The Shop audit** (`shop/audit`, linked from the Shop for the owner). It reads the live listings
+as HOTARU does (`store_catalog`, singles only) and lists each one that breaks the listing invariant
+(`js/listing-invariant.js` `listingProblems`): the copy is gone, held in a pocket, or the only copy
+of its card, language, and finish, with an unset finish its own finish. A copy marked For sale is
+offered wherever it is, as the Shop offers it, so it is only ever flagged as gone. The screen is
+read only: it changes no listing. *(Decided 2026-11-27.)*
+
 ### Stats
 
 **A Stats screen for the collection** (2026-11-19, from a survey of other trackers). `stats` shows

@@ -83,6 +83,18 @@ describe('listingProblems', () => {
 		assert.deepEqual(asObject(listingProblems(doc, ids)), {});
 	});
 
+	test('a batch never takes every copy of a finish: one of two loose copies stays home', () => {
+		const doc = {binder_picks: [], binders: [], cards: [copy('a'), copy('bb')]};
+
+		assert.deepEqual(asObject(listingProblems(doc, ['a', 'bb'])), {bb: 'last'});
+	});
+
+	test('a copy marked For sale leaves first, so the other copy of its finish stays home', () => {
+		const doc = {binder_picks: [], binders: [], cards: [copy('a'), copy('bb', {for_sale: true})]};
+
+		assert.deepEqual(asObject(listingProblems(doc, ['a', 'bb'])), {a: 'last'});
+	});
+
 	test('pure: no ids, an empty document, or no document give no problems or only missing', () => {
 		assert.deepEqual(asObject(listingProblems({cards: []}, [])), {});
 		assert.deepEqual(asObject(listingProblems(null, ['x'])), {x: 'missing'});

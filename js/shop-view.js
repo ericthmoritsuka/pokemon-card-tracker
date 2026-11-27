@@ -211,7 +211,8 @@ export function shopView(root) {
 	// in with this app's session (Eric, 2026-11-24). Shown once the server
 	// says this is the family's owner, the only one it lets save them.
 	const sealedAdmin = h('p', {class: 'shop-sealed-admin', hidden: true, id: 'shop-sealed-admin'},
-		h('a', {class: 'button small', href: HOTARU_ADMIN, id: 'shop-sealed-admin-link'}, 'Add sealed products on HOTARU'));
+		h('a', {class: 'button small', href: HOTARU_ADMIN, id: 'shop-sealed-admin-link'}, 'Add sealed products on HOTARU'),
+		h('a', {class: 'button small', 'data-link': 'shop/audit', href: `${BASE}shop/audit`, id: 'shop-audit-link'}, 'Check live listings'));
 
 	// For sale beyond the spares (plans/hotaru-for-sale-plan.md, sections 4
 	// and 5): one of his own copies, or a card added to sell.

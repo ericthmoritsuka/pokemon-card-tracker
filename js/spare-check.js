@@ -21,7 +21,7 @@ import {copyClaims, heldCopies, liveBinders, pageOfPocket, placements, stagedOf}
 import {cardGroups, cardLanguageKey} from './binder-rules.js';
 import {isLive} from './collection.js';
 import {freeText} from './format.js';
-import {freeCopyIds, shopGroups} from './shop.js';
+import {copyState} from './held-free.js';
 import {favoriteCards, favoriteKey} from './wishlist.js';
 
 // Why a copy counts as it does, in the order the screen explains them.
@@ -123,16 +123,14 @@ function copyRows(entries, {favorites, ids, places}) {
 // to one card, every language, even a language with one copy (the card
 // page's Check). Groups with free copies come first, the most first.
 // codeOf: the set's printed code, as the Shop takes it (js/shop.js
-// shopGroups), so a hand-made twin counts as the Shop counts it.
-export function spareCheck(doc, {codeOf = () => null, only = null} = {}) {
+// shopGroups), so a hand-made twin counts as the Shop counts it; left out,
+// js/held-free.js copyState's (js/catalog.js printedCode).
+export function spareCheck(doc, {codeOf, only = null} = {}) {
 	const cards = ((doc && doc.cards) || []).filter((entry) => entry && isLive(entry));
-	const held = heldCopies(doc);
-	const groups = shopGroups(cards, {codeOf, held});
-	const ids = {
-		free: freeCopyIds(null, {groups}),
-		held,
-		spare: new Set(groups.flatMap((group) => group.spares || []).map((entry) => entry.id)),
-	};
+	// Held, spare, and free from the one place every screen reads them
+	// (js/held-free.js copyState).
+	const {free, held, spare} = copyState(doc, codeOf ? {codeOf} : {});
+	const ids = {free, held, spare};
 	const context = {favorites: favoriteCards(cards), ids, places: placesOf(doc)};
 	const wanted = only ? cards.filter((entry) => only.card_id === entry.card_id && (only.catalog || 'international') === (entry.catalog || 'international')) : cards;
 
