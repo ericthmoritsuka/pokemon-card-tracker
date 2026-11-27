@@ -1185,7 +1185,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		await page.click('#pv-details');
 		await page.waitForSelector('#list-skip');
 		await page.click('#list-skip');
-		await waitForPocket(page, zoomPocket(3), {kind: 'want', label: '#007 Squirtle, placeholder: your copies are kept out of this pocket'});
+		await waitForPocket(page, zoomPocket(3), {kind: 'want', label: '#007 Squirtle, placeholder: your copies are elsewhere, kept out or in another binder'});
 		assert.equal(await page.locator(`${zoomPocket(3)} .pocket-tag`).textContent(), 'Placeholder');
 		await page.waitForFunction(() => document.getElementById('pocket-viewer')?.dataset.state !== 'open' && !document.querySelector('#pocket-sheet[open]'));
 		await page.waitForTimeout(400);
@@ -1613,7 +1613,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		await page.waitForFunction(() => /2 pockets \(2 with a card you own\)/.test((document.getElementById('rule-count') || {}).textContent), null, {timeout: 15000});
 		await page.click('#binder-save');
 		await page.waitForSelector('#binder-spread .bs-page');
-		await waitForPocket(page, spreadPocket(1, 1), {kind: 'want', label: 'Test Ember, placeholder: your copies are kept out of this pocket'});
+		await waitForPocket(page, spreadPocket(1, 1), {kind: 'want', label: 'Test Ember, placeholder: your copies are elsewhere, kept out or in another binder'});
 
 		// A filter: Fire type, from the Binders tab.
 		await page.goto(url('binders'));

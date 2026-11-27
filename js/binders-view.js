@@ -2023,8 +2023,9 @@ function binderScreen(root, source, id, pageParam) {
 		const info = item.kind === 'pokemon'
 			? {image: item.image, name: item.name, number: String(item.dex).padStart(3, '0'), setName: null}
 			: wantInfo({card_id: item.cardId, catalog: item.catalog, image: item.image, name: item.name}, index, viewing);
-		// Copies fit but none shows: every one is kept out of this pocket
-		// ("Not this copy here"), so it keeps its placeholder.
+		// Copies fit but none shows: each is kept out of this pocket ("Not
+		// this copy here") or held by another binder, so it keeps its
+		// placeholder; the label names both (QA collection 8).
 		const keptOut = count > 0;
 		const want = (src) => h('div', {class: 'art-wrap'}, cardArt(info, src), h('span', {class: 'pocket-tag'}, keptOut ? 'Placeholder' : 'Want'));
 
@@ -2032,7 +2033,7 @@ function binderScreen(root, source, id, pageParam) {
 			info,
 			item,
 			kind: 'want',
-			label: `${item.kind === 'pokemon' ? `${item.number} ${item.name}` : info.name}, ${keptOut ? 'placeholder: your copies are kept out of this pocket' : 'not owned yet'}`,
+			label: `${item.kind === 'pokemon' ? `${item.number} ${item.name}` : info.name}, ${keptOut ? 'placeholder: your copies are elsewhere, kept out or in another binder' : 'not owned yet'}`,
 			// A Pokémon's pocket shows its picture; a card's, its main image.
 			node: item.kind === 'pokemon' ? want(item.image) : artOf(cardTarget({card_id: item.cardId, catalog: item.catalog}), info, want, recordsShown()),
 		};
