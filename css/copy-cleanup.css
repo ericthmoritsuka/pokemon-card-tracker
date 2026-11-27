@@ -1,0 +1,137 @@
+/* The two cleanup screens beside Check spares (js/copy-cleanup.js): the
+   Monprice import check (js/import-dup-view.js) and Copies with no finish
+   (js/unset-finish-view.js). They reuse Check spares' card (css/trade.css)
+   and My Cards' bulk bar (css/card-views.css). */
+
+/* The two lines under Check spares' heading. */
+.cleanup-links {
+	list-style: none;
+	margin: 0 0 var(--space-2);
+	padding: 0;
+}
+
+.cleanup-link {
+	line-height: 24px;
+	min-height: var(--target);
+	overflow-wrap: anywhere;
+	padding: var(--space-2) 0;
+}
+
+.cleanup-link a {
+	font-weight: 600;
+}
+
+.import-finish {
+	font-weight: 600;
+}
+
+/* Open card and Checked, side by side where they fit and stacked where
+   they do not. */
+.import-foot {
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	margin-top: var(--space-2);
+}
+
+.import-foot .import-open,
+.import-foot .import-done {
+	flex: 1 1 10rem;
+	min-height: var(--target);
+	width: auto;
+}
+
+.import-toggle {
+	display: flex;
+	margin: 0 0 var(--space-2);
+}
+
+.import-toggle:has(> [hidden]) {
+	display: none;
+}
+
+/* A set: its name and count, Select all at the right, then its cards. */
+.unset-set {
+	padding: var(--space-3);
+}
+
+.unset-set-head {
+	align-items: center;
+	display: flex;
+	gap: var(--space-3);
+	justify-content: space-between;
+}
+
+.unset-set-title {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.unset-set-name {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+button.unset-all {
+	flex: none;
+	min-height: var(--target);
+}
+
+.unset-cards {
+	list-style: none;
+	margin: var(--space-2) 0 0;
+	padding: 0;
+}
+
+.unset-card {
+	align-items: center;
+	border-top: 1px solid var(--border);
+	display: flex;
+	gap: var(--space-3);
+	min-height: var(--target);
+	padding: var(--space-2) 0;
+}
+
+/* The whole box is the target, not just the tick. */
+.unset-pick-wrap {
+	align-items: center;
+	display: flex;
+	flex: none;
+	height: var(--target);
+	justify-content: center;
+	width: var(--target);
+}
+
+.unset-pick {
+	height: 22px;
+	margin: 0;
+	width: 22px;
+}
+
+.unset-thumb {
+	flex: none;
+	width: 48px;
+}
+
+.unset-text {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.unset-name {
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.unset-only {
+	display: block;
+}
+
+/* The reading's progress in the Set finish sheet. */
+#unset-meter {
+	display: block;
+	width: 100%;
+}

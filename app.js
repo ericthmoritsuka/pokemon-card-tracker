@@ -23,6 +23,9 @@
 //   trade/check[/<lang>/<cardId>]  Check spares: where every copy is and
 //                             why it is free or not, from Spares and a card
 //                             page (js/spare-check-view.js)
+//   trade/check/import, trade/check/finish  Monprice import check and Copies
+//                             with no finish, from Check spares
+//                             (js/copy-cleanup.js)
 //   trades, trades/new        Trades and sales: History, and Log a move
 //                             (js/moves-view.js)
 //   stats, family/<userId>/stats  Stats for the collection, from My Cards
@@ -45,6 +48,7 @@ import {followCardLink} from './js/card-swipe.js';
 import {familyCardsView, myCardsView, unplacedCardsView} from './js/cards-view.js';
 import {cardView, setView, setsView} from './js/catalog-views.js';
 import {isLanguage} from './js/catalog.js';
+import {copyCleanupAccountViews, copyCleanupRoutes} from './js/copy-cleanup.js';
 import {checklistView, checklistsView, familyChecklistView, familyChecklistsView} from './js/checklists-view.js';
 import {BASE, go, pushRoute, showError} from './js/dom.js';
 import {COLLECTIONS_ACCOUNT_VIEWS, COLLECTIONS_ROUTES} from './js/collections-view.js';
@@ -96,6 +100,7 @@ const ROUTES = [
 	...COLLECTIONS_ROUTES,
 	...tradeRoutes,
 	...spareCheckRoutes,
+	...copyCleanupRoutes,
 	...movesRoutes,
 	...statsRoutes,
 	...shopRoutes,
@@ -103,7 +108,7 @@ const ROUTES = [
 
 // Routes whose screen depends on who is signed in, redrawn on sign-in and
 // sign-out.
-const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, unplacedCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...COLLECTIONS_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews, ...spareCheckAccountViews, ...movesAccountViews, ...goalAccountViews, ...scanReportAccountViews, ...statsAccountViews, ...shopAccountViews]);
+const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, unplacedCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...COLLECTIONS_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews, ...spareCheckAccountViews, ...copyCleanupAccountViews, ...movesAccountViews, ...goalAccountViews, ...scanReportAccountViews, ...statsAccountViews, ...shopAccountViews]);
 
 const DEFAULT_ROUTE = 'cards';
 

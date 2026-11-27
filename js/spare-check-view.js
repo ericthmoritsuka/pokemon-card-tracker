@@ -35,6 +35,7 @@
 import {artOf, cardFilterItem, entryInfo, fillRecords} from './binders-view.js';
 import {catalogFor, catalogLanguage, cardIndex, printedCode, savedOwnRecords, viewingLanguage} from './catalog.js';
 import {copyFinishName, finishChoices} from './catalog-views.js';
+import {cleanupLinks} from './copy-cleanup.js';
 import {loadDocument, onChange, storedPlaces} from './collection.js';
 import {closeCopySheet, languageName, openEditSheet, rawFinishes} from './copy-sheet.js';
 import {isCustomId} from './custom-card.js';
@@ -171,10 +172,14 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 	let groups = [];
 	const own = readOwn();
 	const bar = one ? null : checkBar();
+	// Monprice import check and Copies with no finish, one line each, with
+	// how many there are to look at (js/copy-cleanup.js).
+	const cleanup = one ? null : cleanupLinks();
 
 	root.append(
 		h('a', {class: 'back', 'data-link': back, href: BASE + back, id: 'check-back'}, backWords(one ? 'Card' : 'Spares')),
 		h('div', {class: 'view-head'}, h('h2', {id: 'check-title', tabindex: '-1'}, 'Check spares')),
+		...(cleanup ? [cleanup.element] : []),
 		h('p', {class: 'muted check-intro'}, `Where every copy is, and why it counts as free or not. If you cannot find one, tap I don't have this one: it is logged in Trades as given away, so your spares and the Shop follow. Undo takes it back.${one ? '' : ' When every copy is there, tap Checked and the next card comes up.'}`),
 		...(bar ? [bar.element] : []),
 		summary,
@@ -692,6 +697,10 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		alive = false;
 		stop();
 		closeCopySheet();
+
+		if (cleanup) {
+			cleanup.destroy();
+		}
 
 		if (bar) {
 			bar.destroy();
