@@ -17,6 +17,31 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-26
 
+- **v124:** one copy per binder pocket, one-printing finishes, and pocket and finish fixes on Check spares. `b142bb5`,
+  `2f40a8d`, `40ec943`, `743a422`, `085a91f`, `71cac8b`, `096dcf6`, `41206b6`
+  - Fixed (Eric: "se uma carta esta em um fichario, ela imediatamente deve ficar 'ocupada'. entao a outra carta deve
+    ser adicionada a um binder se ela existir"): two binders made from a list could both have stored the same copy as
+    a pocket's default, so the second copy counted as free and went on HOTARU (Illumise and Cherrim from the 30th set,
+    in Hoenn and 30 anos). Each pocket now holds its own copy: a hand-made pocket first, then a hand pick, then a
+    card's pocket before a Pokémon's, then the older binder, then the earlier pocket. A pocket whose copy is taken
+    takes the next free copy of the same print (the same finish first, then the newest), else shows its placeholder.
+    Trade, Check spares, the tile's ×N | M, and the Shop read the same copies, and the next Shop open withdraws what
+    is now held. A pocket kept empty on purpose needs Keep the placeholder.
+  - Fixed (Vulpix, Ho-Oh, and Reshiram from the 30th set): a card the catalog lists with one printing counts a copy
+    with no finish, or with a monprice word that fits, as that printing, so its duplicate is a spare. A card with
+    more printings, or whose record is not on the phone, keeps them apart as before. The Shop and Check spares read
+    the card index first, so what they show never depends on load timing.
+  - Added: each pocket named on Check spares links to its binder's page and opens that pocket's Remove panel, so Keep
+    the placeholder is two taps away. Check spares also sets a copy's finish from its row, and a card whose finishes
+    change is no longer checked.
+  - Tests: new allocation tests in binders, shop, and spare-check (two copies in two list binders both held, one copy
+    goes to the first binder, hand pocket and hand pick first, skips and Keep the placeholder, same print only, order
+    independent), one-printing tests in wishlist and shop, and the deep link in binder-rules. Check spares' placesOf
+    test now expects Hoenn to take the next copy rather than share one.
+  - Suite before release: 170 files, 2,539 pass, 2 fail at four files at a time. binder-rules failed on the new deep
+    link's assertion, which expected an empty address while the binder keeps its own spread state; fixed to check
+    only that ?pocket is gone, and it passes alone twice (62/62). sets-card-search-browser, a known timing flake,
+    passes alone (4/4).
 - **v123:** order stages from the checklist, a Delivered list, and deleting a consignment made by mistake.
   `5ea36ff`, `fdc95f6`, `a3e573e`, `6d57a9d`, `6a73de8`, `202f2ac`
   - Changed (Eric: "um de unchecked ou em separacao, ... um de Ready ... e outro de done (os pedidos que foram
