@@ -743,6 +743,34 @@ describe('card detail layout', () => {
 		await done();
 	});
 
+	// Eric, 2026-11-27: every 30th Celebration card is holo with the
+	// anniversary stamp, though TCGdex types the commons "Normal". The row,
+	// the Variants list, and the finish select name it so; the stored
+	// variant ID is the TCGdex one.
+	test('a 30th Celebration copy is named Holo with its stamp on its row, in Variants, and in the finish select', async () => {
+		const vulpix = {
+			...en,
+			id: '30th-009',
+			localId: '009',
+			name: 'Vulpix',
+			pricing: {},
+			set: {...SET, id: '30th', name: '30th Celebration'},
+			variants_detailed: [{stamp: ['30th-anniversary'], type: 'normal', variantId: '15i9grynjbpddvzw7dk089qr7vfcowuo'}],
+		};
+		const {done, page} = await phone({records: {'en/cards/30th-009': vulpix}});
+
+		await addCard(page, {card_id: vulpix.id, catalog: 'international', language: 'en', language_source: 'scan', variant_id: '15i9grynjbpddvzw7dk089qr7vfcowuo'});
+		await page.goto(url(`cards/en/${vulpix.id}`));
+		await page.waitForSelector('.copies .copy-row');
+		assert.deepEqual(await rowTexts(page), ['Holo, 30th anniversary stamp']);
+		assert.deepEqual(await page.locator('.variants-section li').allTextContents(), ['Holo, 30th anniversary stamp']);
+		await page.click('.copies .copy-row');
+		await page.waitForSelector('#copy-sheet[open]');
+		assert.equal((await page.locator('#copy-finish option').allTextContents())[1], 'Holo, 30th anniversary stamp');
+		assert.equal(await page.locator('#copy-finish').inputValue(), '15i9grynjbpddvzw7dk089qr7vfcowuo', 'the stored variant is the TCGdex one');
+		await done();
+	});
+
 	// A TAG TEAM card has a link to every card of each of its Pokémon, each
 	// its own 48 px band, and a name that takes four lines in the facts
 	// column. Since the price joined the facts (design review, 2026-11-19)

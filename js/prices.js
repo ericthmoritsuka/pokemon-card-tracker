@@ -235,14 +235,28 @@ export const isStandardSize = (variant) => {
 // The size's name in English ("Jumbo"), or null for the standard size.
 export const sizeName = (variant) => (isStandardSize(variant) ? null : sentence(String(variant.size).trim().toLowerCase()));
 
+// Every card of the 30th Celebration is holo with the anniversary stamp
+// (Eric, 2026-11-27), though TCGdex types the commons and rares there
+// "Normal" and only the ex cards "Holo". The one place that says so: each
+// finish name (here, js/catalog-views.js variantText, js/wishlist.js
+// variantLabel) reads a printing through printedVariant, which names it Holo.
+// Only the name changes, never the stored variant or finish word.
+export const isThirtiethCard = (cardId) => String(cardId || '').startsWith('30th-');
+
+export function printedVariant(variant, cardId) {
+	return variant && isThirtiethCard(cardId) && finishType(variant) === 'normal' ? {...variant, type: 'Holo'} : variant;
+}
+
 // A finish's name in English, read the same way on an English or a
 // Portuguese record: "Reverse holo, Poké Ball pattern", or "Holo, Jumbo"
 // for a jumbo print, so it never reads the same as the card's own holo.
-export function finishName(variant) {
-	if (!variant) {
+// cardId is the card the printing belongs to, for the 30th Celebration rule.
+export function finishName(printing, cardId) {
+	if (!printing) {
 		return 'Unknown finish';
 	}
 
+	const variant = printedVariant(printing, cardId);
 	const type = finishType(variant);
 	const parts = [TYPE_LABELS[type] || sentence(variant.type || 'Unknown')];
 
@@ -513,7 +527,7 @@ function readPrices(card) {
 
 			return {
 				cardmarket: pickCardmarket(pricing.cardmarket, variant),
-				label: finishName(variant),
+				label: finishName(variant, card.id),
 				shared: [],
 				tcgplayer: pickTcgplayer(pricing.tcgplayer, variant, variants),
 				variant,
@@ -531,7 +545,7 @@ function readPrices(card) {
 
 			return {
 				cardmarket: pickCardmarket(pricing.cardmarket, variant),
-				label: finishName(variant),
+				label: finishName(variant, card.id),
 				shared: [],
 				tcgplayer: tcgplayerPrice(tcgplayer[key], key, tcgplayer.unit, tcgplayer.updated),
 				variant,
@@ -646,7 +660,7 @@ function finishRank(variant) {
 // took.
 const keyRank = (key) => (/reverse/.test(key) ? 3 : /1st/.test(key) ? 2 : /holo/.test(key) ? 1 : 0);
 
-const keyLabel = (key) => (KEY_FINISHES[key] ? finishName(KEY_FINISHES[key]) : sentence(key));
+const keyLabel = (key, cardId) => (KEY_FINISHES[key] ? finishName(KEY_FINISHES[key], cardId) : sentence(key));
 
 // Whether a finish's price is one the app shows: TCGplayer's market price,
 // or Cardmarket's trend.
@@ -698,7 +712,7 @@ export function fallbackPrice(card, market, finishes = extractPrices(card)) {
 				const prices = value && typeof value === 'object' ? tcgplayerPrice(value, key, block.unit, block.updated) : null;
 
 				if (hasMarket(market, prices)) {
-					found.push({label: keyLabel(key), prices, rank: keyRank(key)});
+					found.push({label: keyLabel(key, card.id), prices, rank: keyRank(key)});
 				}
 			}
 		}
@@ -708,7 +722,7 @@ export function fallbackPrice(card, market, finishes = extractPrices(card)) {
 			const first = standard.find((finish) => finishRank(finish.variant || {}) < 2);
 
 			if (hasMarket(market, plain)) {
-				found.push({label: first ? first.label : 'Normal', prices: plain, rank: 0});
+				found.push({label: first ? first.label : finishName({type: 'normal'}, card.id), prices: plain, rank: 0});
 			}
 
 			if (hasMarket(market, reverse)) {

@@ -560,8 +560,8 @@ export function bulkSelect({fullRecord, grid, groups, recordsReady = () => Promi
 		await recordsReady();
 
 		const found = new Map();
-		const read = (variants) => {
-			const choices = Array.isArray(variants) ? finishChoices(variants) : [];
+		const read = (variants, cardId) => {
+			const choices = Array.isArray(variants) ? finishChoices(variants, cardId) : [];
 
 			return choices.length ? choices : null;
 		};
@@ -574,7 +574,7 @@ export function bulkSelect({fullRecord, grid, groups, recordsReady = () => Promi
 				continue;
 			}
 
-			const choices = read((fullRecord(tile) || {}).variants_detailed);
+			const choices = read((fullRecord(tile) || {}).variants_detailed, tile.cardId);
 
 			if (choices) {
 				found.set(tile.key, choices);
@@ -587,7 +587,7 @@ export function bulkSelect({fullRecord, grid, groups, recordsReady = () => Promi
 		await pool(missing.slice(0, FINISH_READS), 4, async (tile) => {
 			try {
 				const hit = await cardDetail(catalogLanguage(tile.catalog), tile.cardId);
-				const choices = read(hit && hit.data && hit.data.variants_detailed);
+				const choices = read(hit && hit.data && hit.data.variants_detailed, tile.cardId);
 
 				if (choices) {
 					found.set(tile.key, choices);

@@ -113,7 +113,7 @@ function finishText(item, info) {
 
 	const variant = (info.variants || []).find((entry) => entry.variantId === item.variant_id);
 
-	return variant ? variantLabel(variant) : 'A chosen finish';
+	return variant ? variantLabel(variant, item.card_id) : 'A chosen finish';
 }
 
 // ------------------------------------------------------ one item row
@@ -243,7 +243,7 @@ function editor({card, catalog, item = null, onCancel, onRemove = null, onSave, 
 	);
 	const finish = h('select', {id: 'wish-finish'},
 		h('option', {value: ''}, 'Any finish'),
-		variants.map((variant) => h('option', {value: variant.variantId}, variantLabel(variant)))
+		variants.map((variant) => h('option', {value: variant.variantId}, variantLabel(variant, card && card.id)))
 	);
 	const chosen = (item && item.priority) || 'normal';
 	const priority = h('div', {'aria-label': 'Priority', class: 'segmented', id: 'wish-priority', role: 'radiogroup'},

@@ -752,7 +752,7 @@ export function applyVariants(session, id, cardId, variants, now = nowIso(), fin
 		item.variantId = preferred;
 		item.finishBy = 'default';
 	}
-	else if (finish === 'ask' && finishOptions(item.variants).length > 1) {
+	else if (finish === 'ask' && finishOptions(item.variants, item.card && item.card.id).length > 1) {
 		item.variantId = null;
 		item.finishBy = 'ask';
 	}
@@ -1444,7 +1444,7 @@ export function sessionFinishes(session) {
 	const found = new Map();
 
 	for (const item of session.items) {
-		for (const option of finishOptions(item.variants)) {
+		for (const option of finishOptions(item.variants, item.card && item.card.id)) {
 			const entry = found.get(option.key) || {count: 0, key: option.key, label: option.label};
 
 			entry.count++;
@@ -1469,7 +1469,7 @@ function plannedChange(item, field, value) {
 			return {skip: true};
 		}
 
-		const option = finishOptions(item.variants).find((entry) => entry.key === value);
+		const option = finishOptions(item.variants, item.card && item.card.id).find((entry) => entry.key === value);
 
 		if (!option) {
 			return {skip: true};
@@ -1697,7 +1697,7 @@ export function languageChoices(item) {
 
 // The finish chip for the item's current pick, or null on the plain print.
 export function itemFinishChip(item) {
-	const option = finishOptions(item.variants).find((entry) => entry.variantId === item.variantId);
+	const option = finishOptions(item.variants, item.card && item.card.id).find((entry) => entry.variantId === item.variantId);
 
 	return option ? option.chip : null;
 }

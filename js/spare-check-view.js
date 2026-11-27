@@ -428,7 +428,7 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 			card: {id: entry.card_id, name: info.name, number: info.number || null},
 			catalog: entry.catalog === 'custom' ? 'custom' : entry.catalog || 'international',
 			entries: [entry],
-			finishes: entry.catalog === 'custom' ? rawFinishes() : finishChoices(variants),
+			finishes: entry.catalog === 'custom' ? rawFinishes() : finishChoices(variants, entry.card_id),
 			offline,
 			places: pocket ? new Map([[entry.id, pocket]]) : new Map(),
 		});

@@ -475,6 +475,9 @@ describe('builders', () => {
 		assert.equal(variantLabel({type: 'reverse', foil: 'pokeball'}), 'Reverse holo, Poké Ball pattern');
 		assert.equal(variantLabel({stamp: ['1st-edition'], type: 'holo'}), 'Holo, 1st Edition stamp');
 		assert.equal(variantLabel(null), 'Any finish');
+		assert.equal(variantLabel({stamp: ['30th-anniversary'], type: 'normal'}, '30th-009'), 'Holo, 30th anniversary stamp', 'every 30th Celebration card is holo');
+		assert.equal(variantLabel({stamp: ['30th-anniversary'], type: 'holo'}, '30th-050'), 'Holo, 30th anniversary stamp');
+		assert.equal(variantLabel({type: 'normal'}, 'sv10-001'), 'Normal');
 
 		for (const size of ['standard', 'Padrão', undefined]) {
 			assert.equal(variantLabel({size, type: 'holo'}), 'Holo', String(size));

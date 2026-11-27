@@ -30,7 +30,7 @@ import {ligaUrl} from './liga.js';
 import {finishLabel} from './monprice.js';
 import {cardNames, hasOwnNames} from './names.js';
 import {copyPriceText, priceSection} from './price-view.js';
-import {sizeName} from './prices.js';
+import {printedVariant, sizeName} from './prices.js';
 import {readChoice, saveChoice} from './settings.js';
 import {valueButton} from './value-sheet.js';
 import {cardArt, cardTile, forgetImage, groupFinish, printFinish} from './tile.js';
@@ -1159,7 +1159,8 @@ const sentence = (text) => {
 	return words.charAt(0).toUpperCase() + words.slice(1);
 };
 
-function variantText(variant) {
+function variantText(printing, cardId) {
+	const variant = printedVariant(printing, cardId);
 	const parts = [VARIANT_TYPES[String(variant.type).toLowerCase()] || sentence(variant.type || 'Unknown')];
 
 	if (variant.subtype) {
@@ -1190,9 +1191,9 @@ function variantText(variant) {
 // The finish select's options for a card: each variant TCGdex gives an ID,
 // with the variant itself, so the sheet can tell which plain finishes the
 // list lacks (js/copy-sheet.js finishOptions).
-export const finishChoices = (variants) => variants
+export const finishChoices = (variants, cardId) => variants
 	.filter((variant) => variant && variant.variantId)
-	.map((variant) => ({label: variantText(variant), value: variant.variantId, variant}));
+	.map((variant) => ({label: variantText(variant, cardId), value: variant.variantId, variant}));
 
 // What one copy's finish is called on a row: the card page's Your copies
 // and Check spares (js/spare-check-view.js). variants: the card's
@@ -1202,7 +1203,7 @@ export function copyFinishName(entry, variants, offline = false) {
 	const variant = (variants || []).find((item) => item.variantId && item.variantId === entry.variant_id);
 
 	if (variant) {
-		return variantText(variant);
+		return variantText(variant, entry.card_id);
 	}
 
 	if (entry.variant_id && offline) {
@@ -1433,7 +1434,7 @@ export function cardView(root, {lang, cardId}) {
 			variants && variants.length
 				? h('section', {class: 'variants-section'},
 					h('h3', null, 'Variants'),
-					h('ul', {class: 'variants'}, variants.map((variant) => h('li', null, variantText(variant))))
+					h('ul', {class: 'variants'}, variants.map((variant) => h('li', null, variantText(variant, cardId))))
 				)
 				: null,
 		].filter(Boolean));
@@ -1884,7 +1885,7 @@ export function cardView(root, {lang, cardId}) {
 		return h('button', {class: 'small copy-add', id: 'copy-add', onclick: () => openAddSheet({
 			card: sheetCard(card),
 			catalog: catalogFor(lang),
-			finishes: finishChoices(variants),
+			finishes: finishChoices(variants, cardId),
 			lang,
 			offline: Boolean(unreachable),
 			plain: plainVariantId(variants),
@@ -1911,7 +1912,7 @@ export function cardView(root, {lang, cardId}) {
 					rarity: card.rarity || null,
 					set_name: (card.set && card.set.name) || null,
 				},
-				finishes: finishChoices(variants),
+				finishes: finishChoices(variants, cardId),
 				onSaved: () => {
 					if (wantsConsignPick()) {
 						setConsignPick(false);
@@ -2172,7 +2173,7 @@ export function cardView(root, {lang, cardId}) {
 						card: sheetCard(card),
 						catalog: catalogFor(lang),
 						entries: group.entries,
-						finishes: finishChoices(variants),
+						finishes: finishChoices(variants, cardId),
 						forSale,
 						offline: Boolean(unreachable),
 						priceCopies,

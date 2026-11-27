@@ -170,7 +170,7 @@ function copyTiles(ctx, item, result, {on, tap}) {
 		const known = one.info.name && one.info.name !== one.entry.card_id;
 		const shown = {...one, info: {...one.info, ...(known ? {} : {name: own.name, number: own.number, setName: own.setName}), image: one.info.image || own.image}};
 		const {entry} = shown;
-		const finish = entry.variant_id ? variantLabel(findVariant(item.variants, entry.variant_id)) : null;
+		const finish = entry.variant_id ? variantLabel(findVariant(item.variants, entry.variant_id), entry.card_id) : null;
 		const place = whereShort(ctx.where.get(entry.id), entry);
 		const spare = ctx.isSpare(entry.id);
 		const best = suggested.has(entry.id);

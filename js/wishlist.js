@@ -26,7 +26,7 @@ import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.
 import {database, timedCache} from './idb.js';
 import {CATALOGS as ALL_CATALOGS, CATALOG_LANGUAGES, catalogFor, catalogLanguage, catalogsOf, isCatalogLanguage} from './languages.js';
 import {nextStamp, stampEntry} from './merge.js';
-import {extractPrices, finishFits, sizeName} from './prices.js';
+import {extractPrices, finishFits, printedVariant, sizeName} from './prices.js';
 import {fetchJson, pool} from './tcgdex.js';
 
 export const PRIORITIES = ['high', 'normal', 'low'];
@@ -77,11 +77,12 @@ const sentence = (text) => {
 	return words.charAt(0).toUpperCase() + words.slice(1);
 };
 
-export function variantLabel(variant) {
-	if (!variant) {
+export function variantLabel(printing, cardId) {
+	if (!printing) {
 		return 'Any finish';
 	}
 
+	const variant = printedVariant(printing, cardId);
 	const parts = [VARIANT_TYPES[String(variant.type).toLowerCase()] || sentence(variant.type || 'Unknown')];
 
 	if (variant.subtype) {

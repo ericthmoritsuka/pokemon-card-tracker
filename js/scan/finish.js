@@ -133,7 +133,7 @@ export function finishChip(variant, plainId) {
 
 // What the picker lists, plain print first, then TCGdex's order with
 // standard sizes before jumbo ones: [{variantId, label, key, plain}].
-export function finishOptions(variants) {
+export function finishOptions(variants, cardId) {
 	const list = (variants || []).filter(usable);
 	const plainId = plainVariantId(list);
 	const ordered = [
@@ -145,7 +145,7 @@ export function finishOptions(variants) {
 	return ordered.map((variant) => ({
 		chip: finishChip(variant, plainId),
 		key: finishKey(variant),
-		label: variantLabel(variant),
+		label: variantLabel(variant, cardId),
 		plain: variant.variantId === plainId,
 		variantId: variant.variantId,
 	}));

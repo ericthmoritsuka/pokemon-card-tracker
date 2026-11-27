@@ -55,7 +55,7 @@ export function trayTile(item, {marks = [], owned = null, photoUrl = null, progr
 	const chip = itemFinishChip(item);
 	const wished = wishLine(marks);
 	const wanted = marks.length > 0;
-	const option = finishOptions(item.variants).find((entry) => entry.variantId === item.variantId);
+	const option = finishOptions(item.variants, item.card && item.card.id).find((entry) => entry.variantId === item.variantId);
 	const copies = copiesOf(item);
 	// What the card is worth (js/scan/worth.js): a gold rim and a star for a
 	// valuable card, an up arrow for a rising price, and both said in words.

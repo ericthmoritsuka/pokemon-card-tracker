@@ -26,6 +26,7 @@ import {
 	formatBrl,
 	formatBrlCompact,
 	isStandardSize,
+	isThirtiethCard,
 	listStats,
 	manualPrice,
 	parseEuroRates,
@@ -338,6 +339,56 @@ describe('finishOf', () => {
 		assert.equal(finishOf(entry({finish_raw: 'REVERSE_HOLOFOIL'}), finishes).variantId, V.reverse);
 		assert.equal(finishOf(entry({}), finishes), null);
 		assert.equal(finishOf(entry({variant_id: 'no-such-variant'}), finishes), null);
+	});
+});
+
+// The 30th Celebration (Eric, 2026-11-27): every card is holo with the
+// anniversary stamp, though TCGdex types the commons and rares "Normal".
+// Only the name changes, so the variant ID and the finish word still match.
+const VULPIX = '15i9grynjbpddvzw7dk089qr7vfcowuo';
+const thirtieth = (id, type) => ({
+	id,
+	localId: id.slice(5),
+	name: 'Vulpix',
+	variants_detailed: [{pricing: {tcgplayer: {[type === 'holo' ? 'holofoil' : 'normal']: {marketPrice: 0.5, productId: 7}, unit: 'USD', updated: '2026-11-27T00:00:00Z'}}, size: 'standard', stamp: ['30th-anniversary'], type, variantId: VULPIX}],
+});
+
+describe('the 30th Celebration finish name', () => {
+	test('a Normal printing of a 30th card is named Holo with its stamp', () => {
+		assert.equal(finishName({stamp: ['30th-anniversary'], type: 'normal'}, '30th-009'), 'Holo, 30th anniversary stamp');
+		assert.equal(extractPrices(thirtieth('30th-009', 'normal'))[0].label, 'Holo, 30th anniversary stamp');
+		assert.equal(finishOf(entry({variant_id: VULPIX}), extractPrices(thirtieth('30th-009', 'normal'))).label, 'Holo, 30th anniversary stamp');
+		assert.equal(finishOf(entry({finish_raw: 'NORMAL', variant_id: VULPIX}), extractPrices(thirtieth('30th-009', 'normal'))).variantId, VULPIX, 'the match is unchanged');
+	});
+
+	test('a Holo ex of the set keeps the same name', () => {
+		assert.equal(finishName({stamp: ['30th-anniversary'], type: 'holo'}, '30th-050'), 'Holo, 30th anniversary stamp');
+		assert.equal(extractPrices(thirtieth('30th-050', 'holo'))[0].label, 'Holo, 30th anniversary stamp');
+	});
+
+	test('a Normal printing of any other card is still Normal', () => {
+		assert.equal(finishName({type: 'normal'}, 'sv10-001'), 'Normal');
+		assert.equal(finishName({type: 'normal'}), 'Normal');
+		assert.equal(finishName({stamp: ['30th-anniversary'], type: 'normal'}, 'sv10-001'), 'Normal, 30th anniversary stamp');
+		assert.equal(extractPrices({...thirtieth('sv10-001', 'normal'), id: 'sv10-001'})[0].label, 'Normal, 30th anniversary stamp');
+		assert.equal(isThirtiethCard('30th-009'), true);
+		assert.equal(isThirtiethCard('sv10-001'), false);
+		assert.equal(isThirtiethCard(undefined), false);
+	});
+
+	test('a 30th card keeps its reverse holo name and the stored variant is not touched', () => {
+		const variant = {stamp: ['30th-anniversary'], type: 'normal'};
+
+		assert.equal(finishName({type: 'reverse'}, '30th-009'), 'Reverse holo');
+		finishName(variant, '30th-009');
+		assert.equal(variant.type, 'normal');
+	});
+
+	test('the price that stands in for a 30th card is named Holo too', () => {
+		const card = {id: '30th-009', pricing: {tcgplayer: {normal: {marketPrice: 0.4, productId: 3}, unit: 'USD', updated: '2026-11-27T00:00:00Z'}}};
+
+		assert.equal(fallbackPrice(card, 'tcgplayer').label, 'Holo');
+		assert.equal(fallbackPrice({...card, id: 'sv10-001'}, 'tcgplayer').label, 'Normal');
 	});
 });
 

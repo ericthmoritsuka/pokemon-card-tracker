@@ -403,7 +403,7 @@ export function confirmSheet(ctx, itemId) {
 	}
 
 	function finishBlock(item) {
-		const options = finishOptions(item.variants);
+		const options = finishOptions(item.variants, item.card && item.card.id);
 
 		if (!item.card) {
 			return null;
@@ -477,7 +477,7 @@ export function confirmSheet(ctx, itemId) {
 
 			for (const entry of owned.entries) {
 				const variant = findVariant(item.variants, entry.variant_id);
-				const key = `${entry.language}|${variant ? variantLabel(variant) : ''}`;
+				const key = `${entry.language}|${variant ? variantLabel(variant, entry.card_id) : ''}`;
 
 				byLanguage.set(key, (byLanguage.get(key) || 0) + 1);
 			}

@@ -204,6 +204,12 @@ describe('finishes', () => {
 		assert.equal(ownedVariantKey({code: null, entry: {}, finishes}), 'normal|||');
 		assert.equal(ownedVariantKey({code: 'first', entry: {}, finishes}), 'normal|||');
 		assert.equal(cardVariants({}), null);
+
+		const stamped = {stamp: ['30th-anniversary'], type: 'normal'};
+
+		assert.equal(cardVariants({id: '30th-009', variants_detailed: [stamped]})[0].label, 'Holo, 30th anniversary stamp');
+		assert.equal(cardVariants({id: '30th-009', variants_detailed: [stamped]})[0].key, cardVariants({id: 'sv10-001', variants_detailed: [stamped]})[0].key, 'the finish key is unchanged');
+		assert.equal(cardVariants({id: 'sv10-001', variants_detailed: [{type: 'normal'}]})[0].label, 'Normal');
 	});
 
 	test('a jumbo is never a finish, in English or Portuguese, and a missing size is the standard one', () => {

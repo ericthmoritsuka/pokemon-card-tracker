@@ -57,7 +57,7 @@ import {byCreated, sortByOrder} from './reorder.js';
 import {isLive, loadDocument, newId, nowIso} from './collection.js';
 import {cleanListLanguages, languageChip, languageLabel, listLanguagesToSave} from './languages.js';
 import {catalogsFor, copiesByPrint, internationalSets, isPocket, loadAsian, loadInternational, newestFirst, printKey} from './pokemon-cards.js';
-import {isStandardSize} from './prices.js';
+import {isStandardSize, printedVariant} from './prices.js';
 
 export {artistKey};
 
@@ -216,7 +216,7 @@ export function cardVariants(card) {
 		const [type, , foil, stamps] = key.split('|');
 
 		if (!out.has(key)) {
-			out.set(key, {foil, key, label: variantLabel(variant), stamped: Boolean(stamps), stamps, type});
+			out.set(key, {foil, key, label: variantLabel(printedVariant(variant, card && card.id)), stamped: Boolean(stamps), stamps, type});
 		}
 	}
 

@@ -1215,7 +1215,7 @@ export function newMoveView(root) {
 			const record = await cardRecord(card.id, card.lang || lang.value, catalog).catch(() => null);
 			const full = record ? record.card : null;
 			const variants = full && Array.isArray(full.variants_detailed) ? full.variants_detailed : [];
-			const finishes = finishChoices(variants);
+			const finishes = finishChoices(variants, card.id);
 			const plain = plainVariantId(variants);
 			const languages = copyLanguages(catalog);
 			const language = sheetSelect('move-in-language', languages.map(({code, label}) => ({label, value: code})), languages.some((item) => item.code === lang.value) ? lang.value : languages[0].code);
