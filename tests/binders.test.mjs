@@ -569,6 +569,79 @@ describe('copies in use in a binder (Eric, 2026-11-24)', () => {
 	});
 });
 
+describe('one copy, one pocket: list binders share out the copies (Eric, 2026-11-26)', () => {
+	// Two Illumise from the 30th set: 30 anos has a pocket for the card, Hoenn
+	// (older) one for the Pokémon, and each binder's last refresh stored i1.
+	const illumise = (id, fields = {}) => card(id, {card_id: '30th-004', ...fields});
+	const KEY = 'international|30th-004';
+	const trinta = (shown = 'i1', fields = {}) => binderOf('trinta', {created_at: at(5), name: '30 anos', rule: {order: 'dex', source: {id: '30th', kind: 'checklist'}}, snapshot: {at: at(5), keys: [KEY], rule_key: 'x', shown: {[KEY]: shown}}, ...fields});
+	const hoenn = (shown = 'i1', fields = {}) => binderOf('hoenn', {created_at: at(1), name: 'Hoenn', rule: {order: 'dex', source: {id: 'hoenn', kind: 'checklist'}}, snapshot: {at: at(1), keys: ['dex:313', 'dex:314'], rule_key: 'x', shown: {'dex:314': shown}}, ...fields});
+	const where = (doc) => copyClaims(doc).map((claim) => [claim.binderName, claim.entryId]).sort();
+
+	test('two copies stored in two list binders are both held, and none is free (Illumise 30th, Cherrim)', () => {
+		const doc = {binder_picks: [], binders: [hoenn(), trinta()], cards: [illumise('i1'), illumise('i2', {created_at: at(2)})]};
+
+		assert.deepEqual([...heldCopies(doc)].sort(), ['i1', 'i2']);
+		assert.deepEqual(where(doc), [['30 anos', 'i1'], ['Hoenn', 'i2']], 'a card\'s pocket outranks a Pokémon\'s, older binder or not');
+	});
+
+	test('one copy in two list binders: the first in claim order holds it, and the other pocket holds nothing', () => {
+		const doc = {binder_picks: [], binders: [hoenn(), trinta()], cards: [illumise('i1')]};
+
+		assert.deepEqual([...heldCopies(doc)], ['i1']);
+		assert.deepEqual(where(doc), [['30 anos', 'i1']], 'Hoenn shows its placeholder');
+	});
+
+	test('two Pokémon pockets: the older binder keeps the copy, the newer one takes the next', () => {
+		const other = binderOf('kalos', {created_at: at(3), name: 'Kalos', rule: {order: 'dex', source: {id: 'x', kind: 'checklist'}}, snapshot: {at: at(3), keys: ['dex:314'], rule_key: 'x', shown: {'dex:314': 'i1'}}});
+		const doc = {binder_picks: [], binders: [other, hoenn()], cards: [illumise('i1'), illumise('i2')]};
+
+		assert.deepEqual(where(doc), [['Hoenn', 'i1'], ['Kalos', 'i2']]);
+	});
+
+	test('a hand-made pocket beats a list binder, and a hand pick beats a default', () => {
+		const hand = binderOf('favs', {created_at: at(9), name: 'Favorites', slots: [{entry_id: 'i1', page: 1, placed_at: at(9), position: 1}]});
+
+		assert.deepEqual(where({binder_picks: [], binders: [hand, trinta()], cards: [illumise('i1'), illumise('i2')]}), [['30 anos', 'i2'], ['Favorites', 'i1']]);
+		assert.deepEqual(where({binder_picks: [], binders: [hand, trinta()], cards: [illumise('i1')]}), [['Favorites', 'i1']], 'no copy left: 30 anos shows its placeholder');
+
+		const pick = {binder_id: 'hoenn', created_at: at(1), deleted_at: null, entry_id: 'i1', id: 'hoenn|dex:314', key: 'dex:314', updated_at: at(1)};
+
+		assert.deepEqual(where({binder_picks: [pick], binders: [hoenn(), trinta()], cards: [illumise('i1'), illumise('i2')]}), [['30 anos', 'i2'], ['Hoenn', 'i1']], 'the pick in Hoenn keeps i1');
+	});
+
+	test('the next copy is never one skipped there, and the same finish comes first, then the newest', () => {
+		const skip = {binder_id: 'hoenn', created_at: at(1), deleted_at: null, entry_id: null, id: 'hoenn|dex:314', key: 'dex:314', skipped: ['i2'], updated_at: at(1)};
+
+		assert.deepEqual(where({binder_picks: [skip], binders: [hoenn(), trinta()], cards: [illumise('i1'), illumise('i2')]}), [['30 anos', 'i1']]);
+
+		const cards = [illumise('i1', {variant_id: 'rev'}), illumise('i2', {created_at: at(8), variant_id: 'nor'}), illumise('i3', {created_at: at(3), variant_id: 'rev'}), illumise('i4', {created_at: at(4), variant_id: 'rev'})];
+
+		assert.deepEqual(where({binder_picks: [], binders: [hoenn(), trinta()], cards}), [['30 anos', 'i1'], ['Hoenn', 'i4']]);
+		assert.deepEqual(where({binder_picks: [], binders: [hoenn(), trinta()], cards: [illumise('i1'), illumise('e1', {language: 'en'})]}), [['30 anos', 'i1']], 'only the same print in the same language');
+	});
+
+	test('Keep the placeholder takes no copy: Paldea\'s Fuecoco pocket leaves both copies to the others', () => {
+		// Keep the placeholder skips every copy that fits the pocket
+		// (js/binders-view.js listRemovePanel), so the pocket claims none, and
+		// 30 anos holds its copy; the other stays free. A copy added later
+		// fills the pocket when the binder next refreshes (planRefresh).
+		const keep = {binder_id: 'hoenn', created_at: at(1), deleted_at: null, entry_id: null, id: 'hoenn|dex:314', key: 'dex:314', skipped: ['i1', 'i2'], updated_at: at(1)};
+		const doc = {binder_picks: [keep], binders: [hoenn(), trinta()], cards: [illumise('i1'), illumise('i2')]};
+
+		assert.deepEqual(where(doc), [['30 anos', 'i1']]);
+		assert.deepEqual([...heldCopies(doc)], ['i1']);
+		assert.deepEqual(where({...doc, cards: [...doc.cards, illumise('i3', {created_at: at(7)})]}), [['30 anos', 'i1']], 'a copy got later fills it at the binder\'s next refresh, not before');
+	});
+
+	test('the same document gives the same claims whatever the binder order', () => {
+		const cards = [illumise('i1'), illumise('i2'), illumise('i3')];
+		const one = where({binder_picks: [], binders: [hoenn(), trinta()], cards});
+
+		assert.deepEqual(where({binder_picks: [], binders: [trinta(), hoenn()], cards: [...cards].reverse()}), one);
+	});
+});
+
 describe('the tray', () => {
 	const trayBinders = () => [
 		binderOf('a', {
