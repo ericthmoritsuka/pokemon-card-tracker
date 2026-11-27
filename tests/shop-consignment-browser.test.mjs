@@ -256,9 +256,9 @@ describe('Shop consignment', () => {
 		const lines = (await ana.locator('.shop-consigned-line').allTextContents()).map(plain);
 
 		assert.deepEqual(lines, [
-			'Charizard ex #006 · Test Alpha · Holo · Near Mint · R$ 100,00 · Ana gets R$ 85,00 · you kept R$ 15,00 · Due',
-			'Pikachu #025 · Test Alpha · R$ 20,00 · Ana gets R$ 15,00 · you keep R$ 5,00 · For sale',
-			'Mew #001 · Test Alpha · R$ 30,00 · Ana gets R$ 25,00 · you keep R$ 5,00 · Returned',
+			'Charizard ex #006 · Test Alpha · Holo · Near Mint · R$ 100,00 · Ana gets R$ 85,00 · your cut R$ 15,00 · Due',
+			'Pikachu #025 · Test Alpha · R$ 20,00 · Ana gets R$ 15,00 · your cut R$ 5,00 · For sale',
+			'Mew #001 · Test Alpha · R$ 30,00 · Ana gets R$ 25,00 · your cut R$ 5,00 · Returned',
 		]);
 		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-consignment-section.png`});
 		await tabsInOneRow(page);

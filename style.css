@@ -2301,6 +2301,7 @@ progress {
 
 .preview-buttons .button {
 	cursor: default;
+	pointer-events: none;
 }
 
 .preview-buttons .danger-like {
@@ -2429,9 +2430,11 @@ progress {
 	font: var(--type-label);
 	font-weight: 400;
 	justify-content: flex-start;
+	margin: -12px 0;
 	min-height: 20px;
 	opacity: 0.85;
-	padding: 0;
+	/* A 44 px target for Sync now, with the same look (design review P7). */
+	padding: 12px 0;
 	text-align: left;
 	width: auto;
 }

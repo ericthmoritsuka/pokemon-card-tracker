@@ -1017,9 +1017,11 @@ function themeCard(signedIn) {
 					h('p', {class: 'big'}, 'A panel'),
 					h('p', {class: 'muted'}, 'Muted text on the panel tint.'),
 					h('p', null, h('span', {class: 'preview-link'}, 'A link')),
-					h('div', {class: 'preview-buttons'},
-						h('span', {class: 'button primary'}, 'Save'),
-						h('span', {class: 'button danger-like'}, 'Delete')
+					// Samples, labeled as such and inert, so nothing on a screen
+					// with Sign out looks like a real Delete (design review F12).
+					h('div', {'aria-hidden': 'true', class: 'preview-buttons'},
+						h('span', {class: 'button primary', tabindex: '-1'}, 'Button'),
+						h('span', {class: 'button danger-like', tabindex: '-1'}, 'Danger')
 					)
 				)
 			)

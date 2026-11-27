@@ -1246,7 +1246,10 @@ export function versionLine() {
 
 	function draw({current = null, waiting = null, worker = null} = {}) {
 		line.replaceChildren(...[
-			current ? `Card Tracker ${current}` : 'Card Tracker',
+			// With no worker answering (blocked, a private window), the newest
+			// release this code carries names it, never a bare dot (design
+			// review P3).
+			`Card Tracker ${current || (RELEASES[0] && RELEASES[0].version) || ''}`.trim(),
 			' · ',
 			...(waiting && worker
 				? [

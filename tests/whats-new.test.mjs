@@ -266,12 +266,14 @@ describe('the releases', () => {
 });
 
 describe('Profile without a worker', () => {
-	test('ends with "Card Tracker · What\'s new", which opens every release', async () => {
+	test('ends with "Card Tracker <newest> · What\'s new", which opens every release', async () => {
 		const {context, errors, page} = await device();
 
 		await page.goto(url('profile'));
 		await page.waitForSelector('#profile-version #profile-whats-new');
-		assert.equal(await lineText(page), 'Card Tracker · What\'s new');
+		// The newest release this code carries, never a bare dot (design
+		// review P3).
+		assert.match(await lineText(page), /^Card Tracker v\d+ · What's new$/);
 
 		// The last thing on Profile.
 		assert.equal(await page.evaluate(() => document.querySelector('#profile-version').nextElementSibling), null);

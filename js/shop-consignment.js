@@ -496,8 +496,8 @@ export function consignmentSection({go, onLoad = () => {}, toast}) {
 		// The commission beside the price (Eric, 2026-11-26): what is kept,
 		// or would be at this price.
 		const money = payout
-			? `${brl(payout.sale_brl)} · ${person.name} gets ${brl(payout.payout_brl)} · you kept ${brl(payout.commission_brl)} · ${PAYOUT_STATES[payout.state] || payout.state}`
-			: `${brl(card.price_brl)} · ${person.name} gets ${brl(card.payout_brl)} · you keep ${brl(card.commission_brl)}`;
+			? `${brl(payout.sale_brl)} · ${person.name} gets ${brl(payout.payout_brl)} · your cut ${brl(payout.commission_brl)} · ${PAYOUT_STATES[payout.state] || payout.state}`
+			: `${brl(card.price_brl)} · ${person.name} gets ${brl(card.payout_brl)} · your cut ${brl(card.commission_brl)}`;
 		const buttons = deleting
 			? [
 				h('span', {class: 'shop-kit-ask'}, `Delete ${card.name} for good? It leaves HOTARU and ${person.name}'s statement, as if never consigned. This cannot be undone. For a card going back to ${person.name}, use Return to owner.`),
