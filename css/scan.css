@@ -1207,11 +1207,17 @@ html.scan-open body {
 	padding: 0;
 }
 
-/* Under 400 px the For row's word gives the tray's menu its room on the
-   row; the buttons, and the group's name to a screen reader, say what the
-   row is. */
+/* Under 400 px the For row's word is small, and gives the tray's menu its
+   room when that shows; the group's name tells a screen reader either way. */
 @media (max-width: 399px) {
 	.scan .scan-head-label {
+		font-size: 12px;
+		min-width: 0;
+	}
+
+	/* The word says what the row is (design review P6), until the tray's
+	   menu needs its room. */
+	.scan .scan-head-line:has(.scan-tray-menu:not([hidden])) .scan-head-label {
 		display: none;
 	}
 }

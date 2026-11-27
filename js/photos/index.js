@@ -875,14 +875,19 @@ export function detailCopyArithmetic() {
 export function photoSettingsCard() {
 	const math = detailCopyArithmetic();
 	const box = h('input', {checked: keepDetailCopies(), class: 'ph-detail-setting', id: 'ph-detail-setting', type: 'checkbox'});
-	const help = h('p', {class: 'muted ph-detail-help', id: 'ph-detail-help'},
-		`Saves a second, sharper copy of each photo you take on this phone from now on, up to ${DETAIL_WIDTH} x ${DETAIL_HEIGHT} pixels, `
-		+ 'for zooming in on print details when checking a card. '
-		+ `Each detail copy is up to ${math.detailKb} KB, about ${WORDS[math.ratio] || math.ratio} normal photos' worth (${math.normalKb} KB each), `
-		+ `so the free 1 GB of storage holds about ${formatCount(math.withDetail)} photos with detail copies, `
-		+ `instead of over ${formatCount(math.withoutDetail)} without. `
-		+ 'Detail copies are downloaded only when you zoom in, then kept on the phone. '
-		+ 'A photo where the card is small in the frame gets none, since it holds no more detail.');
+	// The decision first, the numbers behind Details (design review P4).
+	const help = h('div', {class: 'muted ph-detail-help', id: 'ph-detail-help'},
+		h('p', null, `Keeps a sharper copy for zooming. Uses about ${WORDS[math.ratio + 1] || math.ratio + 1} times the space: room for about ${formatCount(math.withDetail)} photos instead of ${formatCount(math.withoutDetail)}.`),
+		h('details', {class: 'ph-detail-more'},
+			h('summary', null, 'Details'),
+			h('p', null,
+				`Saves a second, sharper copy of each photo you take on this phone from now on, up to ${DETAIL_WIDTH} x ${DETAIL_HEIGHT} pixels, `
+				+ 'for zooming in on print details when checking a card. '
+				+ `Each detail copy is up to ${math.detailKb} KB, about ${WORDS[math.ratio] || math.ratio} normal photos' worth (${math.normalKb} KB each), `
+				+ `so the free 1 GB of storage holds about ${formatCount(math.withDetail)} photos with detail copies, `
+				+ `instead of over ${formatCount(math.withoutDetail)} without. `
+				+ 'Detail copies are downloaded only when you zoom in, then kept on the phone. '
+				+ 'A photo where the card is small in the frame gets none, since it holds no more detail.')));
 
 	box.setAttribute('aria-describedby', 'ph-detail-help');
 	box.addEventListener('change', () => setKeepDetailCopies(box.checked));
