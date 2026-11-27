@@ -176,3 +176,22 @@
 	align-self: center;
 	min-height: var(--target);
 }
+
+/* A pile of identical copies (design review F8): "I have [6]" and Log. */
+.check-pile-have {
+	align-items: center;
+	display: inline-flex;
+	gap: var(--space-2);
+	min-height: var(--target);
+}
+
+.check-pile-count {
+	min-height: var(--target);
+	text-align: center;
+	width: 4.5rem;
+}
+
+.check-pile .check-copy-actions {
+	flex: 1 1 100%;
+	min-width: 0;
+}

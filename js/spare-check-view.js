@@ -394,7 +394,7 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 	// The card page's edit sheet on one copy, its finish to hand. The
 	// printings are read as the card page reads them, cache first; without
 	// them the sheet offers the plain words and says the catalog is offline.
-	async function editCopy(row, info, button) {
+	async function editCopy(row, info, button, all = null) {
 		const entry = row.entry;
 		let variants = [];
 		let offline = false;
@@ -434,7 +434,7 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		const sheet = openEditSheet({
 			card: {id: entry.card_id, name: info.name, number: info.number || null},
 			catalog: entry.catalog === 'custom' ? 'custom' : entry.catalog || 'international',
-			entries: [entry],
+			entries: all || [entry],
 			finishes: entry.catalog === 'custom' ? rawFinishes() : finishChoices(variants, entry.card_id),
 			offline,
 			places: pocket ? new Map([[entry.id, pocket]]) : new Map(),
@@ -468,6 +468,100 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 			h('div', {class: 'check-copy-actions'}, finish, button));
 	}
 
+	// Identical copies (design review F8): the same finish, condition, and
+	// place, with no note and no For sale mark, are one pile with a count,
+	// rather than a block and two buttons each. A copy that differs keeps
+	// its own row.
+	function piles(rows) {
+		const out = new Map();
+
+		rows.forEach((row, at) => {
+			const plain = !row.entry.note && row.entry.for_sale !== true && ['spare', 'kept'].includes(row.reason);
+			const key = plain ? `${copyWords(row.entry, variantsOf(row.entry))}|${whereText(row.places)}` : `one|${at}`;
+
+			out.set(key, [...(out.get(key) || []), row]);
+		});
+
+		return [...out.values()];
+	}
+
+	// A pile: "×6 · No finish set · Near Mint", where, "5 free, 1 kept", and
+	// a stepper "I have [6]": lowering it and tapping Log the missing ones
+	// logs that many as given away, spares first, with one Undo.
+	function pileItem(rows, info) {
+		const words = copyWords(rows[0].entry, variantsOf(rows[0].entry));
+		const free = rows.filter((row) => row.free).length;
+		const kept = rows.length - free;
+		const count = h('input', {'aria-label': `How many of these ${rows.length} you have`, class: 'check-pile-count', inputmode: 'numeric', max: String(rows.length), min: '0', type: 'number', value: String(rows.length)});
+		const log = h('button', {class: 'small check-gone', disabled: true, type: 'button'}, 'Log the missing ones');
+		const finish = h('button', {'aria-haspopup': 'dialog', class: 'small check-finish', type: 'button'}, 'Finish');
+		const missing = () => {
+			const have = Number.parseInt(count.value, 10);
+
+			return Number.isInteger(have) ? Math.max(0, Math.min(rows.length, rows.length - have)) : 0;
+		};
+
+		count.oninput = () => {
+			const n = missing();
+
+			log.disabled = !n;
+			log.textContent = n ? `Log ${n} missing` : 'Log the missing ones';
+		};
+		log.onclick = async () => {
+			const n = missing();
+			// Spares first, so the copy kept is the last to go.
+			const gone = [...rows].sort((a, b) => Number(b.free) - Number(a.free)).slice(0, n);
+
+			focusKey = rows[0].groupKey;
+			log.disabled = true;
+
+			try {
+				const moves = [];
+
+				for (const row of gone) {
+					moves.push((await applyMove(goneFields(row.entry.id, {date: today()}))).move);
+				}
+
+				toast(`${n === 1 ? `1 ${info.name}` : `${n} ${info.name}`} logged as given away.`, {
+					action: async () => {
+						try {
+							for (const move of moves.reverse()) {
+								await undoMove(move.id);
+							}
+
+							toast('Put back.', {timeout: UNDO_MS});
+						}
+						catch (err) {
+							toast(err.stale ? err.message : `Not undone. ${errorText(err)}`);
+						}
+					},
+					actionLabel: 'Undo',
+					timeout: UNDO_MS,
+				});
+
+				if (shopOwnerKnown() === true && navigator.onLine) {
+					withdrawListings(gone.map((row) => row.entry.id)).catch(() => {});
+				}
+			}
+			catch (err) {
+				log.disabled = false;
+				toast(`Not saved. ${errorText(err)}`);
+			}
+		};
+		finish.setAttribute('aria-label', `Finish: ${words}, ${whereText(rows[0].places)}`);
+		finish.onclick = () => editCopy(rows[0], info, finish, rows.map((row) => row.entry));
+
+		return h('li', {class: free ? 'check-copy check-pile is-free' : 'check-copy check-pile', 'data-entry': rows.map((row) => row.entry.id).join(' ')},
+			h('div', {class: 'check-copy-text'},
+				h('span', {class: 'check-copy-what'}, `×${rows.length} · ${words}`),
+				h('span', {class: 'check-copy-where'}, ...whereNodes(rows[0].places)),
+				h('span', {class: 'check-copy-why'}, [free ? `${free} free` : null, kept ? `${kept} kept` : null].filter(Boolean).join(', '))),
+			h('div', {class: 'check-copy-actions'},
+				h('label', {class: 'check-pile-have'}, 'I have ', count),
+				log,
+				finish));
+	}
+
 	function groupNode(group) {
 		const info = entryInfo(group.rows[0].entry, index, viewing);
 		const art = artOf({catalog: group.catalog, card_id: group.card_id, language: group.language}, info, (src) => tileArt({
@@ -488,7 +582,9 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 					h('h3', {class: 'check-name', id: headingId, tabindex: '-1'}, h('a', {'data-link': info.route, href: BASE + info.route}, info.name)),
 					h('span', {class: 'check-meta'}, [info.number ? `#${info.number}` : null, info.setName, languageName(group.language)].filter(Boolean).join(' · ')),
 					h('span', {class: group.free ? 'check-count is-free' : 'check-count'}, freeText(group.copies, group.free)))),
-			h('ul', {class: 'check-copies'}, ...group.rows.map((row) => copyItem({...row, groupKey: group.key}, info))),
+			h('ul', {class: 'check-copies'}, ...piles(group.rows).map((rows) => (rows.length > 1
+				? pileItem(rows.map((row) => ({...row, groupKey: group.key})), info)
+				: copyItem({...rows[0], groupKey: group.key}, info)))),
 			...(bar ? [checkedButton(group, info)] : []));
 	}
 
