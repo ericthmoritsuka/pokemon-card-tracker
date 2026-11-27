@@ -72,6 +72,11 @@ export function parsePercent(text) {
 		return {error: 'Type a percent from 0 to 90.', value: null};
 	}
 
+	// Tenths at most, as kits take them (QA shop 21: 15,55 was taken).
+	if (Math.abs(Math.round(n * 10) - n * 10) > 1e-9) {
+		return {error: 'Type a percent with at most one decimal, such as 15 or 12,5.', value: null};
+	}
+
 	return {error: null, value: Math.round(n * 100) / 100};
 }
 

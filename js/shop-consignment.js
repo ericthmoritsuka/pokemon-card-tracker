@@ -831,7 +831,12 @@ export async function openConsignSheet({card = null, existing = null, finishes =
 			return;
 		}
 
-		preview.textContent = splitText(typed.value, {commission_pct: terms.pct, min_commission_brl: terms.minimum || 0}, who);
+		const cut = split(typed.value, terms.pct, terms.minimum || 0);
+
+		// A minimum at or above the price leaves the consignor nothing (QA
+		// shop 21): said, not refused, as Eric may mean it.
+		preview.textContent = splitText(typed.value, {commission_pct: terms.pct, min_commission_brl: terms.minimum || 0}, who)
+			+ (cut.payout <= 0 ? ` Careful: ${who || 'the consignor'} gets nothing at this price, because the minimum commission takes it all.` : '');
 	}
 
 	consignor.addEventListener('change', () => {

@@ -73,6 +73,8 @@ describe('terms', () => {
 		assert.deepEqual(parsePercent(''), {error: null, value: null});
 		assert.equal(parsePercent('95').error, 'Type a percent from 0 to 90.');
 		assert.equal(parsePercent('x').error, 'Type a percent from 0 to 90.');
+		assert.match(parsePercent('15,55').error, /one decimal/, 'QA shop 21');
+		assert.deepEqual(parsePercent('1,1'), {error: null, value: 1.1});
 	});
 });
 
