@@ -69,6 +69,14 @@ describe('pickCopy', () => {
 		assert.equal(pickCopy(spr, {skip: new Set(['a', 'b', 'c'])}), null);
 	});
 
+	// v128 review, Low 1: with an answer, a copy it does not name was never
+	// published (or was skipped), so it is not offered.
+	test('with store_sync\'s answer, only a copy it names as available is offered', () => {
+		assert.equal(pickCopy(spr, {states: {b: {status: 'available'}}}).id, 'b');
+		assert.equal(pickCopy(spr, {states: {}}), null);
+		assert.equal(pickCopy(spr, {states: null}).id, 'c', 'no answer yet: the server decides');
+	});
+
 	test('keeps the condition asked for when refilling', () => {
 		assert.equal(pickCopy(spr, {prefer: 'Lightly Played'}).id, 'a');
 	});

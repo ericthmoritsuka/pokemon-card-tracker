@@ -111,7 +111,12 @@ describe('Shop audit', () => {
 		await page.click('#shop-audit-link');
 		await page.waitForFunction(() => location.pathname.endsWith('/shop/audit'));
 		await page.waitForFunction(() => /break/.test(document.getElementById('shop-audit-status').textContent), null, TIMEOUT);
-		assert.equal(plain(await page.locator('#shop-audit-status').textContent()), '3 of 4 live listings break the rule.');
+		assert.equal(plain(await page.locator('#shop-audit-status').textContent()), '3 cards break the rule, out of 4 live listings.');
+		// The next step (design review F7), and the count per finish (v128
+		// review M3).
+		assert.equal(await page.locator('#shop-audit-next').isVisible(), true);
+		assert.equal(plain(await page.locator('#shop-audit-back').textContent()), 'Open the Shop to withdraw them');
+		assert.match(plain(await page.locator('.shop-audit-row[data-id="m4"] .shop-audit-count').textContent()), /^1 of 1 copy is out\.$/);
 		assert.deepEqual(await page.locator('.shop-audit-row').evaluateAll((rows) => rows.map((row) => row.dataset.id)), ['gone', 't1', 'm4']);
 		assert.equal(plain(await page.locator('.shop-audit-row[data-id="gone"] .shop-audit-reason').textContent()), 'Not in your cards: the copy was deleted, sold, or traded away.');
 		assert.equal(plain(await page.locator('.shop-audit-row[data-id="t1"] .shop-audit-reason').textContent()), 'In a binder pocket, so it should stay home.');

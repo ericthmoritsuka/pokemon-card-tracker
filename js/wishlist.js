@@ -354,13 +354,19 @@ export function noteOnePrintings(records) {
 // noteOnePrintings. The Shop and Check spares wait for it before working
 // out spares, so what they offer never depends on how fast the index read;
 // the app starts it once so the other screens have it too. A failed read
-// leaves the stored finishes as they are.
+// leaves the stored finishes as they are. Resolves to whether the index was
+// read, so the Shop's automatic publish can change nothing when it was not
+// (v128 review M2: without it, finish keys split and live spares look like
+// last copies).
 export async function loadOnePrintings() {
 	try {
 		noteOnePrintings((await cardIndex()).values());
+
+		return true;
 	}
 	catch {
 		// The safe side: nothing is counted as the only printing.
+		return false;
 	}
 }
 
@@ -408,9 +414,11 @@ const finishGroupKey = (entry) => `${entryCatalog(entry)}|${entry.card_id}|${ent
 
 // The spares of one finish group: the copies in a binder (held) are kept,
 // and when none is, the keeper is (a favorite, then the one added first);
-// every other copy is a spare.
-function groupSpares(group, held) {
-	const loose = [...group].sort(keeperOrder).filter((entry) => !held.has(entry.id));
+// every other copy is a spare. A copy in an open HOTARU order (away, v128
+// review H1) is never the keeper while another loose copy can be, since it
+// is already on its way to a buyer.
+function groupSpares(group, held, away = NONE_HELD) {
+	const loose = [...group].sort((a, b) => Number(away.has(a.id)) - Number(away.has(b.id)) || keeperOrder(a, b)).filter((entry) => !held.has(entry.id));
 
 	return loose.length < group.length ? loose : loose.slice(1);
 }
@@ -422,7 +430,8 @@ function groupSpares(group, held) {
 // above). In each other card, language, and finish, one copy is kept
 // (groupSpares) and every other copy is a spare, the same count sparesFor
 // gives.
-export function spareEntries(cards, {forSale = markedForSale, held = NONE_HELD} = {}) {
+// away: the copies in open HOTARU orders (groupSpares), never the keeper.
+export function spareEntries(cards, {away = NONE_HELD, forSale = markedForSale, held = NONE_HELD} = {}) {
 	const favorites = favoriteCards(cards);
 	const groups = new Map();
 	const marked = [];
@@ -444,7 +453,7 @@ export function spareEntries(cards, {forSale = markedForSale, held = NONE_HELD} 
 	const spares = [];
 
 	for (const group of groups.values()) {
-		spares.push(...groupSpares(group, held));
+		spares.push(...groupSpares(group, held, away));
 	}
 
 	return [...spares, ...marked];

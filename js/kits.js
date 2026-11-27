@@ -73,12 +73,19 @@ const conditionRank = (entry) => {
 };
 
 // Whether a listed copy can be sold now, from store_sync's last answer
-// ({<id>: {status}}). A copy the answer does not name yet (published since)
-// is taken to be.
+// ({<id>: {status}}). With an answer, only a copy it names as available is
+// (v128 review, Low 1: a copy the invariant skipped, or never published,
+// is not on HOTARU, and save_bundle refuses it). With no answer at all
+// (states null, as when a kit is made before the first publish of the
+// visit), any listed copy is offered and the server decides.
 const sellable = (entry, states) => {
-	const state = states && states[entry.id];
+	if (!states) {
+		return true;
+	}
 
-	return !state || !state.status || state.status === 'available';
+	const state = states[entry.id];
+
+	return Boolean(state && state.status === 'available');
 };
 
 // The copy a group gives a kit: one listed and for sale, not in skip (the

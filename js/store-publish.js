@@ -9,6 +9,7 @@
 import {getClient} from './auth.js';
 import {cardImage} from './catalog.js';
 import {kitNamesHolding} from './kits.js';
+import {PROBLEM_TEXT} from './listing-invariant.js';
 import {relayRead} from './photos/save.js';
 import {photoUrl} from './photos/store.js';
 
@@ -25,17 +26,20 @@ export function publishErrorText(error) {
 	}
 
 	if (code === 'PGRST202' || code === '42883' || /store_sync/.test(message)) {
-		return 'Publishing is not set up yet: run supabase/store.sql in the Supabase SQL Editor.';
+		return 'Publishing is not set up for this version yet: run supabase/store-hardening.sql in the Supabase SQL Editor.';
 	}
 
 	return `Not published. ${message || 'The server did not answer.'}`;
 }
 
-// Calls store_sync with the rows (js/shop.js listingRows). Resolves to
-// {<id>: {status, image_path}}; throws supabase-js's error.
-export async function syncListings(rows) {
+// Calls store_sync with the rows (js/shop.js listingRows). relist: whether
+// a withdrawn listing among them may go back on sale, which only Publish
+// changes asks for (v128 review H2; supabase/store-hardening.sql, version
+// 3). The automatic path sends false, so it can never revive a listing.
+// Resolves to {<id>: {status, image_path}}; throws supabase-js's error.
+export async function syncListings(rows, {relist = false} = {}) {
 	const client = await getClient();
-	const {data, error} = await client.rpc('store_sync', {listings: rows});
+	const {data, error} = await client.rpc('store_sync', {listings: rows, relist: relist === true});
 
 	if (error) {
 		throw error;
@@ -78,11 +82,7 @@ export async function listingStatus(ids, {chunk = 100} = {}) {
 // [{id, reason}], reason 'missing', 'held', or 'last'. Empty when the key is
 // absent (nothing skipped, or an older store_sync). The words are
 // js/listing-invariant.js PROBLEM_TEXT's.
-export const SERVER_SKIP_TEXT = {
-	held: 'held in a binder',
-	last: 'the last copy of its finish',
-	missing: 'no longer in your cards',
-};
+export const SERVER_SKIP_TEXT = PROBLEM_TEXT;
 
 export function serverSkipped(states) {
 	const list = states && Array.isArray(states._skipped) ? states._skipped : [];

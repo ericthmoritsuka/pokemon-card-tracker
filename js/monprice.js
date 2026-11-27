@@ -35,6 +35,10 @@ export const FINISHES = {
 	UNLIMITED_HOLOFOIL: 'Unlimited holo',
 };
 
+// The one name for a copy whose finish was never set, on every screen
+// (design review F1).
+export const NO_FINISH = 'No finish set';
+
 export const finishLabel = (finish) => FINISHES[finish] || finish || 'Unknown finish';
 
 // Semicolon CSV with optional quotes ("" escapes a quote), CRLF or LF.

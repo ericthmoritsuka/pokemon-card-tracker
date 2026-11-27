@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {listingProblems} from '../js/listing-invariant.js';
-import {AUDIT_REASONS, auditRows, readLiveListings} from '../js/shop-audit.js';
+import {AUDIT_REASONS, auditGroups, auditRows, readLiveListings, readOpenOrderIds} from '../js/shop-audit.js';
 import {collectionShape} from './fixtures/collection-shape.mjs';
 
 const listing = (id, fields = {}) => ({card_id: 'zz1-001', catalog: 'international', finish: '', id, image_path: null, kind: 'single', language: 'pt', name: `Card ${id}`, number: '001', price_brl: 2, set_name: 'Invented Set', ...fields});
@@ -78,5 +78,55 @@ describe('readLiveListings', () => {
 
 	test('a failed read throws with the server\'s words', async () => {
 		await assert.rejects(readLiveListings({rpc: async () => ({data: null, error: {message: 'offline'}})}), /offline/);
+	});
+});
+
+describe('auditGroups (v128 review M3)', () => {
+	const two = () => ({binder_picks: [], binders: [], cards: [
+		{card_id: 'zz9-001', catalog: 'international', created_at: '2026-11-01T00:00:00Z', id: 'x1', language: 'en'},
+		{card_id: 'zz9-001', catalog: 'international', created_at: '2026-11-02T00:00:00Z', id: 'x2', language: 'en'},
+		{card_id: 'zz9-001', catalog: 'international', created_at: '2026-11-03T00:00:00Z', id: 'x3', language: 'en'},
+	]});
+
+	test('a reserved copy counts as out, so the breach shows, once per finish', () => {
+		const listings = [listing('x1', {card_id: 'zz9-001', language: 'en'}), listing('x3', {card_id: 'zz9-001', language: 'en'})];
+
+		assert.deepEqual(auditGroups(two(), listings), [], 'without the orders, the defect: every listing passes');
+
+		const groups = auditGroups(two(), listings, ['x2']);
+
+		assert.equal(groups.length, 1);
+		assert.deepEqual(groups[0].reasons, ['last']);
+		assert.equal(groups[0].text, '3 of 3 copies are out.');
+	});
+
+	test('two listed copies of a pair are one row: "2 of 2 copies are out"', () => {
+		const doc = two();
+
+		doc.cards.pop();
+
+		const groups = auditGroups(doc, [listing('x1', {card_id: 'zz9-001', language: 'en'}), listing('x2', {card_id: 'zz9-001', language: 'en'})]);
+
+		assert.equal(groups.length, 1);
+		assert.equal(groups[0].text, '2 of 2 copies are out.');
+	});
+
+	test('a live copy of a favorite card, or one set Not for sale, is flagged (QA shop 5)', () => {
+		const doc = two();
+		const listings = [listing('x2', {card_id: 'zz9-001', language: 'en'})];
+
+		assert.deepEqual(auditGroups(doc, listings), []);
+		doc.cards[0].is_favorite = true;
+		assert.deepEqual(auditGroups(doc, listings).map((group) => group.reasons), [['kept']]);
+		doc.cards[0].is_favorite = false;
+		doc.cards[1].for_sale = false;
+		assert.deepEqual(auditGroups(doc, listings).map((group) => group.reasons), [['kept']]);
+	});
+
+	test('reads the copy ids of open orders, cards only', async () => {
+		const client = {rpc: async (name) => ({data: name === 'store_orders_open' ? [{items: [{kind: 'single', listing_id: 'x2'}, {kind: 'sealed', listing_id: 's1'}]}] : null, error: null})};
+
+		assert.deepEqual([...await readOpenOrderIds(client)], ['x2']);
+		await assert.rejects(readOpenOrderIds({rpc: async () => ({data: null, error: {message: 'nope'}})}), /nope/);
 	});
 });

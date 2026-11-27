@@ -17,12 +17,18 @@
 // the mark is Eric's consent and beats the favorite star (js/wishlist.js
 // markedForSale). It is never exempt from 'missing'.
 //
+// A copy in an open HOTARU order (away: pending, or paid and not handed
+// over; v128 review H1) is already leaving. It counts as gone before any
+// other copy, and an away id in the batch is not judged again, since
+// store_sync passes a reserved listing through untouched. The caller reads
+// the orders and passes their copy ids, so this stays pure.
+//
 // Pure: no DOM, no network. The same doc and ids always give the same map.
 
 import {heldCopies} from './binders.js';
 import {printedCode} from './catalog.js';
 import {catalogTwins} from './shop.js';
-import {copyFinishKey} from './wishlist.js';
+import {copyFinishKey, favoriteCards, favoriteKey} from './wishlist.js';
 
 const isLive = (entry) => Boolean(entry) && !entry.deleted_at;
 
@@ -32,9 +38,11 @@ const lastKey = (entry) => `${entry.catalog || 'international'}|${entry.card_id}
 // doc: {binders, binder_picks, cards}. entryIds: every copy id about to be
 // listed (or live), read as one batch: a copy is 'last' when listing it
 // with the others before it would leave no copy of its card, language, and
-// finish at home. Returns a Map of entry id to 'missing', 'held', or 'last' for each
-// id that breaks the invariant; an id that keeps it is not in the map.
-export function listingProblems(doc, entryIds) {
+// finish at home. away: the copy ids in open HOTARU orders, counted as
+// leaving first. Returns a Map of entry id to 'missing', 'held', or 'last'
+// for each id that breaks the invariant; an id that keeps it is not in the
+// map.
+export function listingProblems(doc, entryIds, away = []) {
 	const problems = new Map();
 	const live = ((doc && doc.cards) || []).filter((entry) => isLive(entry) && entry.id);
 	const twins = catalogTwins(live, {codeOf: printedCode});
@@ -54,14 +62,29 @@ export function listingProblems(doc, entryIds) {
 	// marked For sale first (Eric's consent), then the others in order, so
 	// one copy of each card, language, and finish always stays home.
 	const leaving = new Map();
+	const awayIds = new Set(away || []);
+	const counted = new Set();
+	const leave = (id) => {
+		const entry = byId.get(id);
+
+		if (entry && !counted.has(id)) {
+			const key = lastKey(asCard(entry));
+
+			counted.add(id);
+			leaving.set(key, (leaving.get(key) || 0) + 1);
+		}
+	};
+
+	// Copies in open orders first: they are on their way out.
+	for (const id of awayIds) {
+		leave(id);
+	}
 
 	for (const id of ids) {
 		const entry = byId.get(id);
 
 		if (entry && entry.for_sale === true) {
-			const key = lastKey(asCard(entry));
-
-			leaving.set(key, (leaving.get(key) || 0) + 1);
+			leave(id);
 		}
 	}
 
@@ -74,7 +97,7 @@ export function listingProblems(doc, entryIds) {
 			continue;
 		}
 
-		if (entry.for_sale === true) {
+		if (entry.for_sale === true || awayIds.has(id)) {
 			continue;
 		}
 
@@ -99,9 +122,34 @@ export function listingProblems(doc, entryIds) {
 	return problems;
 }
 
-// What the Shop says about a skipped copy.
-export const PROBLEM_TEXT = {
-	held: 'held in a binder',
-	last: 'the last copy of its finish',
-	missing: 'no longer in your cards',
+// Each reason in one table, so the publish line, the guard sheet, and the
+// audit use the same words (design review F7): short, after a card's name
+// ("Charmander 004: in a binder pocket"); long, as a sentence on the audit.
+export const REASONS = {
+	missing: {long: 'Not in your cards: the copy was deleted, sold, or traded away.', short: 'no longer in your cards'},
+	held: {long: 'In a binder pocket, so it should stay home.', short: 'in a binder pocket'},
+	last: {long: 'The only copy of this card in this language and finish.', short: 'the only copy of its finish'},
+	kept: {long: 'A favorite card, or a copy set Not for sale, so it should stay home.', short: 'a favorite or Not for sale'},
 };
+
+// The copies Eric keeps by choice: every copy of a favorite card and every
+// copy set Not for sale, except a copy marked For sale (QA shop 5: the audit
+// and the automatic publish did not see them). Pure.
+export function keptByChoice(doc) {
+	const live = ((doc && doc.cards) || []).filter((entry) => isLive(entry) && entry.id);
+	const favorites = favoriteCards(live);
+
+	return new Set(live.filter((entry) => entry.for_sale !== true && (entry.for_sale === false || favorites.has(favoriteKey(entry)))).map((entry) => entry.id));
+}
+
+// What the Shop says about a skipped copy.
+export const PROBLEM_TEXT = Object.fromEntries(Object.entries(REASONS).map(([reason, text]) => [reason, text.short]));
+
+// The key a copy counts under in doc (card, language, and finish, with a
+// hand-made copy as its catalog twin), for grouping the audit's rows.
+export function copyKeyOf(doc) {
+	const live = ((doc && doc.cards) || []).filter((entry) => isLive(entry) && entry.id);
+	const twins = catalogTwins(live, {codeOf: printedCode});
+
+	return (entry) => lastKey(twins.has(entry.id) ? {...entry, ...twins.get(entry.id)} : entry);
+}

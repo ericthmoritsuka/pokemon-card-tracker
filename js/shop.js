@@ -34,11 +34,16 @@ import {copyFinishKey, spareEntries} from './wishlist.js';
 // A suggestion is rounded up to the next R$ 0,50 (Eric, 2026-11-24).
 export const SALE_STEP = 0.5;
 
-// The sale price on a copy: a positive amount to the cent, or null.
+// The sale price on a copy: a positive amount to the cent, or null. Above
+// SALE_MAX (HOTARU's numeric(10, 2) column holds less) it is null, so one
+// bad price saved by an older version never blocks the others' publish
+// (QA shop 6).
+export const SALE_MAX = 99999.99;
+
 export function salePrice(entry) {
 	const value = entry && entry.sale_price;
 
-	return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null;
+	return typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= SALE_MAX ? Math.round(value * 100) / 100 : null;
 }
 
 // Up to the next step, never below one step: R$ 2,10 is R$ 2,50, R$ 2,50
@@ -73,8 +78,9 @@ export const shopKey = (entry) => `${tileKey(entry)}|${finishKey(entry)}`;
 // catalog card (catalogTwins), so a CRI card added by hand before TCGdex
 // listed the set and a copy scanned later are one card with one spare, not
 // two cards with none. codeOf(setId) is the set's printed code
-// (js/catalog.js printedCode).
-export function shopGroups(cards, {codeOf = () => null, held} = {}) {
+// (js/catalog.js printedCode). away: the copies in open HOTARU orders,
+// which are never chosen as the copy kept (js/wishlist.js spareEntries).
+export function shopGroups(cards, {away, codeOf = () => null, held} = {}) {
 	const live = (cards || []).filter((entry) => entry && isLive(entry));
 	const twins = catalogTwins(live, {codeOf});
 	const byId = new Map(live.map((entry) => [entry.id, entry]));
@@ -104,7 +110,7 @@ export function shopGroups(cards, {codeOf = () => null, held} = {}) {
 
 		return groups.get(key);
 	};
-	const spares = spareEntries(counted, {held});
+	const spares = spareEntries(counted, {away: away || undefined, held});
 	const spareIds = new Set(spares.map((spare) => spare.id));
 
 	for (const spare of spares) {
@@ -520,4 +526,36 @@ export function saleFields(order, {now = new Date()} = {}) {
 		price: sealed.length ? price : Number(order.total),
 		who: order.name,
 	};
+}
+
+// The copy ids in open HOTARU orders (store_orders_open: pending, and paid
+// but not handed over), the cards only: each is on its way to a buyer, so
+// the listing invariant counts it as leaving and the spare rule never keeps
+// it (v128 review H1).
+export function openOrderCopyIds(orders) {
+	const ids = new Set();
+
+	for (const order of orders || []) {
+		for (const item of (order && order.items) || []) {
+			if (item && isCard(item) && item.listing_id) {
+				ids.add(item.listing_id);
+			}
+		}
+	}
+
+	return ids;
+}
+
+// A live listing as store_catalog returns it, in store_sync's row shape, so
+// the automatic publish can send it back exactly as HOTARU holds it (v128
+// review M1: a stale screen keeps a listing it does not know about, rather
+// than withdrawing it).
+export function unchangedRow(listing) {
+	const row = {};
+
+	for (const key of ['card_id', 'catalog', 'condition', 'finish', 'id', 'image_path', 'language', 'name', 'number', 'price_brl', 'rarity', 'set_name']) {
+		row[key] = listing[key] ?? null;
+	}
+
+	return row;
 }

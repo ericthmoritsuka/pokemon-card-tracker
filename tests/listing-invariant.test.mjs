@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {listingProblems} from '../js/listing-invariant.js';
-import {listingRows, shopGroups} from '../js/shop.js';
+import {listingRows, openOrderCopyIds, shopGroups} from '../js/shop.js';
 import {heldCopies} from '../js/binders.js';
 
 const copy = (id, fields = {}) => ({card_id: 'sv10-001', catalog: 'international', created_at: `2026-11-0${id.length}T00:00:00Z`, deleted_at: null, id, language: 'pt', ...fields});
@@ -93,6 +93,32 @@ describe('listingProblems', () => {
 		const doc = {binder_picks: [], binders: [], cards: [copy('a'), copy('bb', {for_sale: true})]};
 
 		assert.deepEqual(asObject(listingProblems(doc, ['a', 'bb'])), {a: 'last'});
+	});
+
+	// v128 review H1: A sits in nothing, B (the oldest) is in an open order,
+	// C is loose. Before, B counted as at home and the batch [A, C] passed.
+	test('a copy in an open order counts as leaving first, so listing the two others keeps one home', () => {
+		const cards = [copy('a', {created_at: '2026-11-03T00:00:00Z'}), copy('b', {created_at: '2026-11-01T00:00:00Z'}), copy('c', {created_at: '2026-11-02T00:00:00Z'})];
+		const doc = {binder_picks: [], binders: [], cards};
+		const away = openOrderCopyIds([{items: [{kind: 'single', listing_id: 'b'}, {kind: 'sealed', listing_id: 'etb-1'}]}]);
+
+		assert.deepEqual([...away], ['b']);
+		assert.deepEqual(asObject(listingProblems(doc, ['a', 'c'])), {}, 'without the orders, the defect');
+		assert.deepEqual(asObject(listingProblems(doc, ['a', 'c'], [...away])), {c: 'last'});
+		assert.deepEqual(asObject(listingProblems(doc, ['b', 'a'], [...away])), {}, 'the reserved copy itself is not judged again');
+	});
+
+	test('a copy in an open order is never the copy the spare rule keeps', () => {
+		const cards = [copy('a', {created_at: '2026-11-03T00:00:00Z', sale_price: 2}), copy('b', {created_at: '2026-11-01T00:00:00Z', sale_price: 2}), copy('c', {created_at: '2026-11-02T00:00:00Z', sale_price: 2})];
+		const spares = (away) => shopGroups(cards, {away}).flatMap((group) => group.spares).map((entry) => entry.id).sort();
+
+		assert.deepEqual(spares(new Set()), ['a', 'c'], 'b, the oldest, is kept without the orders');
+		assert.deepEqual(spares(new Set(['b'])), ['a', 'b'], 'with b in an order, c is kept');
+
+		const doc = {binder_picks: [], binders: [], cards};
+		const ids = listingRows(shopGroups(cards, {away: new Set(['b'])})).map((row) => row.id);
+
+		assert.deepEqual(asObject(listingProblems(doc, ids, ['b'])), {});
 	});
 
 	test('pure: no ids, an empty document, or no document give no problems or only missing', () => {
