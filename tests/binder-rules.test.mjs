@@ -1237,7 +1237,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		// (Eric, 2026-11-26), and leaves the address without it.
 		await page.goto(`${url(`binders/${made.id}/1`)}?pocket=1`);
 		await page.waitForSelector('#remove-placeholder');
-		assert.equal(new URL(page.url()).search, '');
+		assert.equal(new URL(page.url()).searchParams.has('pocket'), false, 'the binder\'s own spread and page stay in the address');
 		assert.match(new URL(page.url()).pathname, new RegExp(`binders/${made.id}/1$`));
 		assert.deepEqual(errors, []);
 		await context.close();
