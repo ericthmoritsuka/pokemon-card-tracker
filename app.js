@@ -384,12 +384,12 @@ async function startAccount(authReturn) {
 	});
 
 	startSync();
-	// The cards with one printing, for every screen that counts spares
-	// (js/wishlist.js loadOnePrintings); the Shop and Check spares wait for it.
-	loadOnePrintings();
 	keepFamilyWishlistsCached();
 	startPhotoSync();
 	startReportSync();
+	// The cards with one printing, for every screen that counts spares
+	// (js/wishlist.js loadOnePrintings); the Shop and Check spares wait for it.
+	loadOnePrintings();
 
 	if (authReturn && authReturn.error) {
 		setSignInNotice(signInErrorText(authReturn.error));
