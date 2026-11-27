@@ -43,7 +43,7 @@ import {kitsSection, openKitSheet, orderItemsNode} from './shop-kits.js';
 import {alertsOn, NEW_ORDERS_EVENT, notifyPermission, turnOff, turnOn} from './order-alerts.js';
 import {checkShopOwner, onShopOwner, setAddAndSell, setConsignPick, setShopTab, SHOP_TABS, shopOwnerKnown, shopTab} from './shop-owner.js';
 import {openDialogSheet} from './sheet.js';
-import {announceOrders, cancelOrder, DELIVERED_DAYS, deliveredErrorText, deliveredOrders, keepOrderChecks, markDelivered, markPaid, openOrders, orderChecks, orderErrorText, receiptLink, setOrderCheck, syncOrderChecks} from './store-orders.js';
+import {announceOrders, cancelOrder, DELIVERED_DAYS, deliveredErrorText, deliveredOrders, keepOrderChecks, markDelivered, markPaid, openOrders, ORDER_CHECKS_EVENT, orderChecks, orderErrorText, receiptLink, setOrderCheck, syncOrderChecks, unsavedChecks} from './store-orders.js';
 import {publishErrorText, syncListings, uploadOwnPicture, uploadPicture} from './store-publish.js';
 import {onSyncStatus, syncStatus} from './sync.js';
 import {loadOnePrintings} from './wishlist.js';
@@ -64,6 +64,9 @@ const finishChoice = (label) => label.toLowerCase().replace(/holofoil/g, 'holo')
 // Reading the prices of cards never read before stops after this many
 // failures in a row (offline, or TCGdex failing), as My Cards' pass does.
 const MAX_FAILURES = 3;
+// How long an order a tick or a payment moved to another stage stays under
+// the filter it was in (Eric, 2026-11-27: five to ten seconds).
+const ORDER_MOVE_MS = 5000;
 
 function readShow() {
 	try {
@@ -156,9 +159,16 @@ export function shopView(root) {
 	let deliveredList = [];
 	let deliveredError = null;
 	// The orders this filter keeps in sight after a tick or a payment moved
-	// them to another stage, so an order never vanishes under the finger;
-	// they move once the filter changes or the Shop opens again.
+	// them to another stage, so an order never vanishes under the finger.
+	// Each moves on its own ORDER_MOVE_MS after its last tick or payment
+	// (Eric, 2026-11-27: the last tick should take an order to Ready without
+	// a refresh, after five to ten seconds), so unticking a card by mistake
+	// in that time keeps it here; changing the filter moves them all at once.
 	const heldInView = new Set();
+	const heldTimers = new Map();
+	// The checklist progress lines drawn now, by order code, redrawn when
+	// the ticks reach the server or wait on this device.
+	const progressDrawers = new Map();
 	const asking = new Map();
 	const working = new Set();
 	const ordersBox = h('section', {'aria-labelledby': 'shop-orders-title', class: 'shop-orders', hidden: true, id: 'shop-orders'});
@@ -1678,12 +1688,18 @@ export function shopView(root) {
 		const drawProgress = () => {
 			const count = items.filter((item) => ticked.has(item.listing_id)).length;
 			const done = Boolean(items.length) && count === items.length;
-
-			progress.textContent = done
+			const unsaved = unsavedChecks(order.code);
+			const line = done
 				? (items.length === 1 ? 'Checked' : `All ${formatCount(items.length)} checked`)
 				: `Checked ${formatCount(count)} of ${formatCount(items.length)}`;
+
+			// Ticks the server has not taken yet show on this device only.
+			progress.textContent = unsaved ? `${line} · ${formatCount(unsaved)} not saved yet` : line;
 			progress.classList.toggle('shop-order-progress-done', done);
+			progress.classList.toggle('shop-order-progress-unsaved', Boolean(unsaved));
 		};
+
+		progressDrawers.set(order.code, drawProgress);
 		const check = (item, text) => {
 			const on = ticked.has(item.listing_id);
 			const box = h('input', {checked: on, onchange: (event) => {
@@ -1717,7 +1733,7 @@ export function shopView(root) {
 		const {logged, missing} = orderCheck(order, orderDoc);
 		const state = h('p', {class: 'shop-order-state'}, stageText(order));
 		const checklist = orderChecklist(order, () => {
-			heldInView.add(order.code);
+			holdInView(order.code);
 			state.textContent = stageText(order);
 			drawOrderCounts();
 		});
@@ -1837,9 +1853,34 @@ export function shopView(root) {
 		}
 	})();
 
+	// Keeps an order under this filter for ORDER_MOVE_MS more, then lets it
+	// go where its stage puts it; a later tick or payment starts the time
+	// again.
+	function holdInView(code) {
+		clearTimeout(heldTimers.get(code));
+		heldInView.add(code);
+		heldTimers.set(code, setTimeout(() => {
+			heldTimers.delete(code);
+			heldInView.delete(code);
+
+			if (alive) {
+				drawOrders();
+			}
+		}, ORDER_MOVE_MS));
+	}
+
+	function releaseHeld() {
+		for (const timer of heldTimers.values()) {
+			clearTimeout(timer);
+		}
+
+		heldTimers.clear();
+		heldInView.clear();
+	}
+
 	function setOrderFilter(value) {
 		orderFilter = value;
-		heldInView.clear();
+		releaseHeld();
 
 		try {
 			sessionStorage.setItem(ORDER_FILTER_KEY, value);
@@ -1898,6 +1939,7 @@ export function shopView(root) {
 			separating: 'Nothing to separate: every paid order has its cards checked.',
 		};
 
+		progressDrawers.clear();
 		ordersBox.replaceChildren(...[
 			h('h3', {id: 'shop-orders-title'}, orders.length ? `Orders (${formatCount(orders.length)})` : 'Orders'),
 			orderFilterNode,
@@ -1972,7 +2014,7 @@ export function shopView(root) {
 		await run(order, async () => {
 			try {
 				await markPaid(order.code);
-				heldInView.add(order.code);
+				holdInView(order.code);
 				done = true;
 			}
 			catch (err) {
@@ -2067,6 +2109,28 @@ export function shopView(root) {
 	};
 
 	window.addEventListener(NEW_ORDERS_EVENT, ordersOnNew);
+
+	// The ticks reached the server, or wait on this device: the progress
+	// lines say so. A tick the server refused is undone already
+	// (js/store-orders.js); say why, and read the orders again, since the
+	// usual reason is an order no longer open.
+	const ordersOnChecks = (event) => {
+		const refusedTicks = (event.detail && event.detail.refused) || [];
+
+		for (const draw of progressDrawers.values()) {
+			draw();
+		}
+
+		if (refusedTicks.length) {
+			const codes = [...new Set(refusedTicks.map((entry) => entry.code))].join(', ');
+			const reason = refusedTicks[0].message;
+
+			toast(`A check in ${codes} was not saved and is undone.${reason ? ` ${reason}` : ''}`);
+			loadOrders();
+		}
+	};
+
+	window.addEventListener(ORDER_CHECKS_EVENT, ordersOnChecks);
 
 	async function reload() {
 		// loadOnePrintings first, so what the Shop publishes never depends on
@@ -2250,6 +2314,8 @@ export function shopView(root) {
 		window.removeEventListener('beforeunload', warnUnsaved);
 		document.removeEventListener('visibilitychange', ordersOnReturn);
 		window.removeEventListener(NEW_ORDERS_EVENT, ordersOnNew);
+		window.removeEventListener(ORDER_CHECKS_EVENT, ordersOnChecks);
+		releaseHeld();
 
 		if (stopWaiting) {
 			stopWaiting();

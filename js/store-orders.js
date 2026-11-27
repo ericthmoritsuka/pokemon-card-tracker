@@ -176,6 +176,12 @@ export function orderChecks(code) {
 	return new Set(Array.isArray(list) ? list : []);
 }
 
+// How many of one order's ticks are kept only on this device because the
+// server could not take them yet, so the other devices do not see them.
+export function unsavedChecks(code) {
+	return stalled ? readQueue().filter((entry) => entry.code === code).length : 0;
+}
+
 // Ticks made since a read of the server began, laid over its answer, so a
 // tick sent while the read was on its way is not undone.
 let ticksDuring = null;
@@ -196,10 +202,22 @@ export function setOrderCheck(code, listingId, on) {
 // store-order-stages.sql not run yet) leaves the ticks waiting.
 const refused = (error) => Boolean(error) && (error.code === '22023' || error.code === 'P0002');
 
+// Said on window with {refused: [{code, listing_id, on, message}]} once a
+// run of sends ends, so the Shop redraws what is not saved yet and says
+// which ticks the server refused (Eric, 2026-11-27: ticks made on one
+// computer never reached the phone, and nothing said so).
+export const ORDER_CHECKS_EVENT = 'card-tracker-order-checks';
+
 let sending = null;
+// True while ticks wait because the last try to send them failed; a tick
+// on its way is not counted, so the line does not flicker on every tap.
+let stalled = false;
+let refusedHeld = [];
 
 // Sends the waiting ticks, oldest first. True once the queue is empty;
 // false when the server could not take one, which waits for the next try.
+// A refused tick is undone here, unless the card was ticked the other way
+// since, and is told to the Shop rather than dropped in silence.
 async function drainChecks() {
 	while (readQueue().length && navigator.onLine) {
 		const entry = readQueue()[0];
@@ -211,6 +229,14 @@ async function drainChecks() {
 			if (!refused(err)) {
 				return false;
 			}
+
+			const later = readQueue().some((each) => each.code === entry.code && each.listing_id === entry.listing_id && each.on !== entry.on);
+
+			if (!later) {
+				writeChecks(applyTick({...readChecks()}, entry.code, entry.listing_id, !entry.on));
+			}
+
+			refusedHeld.push({...entry, message: String(err.message || '')});
 		}
 
 		// Dropped unless the card was ticked the other way while this went.
@@ -229,7 +255,18 @@ export function sendChecks() {
 			.then((done) => {
 				sending = null;
 
-				return done && readQueue().length ? sendChecks() : done;
+				if (done && readQueue().length) {
+					return sendChecks();
+				}
+
+				stalled = !done && readQueue().length > 0;
+
+				const refusedNow = refusedHeld;
+
+				refusedHeld = [];
+				window.dispatchEvent(new CustomEvent(ORDER_CHECKS_EVENT, {detail: {refused: refusedNow}}));
+
+				return done;
 			});
 	}
 

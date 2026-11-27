@@ -432,6 +432,11 @@
 	color: var(--accent-strong);
 }
 
+/* Ticks kept on this device only: the other devices do not see them yet. */
+.shop-order-progress-unsaved {
+	color: var(--error-text);
+}
+
 /* Ticking cards for one price. */
 .shop-row {
 	position: relative;
