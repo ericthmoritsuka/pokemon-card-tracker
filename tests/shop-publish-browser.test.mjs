@@ -397,7 +397,7 @@ describe('Shop publishing', () => {
 		assert.equal(plain(await page.locator('#copy-for-sale-hint').textContent()), 'Not on HOTARU until this finish has a price in the Shop.');
 		await page.screenshot({path: `${SHOTS}/shop-for-sale-sheet.png`});
 		await page.click('#copy-save');
-		await toastWith('It goes on HOTARU the next time you open the Shop.');
+		await toastWith('It goes on HOTARU when you tap Publish changes in the Shop.');
 
 		await openShop(page);
 		await page.locator(BULBASAUR).waitFor(TIMEOUT);

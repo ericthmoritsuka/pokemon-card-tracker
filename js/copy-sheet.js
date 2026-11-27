@@ -840,7 +840,7 @@ export function openEditSheet({card, catalog, entries, finishes, forSale = null,
 		const kept = change.patches.filter(({patch}) => patch.for_sale === false).map(({id}) => id);
 
 		if (!kept.length) {
-			return change.patches.some(({patch}) => patch.for_sale === true) ? ' It goes on HOTARU the next time you open the Shop.' : '';
+			return change.patches.some(({patch}) => patch.for_sale === true) ? ' It goes on HOTARU when you tap Publish changes in the Shop.' : '';
 		}
 
 		try {
@@ -1115,7 +1115,7 @@ export function openAddSheet({card, catalog, extra = null, finishes, lang, offli
 			setAddAndSell(false);
 		}
 
-		toastAdded(`Added ${n} ${languageName(language.value)} ${n === 1 ? 'copy' : 'copies'}.${selling ? ' For sale: it goes on HOTARU the next time you open the Shop.' : ''}`, result);
+		toastAdded(`Added ${n} ${languageName(language.value)} ${n === 1 ? 'copy' : 'copies'}.${selling ? ' For sale: it goes on HOTARU when you tap Publish changes in the Shop.' : ''}`, result);
 	});
 
 	sheet.replaceChildren(
