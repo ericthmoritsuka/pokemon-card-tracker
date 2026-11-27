@@ -4521,9 +4521,31 @@ and price changes to live copies keep syncing by themselves, because they only l
 withdraw the rest) and Publish changes still sends the whole set. A copy marked For sale from the
 Shop or the card page waits for Publish changes like any other new copy.
 
+*Revised 2026-11-27 after the v128 reviews (developer review H1, H2, M1, M2, Low 1 to 3; QA shop
+1 to 17).* Every publish first re-reads the merged document, and the Shop listens for other
+devices' saves, so a star, a Not for sale mark, or a price made elsewhere is never published from
+a stale screen. Every publish also reads the open orders (`store_orders_open`); without them,
+Publish changes refuses with a line and the automatic path changes nothing. The automatic path
+reads HOTARU's live singles (`store_catalog`) and sends every one back, this screen's row where
+it has one and HOTARU's own row unchanged where it does not, so a screen behind another device
+never withdraws a listing it merely does not know; a live copy leaves only when this device says
+so: gone, held, the last of its finish, a favorite or set Not for sale, or its price cleared on
+this screen. It also changes nothing when the card index could not be read, since finish keys
+depend on it. *Default chosen 2026-11-27, Eric to confirm:* this interim stands until a delta
+`store_upsert` replaces the full-set `store_sync`. Only Publish changes sends `relist: true`, and
+it sends as new only the copies the guard showed. A listing leaves HOTARU the moment its copy
+leaves sale on any screen (sold, deleted, put in a pocket, starred, set Not for sale):
+`js/listing-guard.js` compares the priced free copies before and after each save and calls
+`store_withdraw`, queued in this browser while offline. A HOTARU price is at most R$ 99.999,99
+(`parseSalePrice`; the column is `numeric(10, 2)`), and an older saved price above it counts as
+unpriced so it never blocks the others. A kit takes only a copy `store_sync` names as available.
+
 **The publish guard.** A Publish changes that would list more than 10 new copies
 (`PUBLISH_GUARD` in `js/shop-view.js`) shows them in a sheet first, with Publish and Not now.
-*Default chosen 2026-11-27, Eric to confirm:* the threshold, 10.
+*Default chosen 2026-11-27, Eric to confirm:* the threshold, 10. The sheet opens at its question
+with Not now focused, keeps the question and the buttons in view while the list scrolls, lists one
+line per card, language, finish, and price with a count and a total, and names the copies kept
+home under "Staying home" with the shared reason words (design review B1, F6, 2026-11-27).
 
 **The listing invariant, client half** (`js/listing-invariant.js` `listingProblems(doc,
 entryIds)`, pure). Right before every `store_sync` upsert, on both paths, each copy is checked:
@@ -4537,6 +4559,11 @@ the last one, in a binder, or the keeper (its `marked` copies; the mark is Eric'
 the favorite star), so such a copy is exempt from `held` and `last`, never from `missing`. Kits,
 sealed products, and consigned cards are other listing kinds, which `store_sync` never touches. The
 server half lives in `store_sync` (Store Hardening, below).
+
+**Open orders count as leaving** (developer review H1, 2026-11-27). A copy in an open HOTARU order
+(pending, or paid and not handed over) is passed as `away`: it counts as leaving before any other
+copy, is not judged again, and is never the copy the spare rule keeps (`spareEntries`'s `away`),
+so a keeper change during an order can no longer list the last copy at home.
 
 **Delivered asks about unticked cards** (Eric, 2026-11-26). Delivered on an order with cards not
 ticked asks first, as Cancel does ("2 cards are not checked. Deliver anyway?"); an order with every
@@ -4560,7 +4587,12 @@ as HOTARU does (`store_catalog`, singles only) and lists each one that breaks th
 (`js/listing-invariant.js` `listingProblems`): the copy is gone, held in a pocket, or the only copy
 of its card, language, and finish, with an unset finish its own finish. A copy marked For sale is
 offered wherever it is, as the Shop offers it, so it is only ever flagged as gone. The screen is
-read only: it changes no listing. *(Decided 2026-11-27.)*
+read only: it changes no listing. *(Decided 2026-11-27.)* *Revised 2026-11-27 (developer review M3,
+design review F7, QA shop 5):* it reads the open orders too, so a reserved copy counts as out; it
+reports one row per card, language, and finish ("2 of 2 copies are out") rather than an arbitrary
+copy; it also flags a live copy of a favorite card or one set Not for sale; and with rows it says
+that opening the Shop takes them off HOTARU, with "Open the Shop to withdraw them" as the primary
+button. Its reason words are `REASONS` in `js/listing-invariant.js`, shared with the publish line.
 
 #### Store Hardening
 
@@ -4618,6 +4650,19 @@ store-hardening. The decisions:
   even stale or off-grid ones the app ignores; and a hand-made copy matched to a catalog twin, or a
   copy whose finish the app infers from a card's only printing, counts under its own key. Splitting
   a key can only skip more, never list a copy the client would keep home.
+- **Version 3 of the guard** (2026-11-27, developer review H1 and H2, QA shop 5). `store_sync`
+  counts every copy whose listing is reserved or sold, and still in the document, as leaving
+  first, named in the call or not. `store_sync(listings jsonb, relist boolean)` replaces
+  `store_sync(jsonb)`, which is dropped: with `relist` false a withdrawn listing is never revived,
+  and only Publish changes sends true. `relist` has no default on purpose, because PostgREST
+  matches a call by argument names, so a default would let a v127 client's `{listings}` call reach
+  it; without one, v127 gets PGRST202 ("Publishing is not set up yet: run supabase/store.sql") and
+  changes nothing, which fails closed. `release_expired` and `cancel_order` pass each released
+  single through `private.recheck_released` (the owner's document, every other copy on sale,
+  reserved, or sold counted as leaving) and withdraw one that fails. `store_verify` checks all
+  three. There is no app-version gate: `supabase/min-client.sql` refuses saves from apps older than
+  merge_version 2, which v127 is not, so it cannot force v127 devices to update; dropping the old
+  signature is what stops them publishing, and each device updates on its next reload.
 
 ### Stats
 
@@ -4706,6 +4751,9 @@ Two screens under Check spares, each reached by one line under its heading with 
   unread (offline) stays as it is, and the sheet says so. A finish that is the only printing of a
   selected card is offered first, and such a card says "Only printing" in its row. A card the
   chosen finish does not exist on is left as it was and counted in the toast.
+- **One name for an unset finish** (design review F1, 2026-11-27). Every screen says "No finish
+  set" (`NO_FINISH` in `js/monprice.js`), Stats included; a finish word the catalog does not list
+  reads "(not in the catalog)", never "(not listed)", which reads as for sale beside HOTARU.
 
 ## 12. Open Questions
 
