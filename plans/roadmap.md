@@ -453,8 +453,7 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   in r3b, a blank list edit) and Add a card here give the second form its own pocket by hand. A
   later build would read the form from the card (TCGdex names it, or the Pokémon's form list from
   PokeAPI) and add a "One pocket per form" switch to the binder's rule. Medium; not started.
-- **The order checklist's ticks on every device (Eric, 2026-11-26): built for v122 on branch
-  `order-stages-v122`.** The ticks are on the server (`store_order_items.checked_at`, through
+- **The order checklist's ticks on every device (Eric, 2026-11-26): live in v123.** The ticks are on the server (`store_order_items.checked_at`, through
   `store_order_checks` and `set_order_check` in `supabase/store-order-stages.sql`, its own script
   because `store_orders_open` is written again by `store-sealed.sql` and `store-bundles.sql`).
   The device keeps what it last knew and a queue of ticks not sent yet (offline, or before the

@@ -17,6 +17,32 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-26
 
+- **v123:** order stages from the checklist, a Delivered list, and deleting a consignment made by mistake.
+  `5ea36ff`, `fdc95f6`, `a3e573e`, `6d57a9d`, `6a73de8`, `202f2ac`
+  - Changed (Eric: "um de unchecked ou em separacao, ... um de Ready ... e outro de done (os pedidos que foram
+    entregues)"; he chose to drop All): the Orders filter is Unpaid, Separating, Ready, and Delivered, with counts.
+    A paid order is Separating while any card is unticked and Ready once every card is ticked, so the last tick moves
+    it with no button of its own; an unpaid order stays Unpaid, ticked or not. An order a tick or a payment just moved
+    stays in sight until the filter changes. The four segments fit at 390 and 360 pixels. A tab kept on v118's Ready
+    opens on Separating.
+  - Changed (Eric chose the server over per-device ticks): the checklist's ticks are kept on the server
+    (`store_order_items.checked_at`, `store_order_checks`, `set_order_check`), so the phone and the computer agree.
+    The device keeps what it last knew and a queue of ticks not sent yet (offline, or before the script is run), and
+    v119's ticks reach the server once (`js/store-orders.js`).
+  - Added: Delivered lists the orders handed over in the last 30 days (`store_orders_delivered`), newest first, with
+    the day, the cards, a consigned card's owner and yellow line, and Log the sale when the sale is missing.
+  - Added (Eric: "I need to be able to delete consignments too. I created one and cannot delete it."): a consigned
+    card never sold or ordered has Delete, and a consignor with no cards has Delete in place of Remove, each with a
+    confirm. The server refuses anything with history; a card's own picture under `consigned/` goes with it.
+  - SQL, run by Eric before the push: `supabase/store-order-stages.sql` (its own script, because
+    `store_orders_open` is written again by `store-sealed.sql` and `store-bundles.sql`) and
+    `supabase/store-consignment-delete.sql`. Both are checked against Postgres
+    (`tests/store-order-stages-sql-check.sh`, `tests/store-consignment-sql-check.sh`).
+  - Not covered: Delivered still closes an order with unticked cards without asking (backlog).
+  - Suite before release: 170 files, 2,517 pass, 6 fail, four files at a time, all six in three scanner timing
+    files v123 does not touch. Alone, `scan` and `scan-retry-browser` pass, and `scan-grab-browser`'s CPU x4
+    benchmark passed 2 of 4 runs on v123 and 2 of 2 on v122, with other sessions holding the load near 8. Both SQL
+    checks pass against Postgres.
 - **v122:** a spare is a second copy in the same finish, and a Checked button on Check spares. `f36c4b9`, `8ce5934`,
   `3cac3ed`, `13b7cdb`, `76903f9`, `8de84a2`, `62c5fea`, `3058921`, `6038f3f`
   - Fixed (Eric: "as rev holo ou com outros finish so aparecem na lista de venda se elas tiverem repetidas... se eu
