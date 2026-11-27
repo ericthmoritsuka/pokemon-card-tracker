@@ -643,7 +643,7 @@ describe('background details and prices', () => {
 
 		// Saved the way card detail saves them, so its US price shows.
 		assert.equal(plain(await page.locator('.tile:has-text("Charizard ex") .tile-price').textContent()), '~R$ 150');
-		assert.equal(plain(await page.locator('.tile:has-text("Test Ball") .tile-price').textContent()), 'No price', 'no market price on TCGdex');
+		assert.equal(plain(await page.locator('.tile:has-text("Test Ball") .tile-price').textContent()), 'No market price', 'no market price on TCGdex');
 
 		const saved = await page.evaluate(async () => {
 			const {cardDetail} = await import('/pokemon-card-tracker/js/catalog.js');
@@ -711,8 +711,8 @@ describe('background details and prices', () => {
 		const ja = page.locator('.tile', {has: page.locator('.tile-original', {hasText: 'ピカチュウ'})});
 		const ko = page.locator('.tile', {has: page.locator('.tile-original', {hasText: '이상해씨'})});
 
-		assert.equal(plain(await ja.locator('.tile-price').textContent()), 'No price');
-		assert.equal(plain(await ko.locator('.tile-price').textContent()), 'No price');
+		assert.equal(plain(await ja.locator('.tile-price').textContent()), 'No market price');
+		assert.equal(plain(await ko.locator('.tile-price').textContent()), 'No market price');
 		assert.equal(await page.locator('.tile:has-text("Charizard ex") .tile-price').count(), 0, 'waiting: nothing yet');
 		assert.equal(plain(await page.locator('.tile:has-text("Pikachu"):not(:has(.tile-original)) .tile-price').textContent()), 'R$ 80,00Liga', 'a Liga price at once, tagged');
 

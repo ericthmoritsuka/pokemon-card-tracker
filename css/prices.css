@@ -231,6 +231,15 @@
 	width: max-content;
 }
 
+/* In dark mode the accent on the surface measured 3.32:1; the link color
+   is the theme's text-safe blue there (design review F10). */
+@media (prefers-color-scheme: dark) {
+	.tile-for-sale {
+		border-color: var(--link);
+		color: var(--link);
+	}
+}
+
 .copy-price {
 	color: var(--muted);
 	display: block;

@@ -389,7 +389,13 @@ function statusBadge(code, label) {
 // sits beside it on green, "×3 | 1" (Eric, 2026-11-25: three Scraggy, two in
 // binders, one really spare). None free shows ×3 alone, and the name says
 // both either way. label, when given, names the badge instead.
-export function qtyBadge(count, {free = null, label = null} = {}) {
+// freeOnly: the count is of free copies alone (Spares), so the corner says
+// "6 free" rather than reuse ×N for another count (design review F9).
+export function qtyBadge(count, {free = null, freeOnly = false, label = null} = {}) {
+	if (freeOnly) {
+		return h('span', {'aria-label': label || `${count} free to trade or sell`, class: 'badge badge-qty badge-qty-free', role: 'img'}, `${count} free`);
+	}
+
 	const known = Number.isInteger(free) && free >= 0;
 	const name = label || (known ? freeText(count, Math.min(free, count)) : `${count} copies`);
 	const split = known && free > 0;
@@ -417,6 +423,7 @@ export function tileArt({
 	status = null,
 	statusLabel = null,
 	viewing = null,
+	freeOnly = false,
 }) {
 	const frame = h('div', {class: 'art-wrap'}, cardArt(info, src, {decorative, eager}));
 	const flags = [...new Set(languages.filter((code) => code && code !== viewing))];
@@ -430,7 +437,7 @@ export function tileArt({
 	}
 
 	if (count > 1) {
-		frame.append(qtyBadge(count, {free, label: countLabel}));
+		frame.append(qtyBadge(count, {free, freeOnly, label: countLabel}));
 	}
 
 	if (favorite) {
@@ -450,7 +457,8 @@ export function tileArt({
 // market price at all: Japanese, Korean, and Chinese prints, and cards
 // TCGdex has no price for. A card whose price is still downloading shows
 // nothing rather than this.
-export const noPrice = () => h('span', {class: 'price-tile price-none'}, 'No price');
+// "No market price": the card may still carry a shop price (design review F9).
+export const noPrice = () => h('span', {class: 'price-tile price-none'}, 'No market price');
 
 // The tile's meta line ("#006 · ポケモンカード151"). A long Japanese or
 // Korean set name would wrap it to three lines at 360 px, so style.css

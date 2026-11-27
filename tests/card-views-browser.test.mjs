@@ -284,7 +284,7 @@ describe('the View switch', () => {
 			// A card with no price at all says so, and a single copy shows no ×1.
 			const korean = page.locator('.card-grid > .card-row[href$="cards/ko/TSK1-001"]');
 
-			assert.equal(plain(await korean.locator('.tile-price').textContent()), 'No price');
+			assert.equal(plain(await korean.locator('.tile-price').textContent()), 'No market price');
 			assert.deepEqual((await korean.locator('.row-fact').allTextContents()).map(plain), ['KO']);
 			assert.match(await korean.getAttribute('aria-label'), /^Bulbasaur, 001 of 100, .+, Korean, 1 copy, no price$/);
 

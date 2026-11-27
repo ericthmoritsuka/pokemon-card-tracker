@@ -42,7 +42,7 @@ function metaFor(group) {
 const emptyNode = (mine) => () => h('div', {class: 'card empty-state', id: 'trade-empty'},
 	h('div', {'aria-hidden': 'true', class: 'empty-art'}),
 	h('p', {class: 'big'}, mine ? 'No spares yet' : 'No spares'),
-	h('p', {class: 'muted'}, 'A spare is a copy beyond the first of the same card in the same language. A Portuguese and an English copy of a card are both kept; a second Portuguese copy is a spare, whatever its finish. A copy in a binder is never a spare, and no copy of a favorite card is.'),
+	h('p', {class: 'muted'}, 'A spare is a copy beyond the first of the same card in the same language and finish. A Portuguese and an English copy of a card are both kept, and so are a normal and a reverse holo; a second Portuguese normal is a spare. A copy in a binder is never a spare, and no copy of a favorite card is.'),
 	h('p', {class: 'muted'}, mine ? 'Cards you own twice show up here, ready to trade.' : 'Cards they own twice show up here.'),
 	h('a', {class: 'button', 'data-link': 'cards', href: `${BASE}cards`}, 'Back to My Cards')
 );

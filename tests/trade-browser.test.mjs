@@ -106,7 +106,7 @@ describe('Trade', () => {
 		// The badge counts spares, and a tile with one spare shows none.
 		const badges = await page.locator('.card-grid .tile').evaluateAll((tiles) => tiles.map((tile) => (tile.querySelector('.badge-qty') || {textContent: ''}).textContent));
 
-		assert.deepEqual(badges, ['', '×2', '', '', '']);
+		assert.deepEqual(badges, ['', '2 free', '', '', '']);
 
 		// No spare carries a star: a favorite card has no spares.
 		assert.equal(await page.locator('.card-grid .tile .badge-fav').count(), 0);

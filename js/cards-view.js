@@ -26,7 +26,7 @@ import {
 import {currentUser} from './auth.js';
 import {listBinders, liveBinders, placements} from './binders.js';
 import {copyState as heldAndFree} from './held-free.js';
-import {listedOf} from './shop.js';
+import {listedOf, salePrice} from './shop.js';
 import {shopOwnerKnown} from './shop-owner.js';
 import {offerCardList} from './card-swipe.js';
 import {mainName, namesFor, tileNames, withTwinName} from './catalog-views.js';
@@ -44,7 +44,7 @@ import {formatCount, freeText, plural} from './format.js';
 import {languageChip, languageLabel} from './languages.js';
 import {finishLabel} from './monprice.js';
 import {tilePrice} from './price-view.js';
-import {extractPrices, finishFits, finishOf, formatBrlCompact, listStats, manualPrice, savedRates, tileValue} from './prices.js';
+import {extractPrices, finishFits, finishOf, formatBrl, formatBrlCompact, listStats, manualPrice, savedRates, tileValue} from './prices.js';
 import {readChoice} from './settings.js';
 import {memberDocument} from './sync.js';
 import {pool} from './tcgdex.js';
@@ -457,6 +457,14 @@ export function familyCardsView(root, {userId}) {
 // the Trade spares or a family member's cards. selectable offers bulk
 // select (js/bulk-select.js), on your own My Cards. statsRoute adds a Stats
 // link beside Value (js/stats-view.js), on My Cards and a member's.
+// The For sale pill names the shop price, so a tile with no market price
+// still says what it sells for (design review F9).
+function saleBadge(group) {
+	const price = group.entries.map(salePrice).find((one) => one !== null);
+
+	return price === undefined || price === null ? 'For sale' : `${formatBrl(price)} on sale`;
+}
+
 export function cardsScreen(root, {
 	emptyNode = null,
 	emptyText = null,
@@ -1169,13 +1177,14 @@ export function cardsScreen(root, {
 
 		return withMainPhoto(cardTile({
 			attrs: mini ? {'aria-label': cardLabel(group)} : {},
-			badge: !mini && group.entries.some((entry) => onSale.has(entry.id)) ? 'For sale' : null,
+			badge: !mini && group.entries.some((entry) => onSale.has(entry.id)) ? saleBadge(group) : null,
 			price: mini ? null : priceNode(group),
 			art: {
 				count: group.entries.length,
 				favorite: group.entries.some((entry) => entry.is_favorite === true),
 				finish: groupFinish(group.entries, variantsOf(group)),
 				free: freeOf(group),
+				freeOnly: freeWhenFewer,
 				info,
 				languages: [group.language],
 				src: tileSrc(group.entries, catalogSrc, {family: !readOnly, records: loadRecords(), twins: group.twins}),
