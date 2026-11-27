@@ -17,6 +17,22 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-27
 
+- **v127:** a checked order moves to Ready on its own, and a check not saved says so. `3049516`, `c0f2d2c`
+  - Changed (Eric: after checking an order's last card he had to refresh to see it leave Separating): an order a
+    check or a payment moves to another stage now leaves its filter five seconds later, where v123 kept it until the
+    filter changed. Unchecking inside the five seconds keeps it, and each check starts the time again
+    (`js/shop-view.js` `holdInView`, `ORDER_MOVE_MS`).
+  - Fixed (Eric: checks made on the home computer showed Ready there and Separating at work and on the phone): a check
+    the server refused (an order no longer open, a card not in it) was dropped without a word while it stayed checked
+    on the device that made it. Now it is unchecked there, and a message names the order and the reason before the
+    orders are read again. A check that could not reach the server (offline, a lost session, the SQL not run) still
+    waits on the device, and its order's progress line says "not saved yet" until it goes out
+    (`js/store-orders.js` `ORDER_CHECKS_EVENT`, `unsavedChecks`). Which of the two hit the home computer is not known
+    yet: its `cardTracker.orderChecksQueue` will tell.
+  - Tests: shop-orders-browser gains a refused-check test and a five-second move test on a fake clock (an uncheck
+    inside the time, a check that starts it again, and a payment), and checks the "not saved yet" line offline and
+    before store-order-stages.sql.
+
 - **v126:** a card in two binders is held in both without a refresh. `07e6b7a`, `fc9b187`, `3ccc178`
   - Fixed (Eric: an Illumise 30th, one copy in each of two list binders, stayed spare on Check spares until he
     refreshed 30 anos): a list pocket with no stored copy (a placeholder at its last refresh, a sold or skipped
