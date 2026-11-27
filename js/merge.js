@@ -163,8 +163,9 @@ export function mergeEntry(a, b) {
 //              older app edits the entry it moves updated_at but not at, so
 //              that version no longer counts as valid (validVersion).
 //       since  when this version's history became trustworthy: created_at,
-//              or the moment a new app took over a version an older app
-//              wrote. An older app removes a pocket or a tick by leaving it
+//              or, for a version an older app wrote, its updated_at when a
+//              new app first edits it (before 2026-11-27, the moment of that
+//              edit). An older app removes a pocket or a tick by leaving it
 //              out, so something only one side holds is kept only when it is
 //              newer than the other side's since.
 //       field  when that top-level field last changed; a field without one
@@ -1013,7 +1014,12 @@ export function stampEntry(before, after, {at = after && after.updated_at, skip 
 	const valid = validVersion(before);
 	const stamps = valid ? canonicalStamps(before) : {};
 
-	stamps.since = (valid && sinceOf(before)) || at;
+	// A version no new app wrote starts its history at its own updated_at
+	// (never after this edit), not at this edit: a field this phone never
+	// touched must not look newer than another phone's real edit (QA-4).
+	const taken = Number.isFinite(time(before.updated_at)) && compareTimes(before.updated_at, at) < 0 ? before.updated_at : at;
+
+	stamps.since = (valid && sinceOf(before)) || taken;
 
 	for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
 		if (!BOOKKEEPING.has(key) && !KEYED.has(key) && !skip.includes(key) && stableJson(before[key]) !== stableJson(after[key])) {

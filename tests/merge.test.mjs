@@ -525,10 +525,11 @@ test('stampEntry stamps only the fields that changed, and the version counts as 
 	assert.deepEqual(next.field_stamps, {at: at(2), condition: at(2), notes: at(2), since: at(0)});
 	assert.equal(validVersion(oldEdit(next, 3, {notes: 'old app'})), false, 'an older app moves updated_at only');
 
-	// A new edit over a version an older app wrote starts its history there.
+	// A new edit over a version an older app wrote starts its history at
+	// that version's updated_at, not at the edit (QA-4).
 	const over = edit(oldEdit(next, 3, {notes: 'old app'}), 4, {grade: '9'});
 
-	assert.deepEqual(over.field_stamps, {at: at(4), grade: at(4), since: at(4)});
+	assert.deepEqual(over.field_stamps, {at: at(4), grade: at(4), since: at(3)});
 });
 
 test('a Liga price on one phone and a photo on the other both survive (the E-15 repro)', () => {
@@ -1081,4 +1082,94 @@ test('stableJson writes what the map-and-join version wrote, and stampMs what Da
 			assert.equal(stampMs(stamp, null), Number.isNaN(want) ? null : want);
 		}
 	}
+});
+
+// QA-4: a copy never edited by the new app (no field_stamps, updated_at
+// after created_at, as an import or an older app leaves it). Each phone's
+// first edit used to start since at its own takeover, so the phone that
+// edited later made every field it never touched look changed then.
+const unstamped = () => card('q', 1, {condition: 'Near Mint', created_at: at(0), finish: 'Normal', notes: ''});
+
+test('two phones editing different fields of a never-edited copy both keep their edit, either order', () => {
+	const phoneA = edit(unstamped(), 5, {condition: 'Damaged'});
+	const phoneB = edit(unstamped(), 6, {notes: 'from B'});
+
+	for (const merged of [mergeEntry(phoneA, phoneB), mergeEntry(phoneB, phoneA)]) {
+		assert.equal(merged.condition, 'Damaged');
+		assert.equal(merged.notes, 'from B');
+	}
+
+	// Through whole documents too (a copy's notes move to card_info there,
+	// so storage stands in for the second field).
+	const docA = doc([phoneA]);
+	const docB = doc([edit(unstamped(), 6, {storage: 'Box 2'})]);
+
+	for (const merged of [mergeDocuments(docA, docB), mergeDocuments(docB, docA)]) {
+		assert.equal(merged.cards[0].condition, 'Damaged');
+		assert.equal(merged.cards[0].storage, 'Box 2');
+	}
+});
+
+test('the reverse order: the later phone edits Condition, the earlier one Notes', () => {
+	const phoneA = edit(unstamped(), 5, {notes: 'from A'});
+	const phoneB = edit(unstamped(), 6, {condition: 'Damaged'});
+
+	for (const merged of [mergeEntry(phoneA, phoneB), mergeEntry(phoneB, phoneA)]) {
+		assert.equal(merged.condition, 'Damaged');
+		assert.equal(merged.notes, 'from A');
+	}
+});
+
+test('both phones editing the same field of a never-edited copy: the newer edit wins', () => {
+	const phoneA = edit(unstamped(), 5, {condition: 'Damaged'});
+	const phoneB = edit(unstamped(), 6, {condition: 'Played'});
+
+	for (const merged of [mergeEntry(phoneA, phoneB), mergeEntry(phoneB, phoneA)]) {
+		assert.equal(merged.condition, 'Played');
+	}
+});
+
+test('a first edit starts since at the version it replaced, never after the edit', () => {
+	const first = edit(unstamped(), 5, {condition: 'Damaged'});
+
+	assert.equal(first.field_stamps.since, at(1));
+	assert.equal(first.field_stamps.condition, at(5));
+
+	const clockBehind = stampEntry(unstamped(), {...unstamped(), condition: 'Damaged', updated_at: at(0)});
+
+	assert.equal(clockBehind.field_stamps.since, at(0));
+});
+
+test('a copy edited before (field_stamps present) keeps its since', () => {
+	const stamped = edit({...unstamped(), created_at: at(1)}, 3, {finish: 'Holo'});
+	const phoneA = edit(stamped, 5, {condition: 'Damaged'});
+	const phoneB = edit(stamped, 6, {notes: 'from B'});
+
+	assert.equal(phoneA.field_stamps.since, stamped.field_stamps.since);
+	assert.equal(phoneB.field_stamps.since, stamped.field_stamps.since);
+
+	for (const merged of [mergeEntry(phoneA, phoneB), mergeEntry(phoneB, phoneA)]) {
+		assert.equal(merged.condition, 'Damaged');
+		assert.equal(merged.notes, 'from B');
+		assert.equal(merged.finish, 'Holo');
+	}
+});
+
+test('a version from an app before this fix merges with one after it as it did before', () => {
+	// The older app started since at its own takeover (minute 6).
+	const oldApp = {...unstamped(), field_stamps: {at: at(6), notes: at(6), since: at(6)}, notes: 'from B', updated_at: at(6)};
+	const newApp = edit(unstamped(), 5, {condition: 'Damaged'});
+
+	for (const merged of [mergeEntry(newApp, oldApp), mergeEntry(oldApp, newApp)]) {
+		// Same result both ways, nothing invented, B's edit kept. A's edit
+		// still loses to the older app's since, until that phone updates.
+		assert.equal(merged.notes, 'from B');
+		assert.equal(merged.condition, 'Near Mint');
+		assert.equal(stableJson(merged), stableJson(mergeEntry(oldApp, newApp)));
+	}
+
+	// An older app's newer edit to the same field still wins.
+	const oldSame = {...oldApp, condition: 'Played', field_stamps: {at: at(6), condition: at(6), since: at(6)}, notes: ''};
+
+	assert.equal(mergeEntry(newApp, oldSame).condition, 'Played');
 });

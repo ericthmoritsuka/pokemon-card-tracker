@@ -786,8 +786,15 @@ by older apps:
 - `field_stamps` on an entry, `{at, since, <field>: time}`, written by every edit. `at` equals the
   version's `updated_at` while the stamps are trustworthy; an older app's edit moves `updated_at`
   only, so that version falls back to the whole-entry rule. `since` is when the version's history
-  became trustworthy (its `created_at`, or the first stamped edit after an older app wrote it). A
-  field with no stamp counts as `since`. An entry never edited needs none.
+  became trustworthy (its `created_at`, or, when a new app first edits a version an older app or an
+  import wrote, that version's `updated_at`). A field with no stamp counts as `since`. An entry
+  never edited needs none. *(Changed 2026-11-27, QA-4: `since` used to start at that first edit, so
+  two phones editing different fields of such a copy each made the fields they never touched look
+  changed at their own edit, and the later phone's untouched field beat the other's real edit. It
+  now starts at the version's own `updated_at`, the latest moment an untouched field can have
+  changed. The data shape and `merge_version` are unchanged: an app before v129 still merges these
+  versions by the same rules, and a version it stamps the old way still merges deterministically,
+  losing the earlier phone's edit as before until that phone updates.)*
 - A cleared pocket in a binder's `slots`: `{page, position, placed_at, cleared: true}`, read as an
   empty pocket.
 - `hand_unticks` on a checklist: dex number to the time a hand tick was taken away.
