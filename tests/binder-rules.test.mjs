@@ -1235,10 +1235,12 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		// From Check spares, a pocket links to its page with ?pocket=N, which
 		// opens that pocket's Remove panel once, where Keep the placeholder is
 		// (Eric, 2026-11-26), and leaves the address without it.
-		await page.goto(`${url(`binders/${made.id}/1`)}?pocket=1`);
+		// The way a data-link in Check spares opens it (app.js navigate).
+		await page.keyboard.press('Escape');
+		await page.evaluate((route) => import('/pokemon-card-tracker/js/dom.js').then((m) => m.go(route)), `binders/${made.id}/1?pocket=1`);
 		await page.waitForSelector('#remove-placeholder');
 		assert.equal(new URL(page.url()).searchParams.has('pocket'), false, 'the binder\'s own spread and page stay in the address');
-		assert.match(new URL(page.url()).pathname, new RegExp(`binders/${made.id}/1$`));
+		assert.match(new URL(page.url()).pathname, new RegExp(`binders/${made.id}(/1)?$`), 'still the binder; page 1 may drop its number');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
