@@ -253,7 +253,10 @@ insert into public.documents (user_id, doc) values ('00000000-0000-0000-0000-000
 		{"id": "old-binder", "card_id": "sv01-008", "language": "en"},
 		{"id": "old-binder-2", "card_id": "sv01-008", "language": "en"},
 		{"id": "pt", "card_id": "sv01-009", "language": "pt"},
-		{"id": "pt-en", "card_id": "sv01-009", "language": "en"}
+		{"id": "pt-en", "card_id": "sv01-009", "language": "en"},
+		{"id": "flip-a", "card_id": "sv01-010", "language": "en", "variant_id": "normal"},
+		{"id": "flip-b", "card_id": "sv01-010", "language": "en", "variant_id": "normal"},
+		{"id": "flip-c", "card_id": "sv01-010", "language": "en", "variant_id": "normal"}
 	],
 	"binders": [
 		{"id": "b1", "name": "Hand", "rows": 3, "cols": 3, "page_count": 2, "slots": [
@@ -268,8 +271,8 @@ insert into public.documents (user_id, doc) values ('00000000-0000-0000-0000-000
 
 create function t.row(id text) returns jsonb language sql immutable as
 	$$ select jsonb_build_object('id', id, 'card_id', 'x', 'catalog', 'international', 'language', 'en', 'name', id, 'price_brl', 5) $$;
-create function t.sync(ids text[]) returns jsonb language sql as
-	$$ select public.store_sync((select coalesce(jsonb_agg(t.row(i) order by o), '[]') from unnest(ids) with ordinality u(i, o))) $$;
+create function t.sync(ids text[], relist boolean default true) returns jsonb language sql as
+	$$ select public.store_sync((select coalesce(jsonb_agg(t.row(i) order by o), '[]') from unnest(ids) with ordinality u(i, o)), relist) $$;
 create function t.reason(answer jsonb, id text) returns text language sql immutable as
 	$$ select s ->> 'reason' from jsonb_array_elements(coalesce(answer -> '_skipped', '[]')) s where s ->> 'id' = id $$;
 create function t.verify_error() returns text language plpgsql as $$
@@ -312,6 +315,30 @@ select t.ok((select count(*) from public.store_bundle_items) = (select items fro
 select t.ok(t.reason(t.sync(array['pair-2', 'pair-1']), 'pair-1') = 'last', 'invariant: order decides which copy stays home');
 select t.ok((select status from public.store_listings where id = 'pair-1') = 'withdrawn', 'invariant: a skipped copy listed before is withdrawn');
 select t.ok(not (t.sync(array['pair-1']) ? '_skipped'), 'invariant: no _skipped key when nothing is skipped');
+
+-- v128 review H1: three copies of one finish, B reserved by an open order
+-- and not named in the call. Listing A and C would leave none at home.
+reset role;
+insert into public.store_listings (id, kind, card_id, catalog, language, name, price_brl, status)
+values ('flip-b', 'single', 'sv01-010', 'international', 'en', 'flip-b', 5, 'reserved');
+set role authenticated;
+insert into t.v select 'flip', t.sync(array['pair-1', 'flip-a', 'flip-c']);
+select t.ok(j -> 'flip-a' ->> 'status' = 'available', 'H1: one loose copy beside a reserved one is listed') from t.v where k = 'flip';
+select t.ok(t.reason(j, 'flip-c') = 'last', 'H1: a reserved copy counts as leaving, so the last loose copy stays home') from t.v where k = 'flip';
+reset role;
+update public.store_listings set status = 'sold' where id = 'flip-b';
+set role authenticated;
+select t.ok(t.reason(t.sync(array['pair-1', 'flip-c', 'flip-a']), 'flip-a') = 'last', 'H1: a sold copy still in the document counts as leaving too');
+
+-- v128 review H2: a withdrawn listing comes back only when asked.
+select t.ok((select status from public.store_listings where id = 'flip-a') = 'withdrawn', 'H2: flip-a was withdrawn by the call before');
+select t.ok(t.sync(array['pair-1', 'flip-a'], false) -> 'flip-a' ->> 'status' = 'withdrawn', 'H2: relist false never revives a withdrawn listing');
+select t.ok((select status from public.store_listings where id = 'pair-1') = 'available', 'H2: relist false still keeps a live listing live');
+select t.ok(t.sync(array['pair-1', 'flip-a'], true) -> 'flip-a' ->> 'status' = 'available', 'H2: relist true (Publish changes) revives it');
+reset role;
+select t.ok(to_regprocedure('public.store_sync(jsonb)') is null, 'H2: the one-argument store_sync is gone, so a v127 client fails closed');
+select t.ok(private.store_hardening_version() = 3, 'M6: the guard is at version 3');
+set role authenticated;
 
 -- No document at all: every single is skipped.
 reset role;

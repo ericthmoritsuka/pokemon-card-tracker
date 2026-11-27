@@ -47,14 +47,17 @@ $$;
 -- store-bundles.sql) to refuse to run, unless Eric types
 -- `set store.allow_rerun = on;` above it on purpose. Bump the number when
 -- this file changes what it replaces. Version 2 adds store_sync (store.sql),
--- which now checks the listing invariant.
+-- which now checks the listing invariant. Version 3 (v128 review H1, H2)
+-- counts copies in open orders as leaving and replaces store_sync(jsonb)
+-- with store_sync(jsonb, boolean), which revives a withdrawn listing only
+-- when asked.
 create or replace function private.store_hardening_version()
 returns int
 language sql
 immutable
 set search_path = ''
 as $$
-	select 2;
+	select 3;
 $$;
 
 revoke all on function private.store_hardening_version() from public, anon, authenticated;
@@ -572,9 +575,12 @@ grant execute on function public.save_product(jsonb) to authenticated;
 --            ones and pockets off the grid, which the app ignores: stricter.
 --   last     is the last live copy of its card + language + finish left at
 --            home once the earlier rows of this same call leave, the
---            client's batch rule: copies marked For sale leave first, then
---            the others in the order sent, and each row passes only while
---            at least one other copy of its key stays home.
+--            client's batch rule: copies whose listing is reserved or sold
+--            (an open order, or a sale whose copy is still in the document)
+--            leave first, whether or not this call names them (v128 review
+--            H1); then copies marked For sale; then the others in the order
+--            sent, and each row passes only while at least one other copy of
+--            its key stays home.
 -- A copy with for_sale true is exempt from held and last, never from
 -- missing, as in the client.
 --
@@ -603,6 +609,17 @@ grant execute on function public.save_product(jsonb) to authenticated;
 -- The answer keeps its shape ({<id>: {status, image_path}}), and gains one
 -- key, "_skipped": [{id, reason}], only when a row was skipped
 -- (js/store-publish.js syncListings, js/shop-view.js).
+--
+-- relist (v128 review H2): only true revives a withdrawn listing. With
+-- false, a withdrawn row named in the call stays withdrawn, so an automatic
+-- sync (opening the Shop, saving a price) can never put a card back on
+-- HOTARU; the app sends true only from Publish changes. It has no default
+-- on purpose, and the one-argument store_sync(jsonb) is dropped: PostgREST
+-- matches a call by its argument names, so a default would let a v127
+-- client's call ({listings} alone) reach this function. Without one, a v127
+-- client gets PGRST202 and its Shop says "Publishing is not set up for
+-- this version yet" (v127's text: "Publishing is not set up yet: run
+-- supabase/store.sql") and changes nothing, which fails closed.
 create or replace function private.listing_invariant_key(entry jsonb)
 returns text
 language sql
@@ -637,7 +654,9 @@ $$;
 revoke all on function private.listing_invariant_live(jsonb) from public, anon, authenticated;
 
 -- From store.sql's store_sync; the upsert, withdraw, and answer are its own.
-create or replace function public.store_sync(listings jsonb)
+drop function if exists public.store_sync(jsonb);
+
+create or replace function public.store_sync(listings jsonb, relist boolean)
 returns jsonb
 language plpgsql
 security definer
@@ -659,6 +678,7 @@ declare
 	entry jsonb;
 	listing_id text;
 	k text;
+	away text[];
 begin
 	if not private.is_store_owner() then
 		raise exception 'Only the shop owner can publish.' using errcode = '42501';
@@ -697,7 +717,19 @@ begin
 	cross join lateral jsonb_array_elements(case when jsonb_typeof(b.value -> 'slots') = 'array' then b.value -> 'slots' else '[]' end) s
 	where private.listing_invariant_live(b.value) and coalesce(s.value ->> 'entry_id', '') <> '';
 
-	-- Copies marked For sale leave first (Eric's consent).
+	-- Copies in an open order, or sold and still in the document, leave
+	-- first, named in this call or not (v128 review H1).
+	select coalesce(array_agg(l.id), '{}')
+	into away
+	from public.store_listings l
+	where l.kind = 'single' and l.status in ('reserved', 'sold') and live ? l.id;
+
+	foreach listing_id in array away loop
+		k := private.listing_invariant_key(live -> listing_id);
+		leaving := jsonb_set(leaving, array[k], to_jsonb(coalesce((leaving ->> k)::int, 0) + 1));
+	end loop;
+
+	-- Then copies marked For sale (Eric's consent).
 	for item in select e.value from jsonb_array_elements(listings) e loop
 		listing_id := item ->> 'id';
 
@@ -708,7 +740,7 @@ begin
 		seen := seen || listing_id;
 		entry := live -> listing_id;
 
-		if entry is not null and entry -> 'for_sale' = 'true'::jsonb then
+		if entry is not null and entry -> 'for_sale' = 'true'::jsonb and not (listing_id = any (away)) then
 			k := private.listing_invariant_key(entry);
 			leaving := jsonb_set(leaving, array[k], to_jsonb(coalesce((leaving ->> k)::int, 0) + 1));
 		end if;
@@ -737,7 +769,7 @@ begin
 			select 1 from public.store_listings l
 			where l.id = listing_id and (l.kind <> 'single' or l.status not in ('available', 'withdrawn'))
 		) then
-			if entry is not null and entry -> 'for_sale' is distinct from 'true'::jsonb then
+			if entry is not null and entry -> 'for_sale' is distinct from 'true'::jsonb and not (listing_id = any (away)) then
 				k := private.listing_invariant_key(entry);
 				leaving := jsonb_set(leaving, array[k], to_jsonb(coalesce((leaving ->> k)::int, 0) + 1));
 			end if;
@@ -814,7 +846,7 @@ begin
 		status = 'available',
 		published_at = case when l.status = 'withdrawn' then now() else l.published_at end,
 		updated_at = now()
-	where l.kind = 'single' and l.status in ('available', 'withdrawn');
+	where l.kind = 'single' and (l.status = 'available' or (l.status = 'withdrawn' and relist is true));
 
 	update public.store_listings l
 	set status = 'withdrawn', updated_at = now()
@@ -833,8 +865,8 @@ begin
 end;
 $$;
 
-revoke all on function public.store_sync(jsonb) from public, anon;
-grant execute on function public.store_sync(jsonb) to authenticated;
+revoke all on function public.store_sync(jsonb, boolean) from public, anon;
+grant execute on function public.store_sync(jsonb, boolean) to authenticated;
 
 -- ------------------------------------------------------------- M6 verify
 
@@ -895,8 +927,10 @@ begin
 		missing := array_append(missing, 'order_status (store-bundles.sql)');
 	end if;
 
-	body := (select pg_get_functiondef(p.oid) from pg_proc p where p.oid = to_regprocedure('public.store_sync(jsonb)'));
-	if body is null or body not like '%listing_invariant%' then
+	body := (select pg_get_functiondef(p.oid) from pg_proc p where p.oid = to_regprocedure('public.store_sync(jsonb,boolean)'));
+	if body is null or body not like '%listing_invariant%' or body not like '%relist is true%'
+		or to_regprocedure('public.store_sync(jsonb)') is not null
+	then
 		missing := array_append(missing, 'store_sync (store-hardening.sql)');
 	end if;
 
