@@ -15,6 +15,16 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-11-27
+
+- **v125:** every 30th Celebration card is named Holo with its anniversary stamp. `74d6d30`, `f7b7c51`
+  - Changed (Eric: every card in the 30th Celebration is physically holo with the 30th-anniversary stamp, though
+    TCGdex types the commons and rares there "Normal"): wherever a finish name shows for a 30th card, it reads "Holo,
+    30th anniversary stamp", the wording the Holo ex cards already had. The card page, the finish choices in the copy
+    sheets, Check spares, the Shop, the price views, the scanner, wishlists, master-set goals, and the listing label
+    HOTARU shows all take the one rule in `js/prices.js` (`printedVariant`). Only the name changes: the saved
+    printing, the saved finish word, finish grouping, and the spare rule are as they were.
+
 ### 2026-11-26
 
 - **v124:** one copy per binder pocket, one-printing finishes, and pocket and finish fixes on Check spares. `b142bb5`,
