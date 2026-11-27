@@ -20,7 +20,7 @@ import {BASE, h} from './dom.js';
 import {freeEntries} from './held-free.js';
 import {whenMemberName} from './family.js';
 import {memberDocument} from './sync.js';
-import {spareEntries} from './wishlist.js';
+import {printingsReady, spareEntries} from './wishlist.js';
 
 const CHOICE_KEY = 'cardTracker.tradeChoice';
 // The filters that mean something over spares.
@@ -60,7 +60,8 @@ export function tradeView(root) {
 		emptyNode: emptyNode(true),
 		emptyText: () => 'No spares yet.',
 		label: 'your spares',
-		load: async () => docSpares(await loadDocument()),
+		// After the card index, as every screen that counts spares waits.
+		load: async () => docSpares((await Promise.all([loadDocument(), printingsReady()]))[0]),
 		metaFor,
 		offered: OFFERED,
 		placeholder: 'Search my spares',
@@ -101,7 +102,7 @@ export function familyTradeView(root, {userId}) {
 				throw new Error('A family member\'s cards show when you are online.');
 			}
 
-			const doc = await memberDocument(userId);
+			const [doc] = await Promise.all([memberDocument(userId), printingsReady()]);
 
 			records = (doc && doc.card_info) || [];
 

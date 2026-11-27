@@ -74,7 +74,7 @@ import {onSyncStatus, startSync, statusText, syncNow} from './js/sync.js';
 import {WISHLIST_ACCOUNT_VIEWS, WISHLIST_ROUTES} from './js/wishlist-view.js';
 import {startListingGuard} from './js/listing-guard.js';
 import {applyUpdate, showWhatsNewOnce, updateApplying} from './js/whats-new.js';
-import {keepFamilyWishlistsCached, loadOnePrintings} from './js/wishlist.js';
+import {keepFamilyWishlistsCached, printingsReady} from './js/wishlist.js';
 
 const ROUTES = [
 	{pattern: /^cards$/, render: myCardsView, tab: 'cards', title: 'My Cards | Card Tracker'},
@@ -397,7 +397,7 @@ async function startAccount(authReturn) {
 	startReportSync();
 	// The cards with one printing, for every screen that counts spares
 	// (js/wishlist.js loadOnePrintings); the Shop and Check spares wait for it.
-	loadOnePrintings();
+	printingsReady();
 	// A listed copy that leaves sale on any screen leaves HOTARU at once.
 	startListingGuard();
 

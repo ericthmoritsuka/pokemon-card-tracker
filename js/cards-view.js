@@ -58,6 +58,7 @@ import {readValueHistory, recordValue, snapshotOf} from './value-history.js';
 import {customRecord, customRoute, isCustom} from './custom-card.js';
 import {openCustomCardSheet} from './custom-card-view.js';
 import {offerPhotoCleanup} from './photo-cleanup-view.js';
+import {printingsReady} from './wishlist.js';
 
 const routeTo = (...parts) => parts.map((part) => encodeURIComponent(part)).join('/');
 
@@ -1742,7 +1743,7 @@ export function cardsScreen(root, {
 	// where only the shop owner sells and only a priced copy is offered.
 	// The whole document, because Spares draws only the spares.
 	async function copyState() {
-		const doc = await loadDocument();
+		const [doc] = await Promise.all([loadDocument(), printingsReady()]);
 		// js/held-free.js copyState: the free copies every screen counts.
 		const {free, groups: shop} = heldAndFree(doc);
 

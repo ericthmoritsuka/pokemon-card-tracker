@@ -13,9 +13,9 @@ import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
-import {BASE, fakeServices, seed} from './my-cards-fixtures.mjs';
+import {BASE, fakeServices, indexRecords, seed} from './my-cards-fixtures.mjs';
 import {startPagesServer} from './pages-server.mjs';
-import {SPARE_COPIES, checkIntegration, familyDevice, spareNames, wireTrade} from './trade-harness.mjs';
+import {SPARE_COPIES, checkIntegration, copy as tradeCopy, familyDevice, spareNames, wireTrade} from './trade-harness.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -213,6 +213,35 @@ describe('Trade', () => {
 		assert.equal(await page.locator('.tile:has-text("Charizard")').count(), 0);
 		assert.deepEqual(errors, []);
 		await context.close();
+	});
+
+	// QA collection 1: opened cold on Trade, the spares were read before the
+	// card index, so a card with one printing (one copy with the finish set,
+	// one without) split into two finishes and its spare went missing.
+	test('opened cold on Trade, a one-printing card\'s spare counts as Check spares counts it', async () => {
+		const index = indexRecords();
+		const bulbasaur = Object.values(index).find((record) => record.id === 'tsa1-001');
+
+		bulbasaur.variants_detailed = [{type: 'normal', variantId: 'tsa1-001-normal'}];
+
+		const copies = [...SPARE_COPIES.filter((one) => one.card_id !== 'tsa1-001'), tradeCopy('c-40', 'tsa1-001', {variant_id: 'tsa1-001-normal'}), tradeCopy('c-41', 'tsa1-001')];
+
+		for (let run = 0; run < 3; run++) {
+			const context = await browser.newContext({serviceWorkers: 'block', viewport: {height: 844, width: 390}});
+
+			await fakeServices(context);
+			await fakePokeApi(context);
+			await wireTrade(context);
+
+			const page = await context.newPage();
+
+			await seed(page, server.origin, {binders: [], copies, index});
+			await page.goto(`${server.origin}${BASE}trade`);
+			await page.locator('#cards-summary').waitFor(TIMEOUT);
+			await page.waitForFunction(() => /copies/.test(document.getElementById('cards-summary').textContent), null, TIMEOUT);
+			assert.equal(await page.locator('.tile:has-text("Bulbasaur")').count(), 1, `run ${run + 1}: Bulbasaur's spare is listed`);
+			await context.close();
+		}
 	});
 
 	test('the empty state says what a spare is, and offers the way back', async () => {

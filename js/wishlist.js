@@ -370,8 +370,31 @@ export async function loadOnePrintings() {
 	}
 }
 
+// One shared read for every screen that works out held and free (QA
+// collection 1: Trade opened cold read the spares before the index and
+// dropped a copy Check spares counted). Resolves to loadOnePrintings'
+// answer; a failed read is tried again by the next caller.
+let printingsRead = null;
+
+export function printingsReady() {
+	if (!printingsRead) {
+		printingsRead = loadOnePrintings().then((read) => {
+			if (!read) {
+				printingsRead = null;
+			}
+
+			return read;
+		});
+	}
+
+	return printingsRead;
+}
+
 // For tests.
-export const forgetOnePrintings = () => onePrinting.clear();
+export const forgetOnePrintings = () => {
+	onePrinting.clear();
+	printingsRead = null;
+};
 
 // A copy's finish, for telling finishes apart: its variant ID; else, on a
 // card the catalog lists with one printing, that printing, when no word
