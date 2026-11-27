@@ -39,6 +39,7 @@ import {shopOwnerKnown} from './shop-owner.js';
 import {ANY, CHECK_SORTS, REASONS, SHOWS, checkedPool, checkedSignature, goneFields, isChecked, keepChecked, narrowChecks, placeLabel, spareCheck, whereOptions} from './spare-check.js';
 import {withdrawListings} from './store-publish.js';
 import {FINISHES, entryFinish, tileArt} from './tile.js';
+import {noteOnePrintings} from './wishlist.js';
 
 const UNDO_MS = 8000;
 const PAGE = 30;
@@ -512,6 +513,9 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		}
 
 		index = found;
+		// A card with one printing counts an unset copy as it (js/wishlist.js
+		// noteOnePrintings), so the index is read into it before the groups.
+		noteOnePrintings(found.values());
 		groups = check(doc);
 
 		// Forget the marks on cards whose copies changed since: the list
