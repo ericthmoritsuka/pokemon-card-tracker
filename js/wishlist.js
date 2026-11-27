@@ -21,12 +21,12 @@
 //
 // No DOM here, so Node can load the pure parts (tests/wishlist.test.mjs).
 
-import {compareNumbers, importApi, setList} from './catalog.js';
+import {cardIndex, compareNumbers, importApi, setList} from './catalog.js';
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 import {database, timedCache} from './idb.js';
 import {CATALOGS as ALL_CATALOGS, CATALOG_LANGUAGES, catalogFor, catalogLanguage, catalogsOf, isCatalogLanguage} from './languages.js';
 import {nextStamp, stampEntry} from './merge.js';
-import {sizeName} from './prices.js';
+import {extractPrices, finishFits, sizeName} from './prices.js';
 import {fetchJson, pool} from './tcgdex.js';
 
 export const PRIORITIES = ['high', 'normal', 'low'];
@@ -320,13 +320,67 @@ export function favoriteCards(cards) {
 // the copy's for_sale (js/shop.js, plans/hotaru-for-sale-plan.md).
 export const markedForSale = (entry) => Boolean(entry) && entry.for_sale === true;
 
-// A copy's finish as it is stored, for telling finishes apart: its variant
-// ID, else the monprice word an unmatched import or a hand-made card keeps,
-// else '' for a copy whose finish was never set (js/shop.js finishKey, the
-// Shop's per-finish rows, reads it the same way).
+// Cards with exactly one printing, as the catalog lists them (Eric,
+// 2026-11-26: Vulpix, Ho-Oh, and Reshiram from the 30th set, one copy with
+// the variant, one with no finish set, each counted as the only copy of its
+// finish). Map catalog|card_id -> that printing (js/prices.js extractPrices).
+// Filled from the card index by loadOnePrintings; a card whose record is not
+// read yet, or whose printing has no variant ID, is not in it, and its
+// copies keep their stored finishes apart, the safe side.
+const onePrinting = new Map();
+
+// Notes the records' printings: a card listed with one printing goes in, a
+// card listed with more comes out.
+export function noteOnePrintings(records) {
+	for (const record of records || []) {
+		if (!record || typeof record !== 'object' || !record.id) {
+			continue;
+		}
+
+		const finishes = extractPrices(record);
+		const key = `${record.catalog || 'international'}|${record.id}`;
+
+		if (finishes.length === 1 && finishes[0].variantId) {
+			onePrinting.set(key, finishes[0]);
+		}
+		else if (finishes.length > 1) {
+			onePrinting.delete(key);
+		}
+	}
+}
+
+// Reads the card index (js/catalog.js cardIndex, kept once per page) into
+// noteOnePrintings. The Shop and Check spares wait for it before working
+// out spares, so what they offer never depends on how fast the index read;
+// the app starts it once so the other screens have it too. A failed read
+// leaves the stored finishes as they are.
+export async function loadOnePrintings() {
+	try {
+		noteOnePrintings((await cardIndex()).values());
+	}
+	catch {
+		// The safe side: nothing is counted as the only printing.
+	}
+}
+
+// For tests.
+export const forgetOnePrintings = () => onePrinting.clear();
+
+// A copy's finish, for telling finishes apart: its variant ID; else, on a
+// card the catalog lists with one printing, that printing, when no word
+// says otherwise (js/prices.js finishFits: no word, or a monprice word that
+// fits it); else the monprice word an unmatched import or a hand-made card
+// keeps; else '' for a copy whose finish was never set (js/shop.js
+// finishKey, the Shop's per-finish rows, reads it the same way).
 export function copyFinishKey(entry) {
 	if (entry && entry.variant_id) {
 		return `v:${entry.variant_id}`;
+	}
+
+	const only = entry && onePrinting.get(`${entryCatalog(entry)}|${entry.card_id}`);
+
+	if (only && finishFits(entry, only)) {
+		return `v:${only.variantId}`;
 	}
 
 	return entry && entry.finish_raw ? `raw:${entry.finish_raw}` : '';
