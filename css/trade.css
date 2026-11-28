@@ -147,8 +147,9 @@
    on a phone. */
 .check-copy-actions {
 	display: flex;
-	flex: none;
+	flex: 0 1 auto;
 	flex-wrap: wrap;
+	max-width: 100%;
 	gap: var(--space-2);
 }
 
@@ -194,4 +195,118 @@
 .check-pile .check-copy-actions {
 	flex: 1 1 100%;
 	min-width: 0;
+}
+
+/* One stop (Eric, 2026-11-27). The name and the star share a line; the
+   language, flag and name, is its own line under it and at the head of
+   every copy, in the text color, so it reads in light and dark. */
+.check-name-line {
+	align-items: center;
+	display: flex;
+	gap: var(--space-2);
+	justify-content: space-between;
+	min-width: 0;
+}
+
+.check-star {
+	flex: none;
+	font-size: 1.1rem;
+	min-width: var(--target);
+}
+
+.check-lang {
+	align-items: center;
+	color: var(--text);
+	display: inline-flex;
+	font-size: 14px;
+	font-weight: 600;
+	gap: 6px;
+	line-height: 20px;
+}
+
+.check-copy-head {
+	align-items: baseline;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0 var(--space-2);
+}
+
+.check-copy-head .check-lang::after {
+	color: var(--muted);
+	content: "·";
+	font-weight: 400;
+	margin-left: var(--space-1);
+}
+
+/* The price: what is saved, or a plain No price in the danger color with a
+   border, so it is not color alone; the field and Save beside it. */
+.check-price {
+	align-items: center;
+	display: flex;
+	flex: 1 1 100%;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+.check-price-tag {
+	font-weight: 700;
+}
+
+.check-price-tag.is-none {
+	border: 1px solid var(--danger-text);
+	border-radius: 4px;
+	color: var(--danger-text);
+	padding: 0 6px;
+}
+
+.check-price-field {
+	display: inline-flex;
+	flex: 1 1 12rem;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+.check-price-input {
+	flex: 1 1 6rem;
+	min-height: var(--target);
+	min-width: 0;
+}
+
+.check-price-save,
+.check-keep,
+.check-offer {
+	flex: none;
+	min-height: var(--target);
+}
+
+.check-price-hint {
+	flex: 1 1 100%;
+	font-size: 14px;
+	line-height: 20px;
+	margin: 0;
+}
+
+.check-price-use {
+	margin-left: var(--space-2);
+	min-height: var(--target);
+}
+
+.check-price .form-error {
+	flex: 1 1 100%;
+	margin: 0;
+}
+
+.check-waiting {
+	font-weight: 600;
+	margin: 0 0 var(--space-2);
+}
+
+/* One line per finish under the count (Eric, 2026-11-27). */
+.check-lines {
+	font-size: 14px;
+	line-height: 20px;
+	list-style: none;
+	margin: var(--space-2) 0 0;
+	padding: 0;
 }

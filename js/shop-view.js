@@ -37,6 +37,7 @@ import {formatCount, plural} from './format.js';
 import {catalogFor, languageLabel} from './languages.js';
 import {finishLabel, NO_FINISH as NO_FINISH_TEXT} from './monprice.js';
 import {applyMove, parseSalePrice, priceForInput, PRICE_FORM_TEXT} from './moves.js';
+import {suggestionWords} from './price-save.js';
 import {addPhotoButton, mainSlide, slideSrc} from './photos/index.js';
 import {euroRates, exchangeRates, extractPrices, finishFits, finishOf, formatBrl, savedEuroRates, savedRates, shortDate} from './prices.js';
 import {PRICE_FILTERS, forSalePatches, groupCopy, groupMark, hasCards, listedOf, listingRows, openOrderCopyIds, orderCheck, ownPicturePath, priceFilter, pricePatches, saleFields, shopGroups, shopKey, shopTotals, storePicturePath, suggestion, timeLeft, unchangedRow, undoForSalePatches, undoPricePatches} from './shop.js';
@@ -709,14 +710,11 @@ export function shopView(root) {
 	}
 
 	function suggestionNode(group) {
-		const found = suggestion(group, recordOf(group), {euroRates: euroRate, rates});
-		const parts = [
-			found.tcgplayer !== null ? `TCGplayer ≈ ${formatBrl(found.tcgplayer)}` : null,
-			found.cardmarket !== null ? `Cardmarket ≈ ${formatBrl(found.cardmarket)}` : null,
-		].filter(Boolean);
+		// The words Check spares shows too (js/price-save.js).
+		const words = suggestionWords(suggestion(group, recordOf(group), {euroRates: euroRate, rates}));
 
 		return h('p', {class: 'shop-suggestion'},
-			parts.length ? `Suggested: ${parts.join(' · ')}` : (recordOf(group) || filled ? 'No suggestion for this card.' : 'Looking for a suggestion…')
+			words ? `Suggested: ${words}` : (recordOf(group) || filled ? 'No suggestion for this card.' : 'Looking for a suggestion…')
 		);
 	}
 

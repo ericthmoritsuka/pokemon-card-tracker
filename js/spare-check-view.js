@@ -31,26 +31,43 @@
 // thumb. The mark is kept on this phone only and changes no copy
 // (js/spare-check.js isChecked); Show: Checked lists the marked cards, each
 // with Not checked to bring it back.
+//
+// One stop (Eric, 2026-11-27): each card says its language with its flag,
+// one line per finish says what is kept and free ("Normal, Portuguese: 1
+// kept, 1 free"), and each copy its plain status; each spare shows its
+// sale price or No price, with a price field that saves through the Shop's
+// own path (js/price-save.js) and the Shop's suggestion; the star sits in
+// the card's heading; and Keep this one too sets a spare's off-sale mark
+// (for_sale false), so it stays home and is not counted free, with Offer it
+// again to take the mark off. The top line counts the priced copies that
+// wait for the Shop's Publish changes, with a link there.
 
 import {artOf, cardFilterItem, entryInfo, fillRecords} from './binders-view.js';
-import {catalogFor, catalogLanguage, cardIndex, printedCode, savedOwnRecords, viewingLanguage} from './catalog.js';
+import {catalogFor, catalogLanguage, cardIndex, printedCode, savedCardRecords, savedOwnRecords, viewingLanguage} from './catalog.js';
 import {copyFinishName, finishChoices} from './catalog-views.js';
 import {cleanupLinks} from './copy-cleanup.js';
-import {loadDocument, onChange, storedPlaces} from './collection.js';
+import {currentUser} from './auth.js';
+import {loadDocument, onChange, storedPlaces, updateCards} from './collection.js';
 import {closeCopySheet, languageName, openEditSheet, rawFinishes} from './copy-sheet.js';
 import {isCustomId} from './custom-card.js';
 import {BASE, backWords, errorText, h} from './dom.js';
 import {applyFilters, FILTERS, filterBar, filterOn, sortItems, storageOf} from './filter-bar.js';
+import {flagBadge} from './flags.js';
 import {formatCount, freeText, plural} from './format.js';
+import {sellableIds} from './listing-guard.js';
+import {listingProblems} from './listing-invariant.js';
 import {finishLabel} from './monprice.js';
-import {applyMove, undoMove} from './moves.js';
+import {applyMove, priceForInput, undoMove} from './moves.js';
 import {undoneText} from './moves-view.js';
+import {priceSave, suggestionWords} from './price-save.js';
+import {formatBrl, savedEuroRates, savedRates} from './prices.js';
 import {toast} from './shell.js';
-import {shopOwnerKnown} from './shop-owner.js';
-import {ANY, CHECK_SORTS, REASONS, SHOWS, checkedPool, checkedSignature, goneFields, isChecked, keepChecked, narrowChecks, placeLabel, spareCheck, whereOptions} from './spare-check.js';
-import {withdrawListings} from './store-publish.js';
+import {forSalePatches, suggestion, undoForSalePatches} from './shop.js';
+import {checkShopOwner, setShopTab, shopOwnerKnown} from './shop-owner.js';
+import {ANY, CHECK_SORTS, REASONS, SHOWS, checkedPool, checkedSignature, goneFields, isChecked, keepChecked, finishLineText, finishLines, narrowChecks, pileText, placeLabel, rowStatus, spareCheck, whereOptions} from './spare-check.js';
+import {listingStatus, withdrawListings} from './store-publish.js';
 import {tileArt} from './tile.js';
-import {cardRecord, noteOnePrintings} from './wishlist.js';
+import {cardRecord, favoriteKey, noteOnePrintings} from './wishlist.js';
 
 const UNDO_MS = 8000;
 const PAGE = 30;
@@ -163,9 +180,18 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 	// Each card's printings from the record saved on this phone, by the
 	// key the catalog saves it under ("card:<lang>:<card id>"), or null.
 	let printings = new Map();
+	// The full records with prices, by "catalog|card id", for the Shop's
+	// suggestion (js/catalog.js savedCardRecords), and the saved rates.
+	let saleRecords = new Map();
+	const rates = savedRates();
+	const euroRate = savedEuroRates();
+	// The document last read, for the star, which covers every copy.
+	let lastDoc = null;
 	const one = cardId ? {card_id: cardId, catalog: isCustomId(cardId) ? 'custom' : catalogFor(lang)} : null;
 	const viewing = viewingLanguage();
 	const back = one ? `cards/${encodeURIComponent(lang)}/${encodeURIComponent(cardId)}` : 'trade';
+	// "N new copies waiting", for the shop owner online (see drawWaiting).
+	const waiting = one ? null : h('p', {class: 'check-waiting', hidden: true, id: 'check-waiting'});
 	const summary = h('p', {'aria-live': 'polite', class: 'muted', id: 'check-summary'}, 'Reading your cards…');
 	const list = h('div', {class: 'check-list', id: 'check-list'});
 	// Every group as last worked out, before the choice narrows it.
@@ -179,8 +205,9 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 	root.append(
 		h('a', {class: 'back', 'data-link': back, href: BASE + back, id: 'check-back'}, backWords(one ? 'Card' : 'Spares')),
 		h('div', {class: 'view-head'}, h('h2', {id: 'check-title', tabindex: '-1'}, 'Check spares')),
+		...(waiting ? [waiting] : []),
 		...(cleanup ? [cleanup.element] : []),
-		h('p', {class: 'muted check-intro'}, `Where every copy is, and why it counts as free or not. If you cannot find one, tap I don't have this one: it is logged in Trades as given away, so your spares and the Shop follow. Undo takes it back.${one ? '' : ' When every copy is there, tap Checked and the next card comes up.'}`),
+		h('p', {class: 'muted check-intro'}, `Where every copy is, and why it counts as free or not. If you cannot find one, tap I don't have this one: it is logged in Trades as given away, so your spares and the Shop follow. Undo takes it back. Keep this one too keeps a spare home, not offered.${one ? '' : ' When every copy is there, tap Checked and the next card comes up.'}`),
 		...(bar ? [bar.element] : []),
 		summary,
 		list
@@ -451,11 +478,117 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		}
 	}
 
+	// The copy's language, its flag beside its name, at the head of each
+	// row (Eric, 2026-11-27: an English copy and a Portuguese one looked the
+	// same). The name is text, so it reads in light and dark alike.
+	// The flag is decorative beside the name, so a screen reader says the
+	// language once.
+	const languageNode = (language) => {
+		if (!language) {
+			return null;
+		}
+
+		const flag = flagBadge([language], {className: 'check-lang-flag', prefix: ''});
+
+		flag.removeAttribute('role');
+		flag.removeAttribute('aria-label');
+		flag.setAttribute('aria-hidden', 'true');
+
+		return h('span', {class: 'check-lang'}, flag, languageName(language));
+	};
+
+	// One undoable change to copies, with its toast.
+	async function patchCopies(patches, undo, text, focus) {
+		if (!patches.length) {
+			return;
+		}
+
+		try {
+			await updateCards(patches);
+		}
+		catch (err) {
+			toast(`Not saved. ${errorText(err)}`);
+
+			return;
+		}
+
+		focusKey = focus;
+		toast(text, {
+			action: () => updateCards(undo).catch((err) => toast(`Not undone. ${errorText(err)}`)),
+			actionLabel: 'Undo',
+			timeout: UNDO_MS,
+		});
+	}
+
+	// Keep this one too: the copy's off-sale mark (for_sale false), which
+	// the spare rule already reads as a spare that stays home, not listed
+	// and not free (js/shop.js listed, js/held-free.js copyState), so
+	// Check spares, the badge, Trade, and the Shop all follow. Offer it
+	// again takes the mark off (null, today's rule).
+	function keepRows(rows, info, on) {
+		const entries = rows.map((row) => row.entry);
+		const patches = forSalePatches(entries, on ? false : null);
+
+		return patchCopies(patches, undoForSalePatches(entries, patches), on
+			? `${info.name}: one more copy kept, not offered.`
+			: `${info.name}: offered again.`, rows[0].groupKey);
+	}
+
+	// A spare's sale price, saved for its whole finish the Shop's way
+	// (js/price-save.js), with the Shop's suggestion and Use button.
+	function priceNode(shop, info, words, id) {
+		const input = h('input', {'aria-describedby': `${id}-error`, 'aria-label': `Sale price for ${info.name}, ${words}`, autocomplete: 'off', class: 'search check-price-input', enterkeyhint: 'done', id: `${id}-price`, inputmode: 'decimal', placeholder: 'R$', type: 'text', value: priceForInput(shop.price)});
+		const error = h('p', {class: 'form-error', hidden: true, id: `${id}-error`, role: 'alert'});
+		const save = h('button', {class: 'small check-price-save', type: 'button'}, 'Save price');
+		const found = suggestion(shop, saleRecords.get(`${shop.catalog}|${shop.card_id}`) || null, {euroRates: euroRate, rates});
+		const hint = suggestionWords(found);
+		const store = async () => {
+			const result = priceSave(shop, input.value);
+
+			if (result.error) {
+				error.textContent = result.error;
+				error.hidden = false;
+				input.focus();
+
+				return;
+			}
+
+			error.hidden = true;
+			await patchCopies(result.patches, result.undo, result.value === null ? `${info.name}: price cleared.` : `${info.name}: ${formatBrl(result.value)} saved.`, null);
+		};
+
+		save.setAttribute('aria-label', `Save price: ${info.name}, ${words}`);
+		save.onclick = store;
+		input.onkeydown = (event) => {
+			if (event.key === 'Enter') {
+				event.preventDefault();
+				store();
+			}
+		};
+
+		return h('div', {class: 'check-price'},
+			h('span', {class: shop.price === null ? 'check-price-tag is-none' : 'check-price-tag'}, shop.price === null ? 'No price' : formatBrl(shop.price)),
+			h('span', {class: 'check-price-field'}, input, save),
+			hint || found.use !== null
+				? h('p', {class: 'check-price-hint muted'},
+					hint ? `Suggested: ${hint}` : null,
+					found.use !== null ? h('button', {class: 'link-button check-price-use', onclick: () => {
+						input.value = priceForInput(found.use);
+						input.focus();
+					}, type: 'button'}, `Use ${formatBrl(found.use)}`) : null)
+				: null,
+			error);
+	}
+
+	const rowId = (row) => `check-copy-${String(row.entry.id).replace(/[^a-z0-9]+/gi, '-')}`;
+
 	function copyItem(row, info) {
-		const reason = REASONS[row.reason];
 		const words = copyWords(row.entry, variantsOf(row.entry));
 		const button = h('button', {class: 'small check-gone', type: 'button'}, 'I don\'t have this one');
 		const finish = h('button', {'aria-haspopup': 'dialog', class: 'small check-finish', type: 'button'}, 'Finish');
+		const keep = row.reason === 'spare' || row.reason === 'offSale'
+			? h('button', {class: 'small check-keep', type: 'button'}, row.reason === 'spare' ? 'Keep this one too' : 'Offer it again')
+			: null;
 
 		button.setAttribute('aria-label', `I don't have this one: ${words}, ${whereText(row.places)}`);
 		button.onclick = () => {
@@ -465,12 +598,18 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		finish.setAttribute('aria-label', `Finish: ${words}, ${whereText(row.places)}`);
 		finish.onclick = () => editCopy(row, info, finish);
 
+		if (keep) {
+			keep.setAttribute('aria-label', `${keep.textContent}: ${words}, ${whereText(row.places)}`);
+			keep.onclick = () => keepRows([row], info, row.reason === 'spare');
+		}
+
 		return h('li', {class: row.free ? 'check-copy is-free' : 'check-copy', 'data-entry': row.entry.id},
 			h('div', {class: 'check-copy-text'},
-				h('span', {class: 'check-copy-what'}, words),
+				h('span', {class: 'check-copy-head'}, languageNode(row.language), h('span', {class: 'check-copy-what'}, words)),
 				h('span', {class: 'check-copy-where'}, ...whereNodes(row.places)),
-				h('span', {class: 'check-copy-why'}, h('span', {class: row.free ? 'check-tag is-free' : 'check-tag'}, reason.label), ` ${reason.text}`)),
-			h('div', {class: 'check-copy-actions'}, finish, button));
+				h('span', {class: 'check-copy-why'}, h('span', {class: row.free ? 'check-tag is-free' : 'check-tag'}, rowStatus(row, formatBrl)), ` ${REASONS[row.reason].text}`)),
+			row.free && row.shop ? priceNode(row.shop, info, words, rowId(row)) : null,
+			h('div', {class: 'check-copy-actions'}, finish, ...(keep ? [keep] : []), button));
 	}
 
 	// Identical copies (design review F8): the same finish, condition, and
@@ -481,7 +620,9 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		const out = new Map();
 
 		rows.forEach((row, at) => {
-			const plain = !row.entry.note && row.entry.for_sale !== true && ['spare', 'kept'].includes(row.reason);
+			// A copy kept too (off sale) piles with the others, so the pile
+			// says "2 kept, 3 free" (Eric, 2026-11-27).
+			const plain = !row.entry.note && row.entry.for_sale !== true && ['spare', 'kept', 'offSale'].includes(row.reason);
 			const key = plain ? `${copyWords(row.entry, variantsOf(row.entry))}|${whereText(row.places)}` : `one|${at}`;
 
 			out.set(key, [...(out.get(key) || []), row]);
@@ -490,13 +631,12 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		return [...out.values()];
 	}
 
-	// A pile: "×6 · No finish set · Near Mint", where, "5 free, 1 kept", and
+	// A pile: "×6 · No finish set · Near Mint", where, "1 kept, 5 free", and
 	// a stepper "I have [6]": lowering it and tapping Log the missing ones
 	// logs that many as given away, spares first, with one Undo.
 	function pileItem(rows, info) {
 		const words = copyWords(rows[0].entry, variantsOf(rows[0].entry));
 		const free = rows.filter((row) => row.free).length;
-		const kept = rows.length - free;
 		const count = h('input', {'aria-label': `How many of these ${rows.length} you have`, class: 'check-pile-count', inputmode: 'numeric', max: String(rows.length), min: '0', type: 'number', value: String(rows.length)});
 		const log = h('button', {class: 'small check-gone', disabled: true, type: 'button'}, 'Log the missing ones');
 		const finish = h('button', {'aria-haspopup': 'dialog', class: 'small check-finish', type: 'button'}, 'Finish');
@@ -556,15 +696,58 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		finish.setAttribute('aria-label', `Finish: ${words}, ${whereText(rows[0].places)}`);
 		finish.onclick = () => editCopy(rows[0], info, finish, rows.map((row) => row.entry));
 
+		// Keep one more: the last free spare gets the off-sale mark; Offer
+		// one again takes it off one copy kept too.
+		const spares = rows.filter((row) => row.reason === 'spare');
+		const keptToo = rows.filter((row) => row.reason === 'offSale');
+		const keepMore = spares.length ? h('button', {class: 'small check-keep', type: 'button'}, 'Keep one more') : null;
+		const offer = keptToo.length ? h('button', {class: 'small check-offer', type: 'button'}, 'Offer one again') : null;
+		const priced = rows.find((row) => row.free && row.shop);
+
+		if (keepMore) {
+			keepMore.setAttribute('aria-label', `Keep one more: ${words}, ${whereText(rows[0].places)}`);
+			keepMore.onclick = () => keepRows([spares[spares.length - 1]], info, true);
+		}
+
+		if (offer) {
+			offer.setAttribute('aria-label', `Offer one again: ${words}, ${whereText(rows[0].places)}`);
+			offer.onclick = () => keepRows([keptToo[0]], info, false);
+		}
+
 		return h('li', {class: free ? 'check-copy check-pile is-free' : 'check-copy check-pile', 'data-entry': rows.map((row) => row.entry.id).join(' ')},
 			h('div', {class: 'check-copy-text'},
-				h('span', {class: 'check-copy-what'}, `×${rows.length} · ${words}`),
+				h('span', {class: 'check-copy-head'}, languageNode(rows[0].language), h('span', {class: 'check-copy-what'}, `×${rows.length} · ${words}`)),
 				h('span', {class: 'check-copy-where'}, ...whereNodes(rows[0].places)),
-				h('span', {class: 'check-copy-why'}, [free ? `${free} free` : null, kept ? `${kept} kept` : null].filter(Boolean).join(', '))),
+				h('span', {class: 'check-copy-why'}, `${pileText(rows)}${priced && priced.price !== null ? `, free ones priced ${formatBrl(priced.price)}` : ''}`)),
+			priced ? priceNode(priced.shop, info, words, rowId(priced)) : null,
 			h('div', {class: 'check-copy-actions'},
 				h('label', {class: 'check-pile-have'}, 'I have ', count),
 				log,
-				finish));
+				finish,
+				...(keepMore ? [keepMore] : []),
+				...(offer ? [offer] : [])));
+	}
+
+	// The star (Eric, 2026-11-27): a favorite is never a spare, so starring
+	// keeps every copy and the listing guard (js/listing-guard.js) takes
+	// any listed one off HOTARU at once. The star covers the card in every
+	// language (js/wishlist.js favoriteCards): on stars this language's
+	// copies, off clears it from every copy of the card. Undo on the toast.
+	function starButton(group, info) {
+		const on = group.favorite;
+		const button = h('button', {'aria-label': `Favorite: ${info.name}`, 'aria-pressed': String(on), class: 'small check-star favorite-toggle', title: on ? 'Remove from favorites' : 'Mark as a favorite (never a spare)', type: 'button'}, on ? '★' : '☆');
+
+		button.onclick = () => {
+			const key = favoriteKey(group.rows[0].entry);
+			const cards = ((lastDoc && lastDoc.cards) || []).filter((entry) => entry && !entry.deleted_at && favoriteKey(entry) === key);
+			const entries = on ? cards : group.rows.map((row) => row.entry);
+			const patches = entries.filter((entry) => (entry.is_favorite === true) !== !on).map((entry) => ({id: entry.id, patch: {is_favorite: !on}}));
+			const undo = patches.map(({id}) => ({id, patch: {is_favorite: entries.find((entry) => entry.id === id).is_favorite ?? null}}));
+
+			patchCopies(patches, undo, on ? `${info.name} is no longer a favorite.` : `${info.name} is a favorite: no copy is a spare.`, group.key);
+		};
+
+		return button;
 	}
 
 	function groupNode(group) {
@@ -584,12 +767,18 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 			h('div', {class: 'check-head'},
 				h('a', {'aria-hidden': 'true', class: 'check-thumb', 'data-link': info.route, href: BASE + info.route, tabindex: '-1'}, art),
 				h('div', {class: 'check-head-text'},
-					h('h3', {class: 'check-name', id: headingId, tabindex: '-1'}, h('a', {'data-link': info.route, href: BASE + info.route}, info.name)),
-					h('span', {class: 'check-meta'}, [info.number ? `#${info.number}` : null, info.setName, languageName(group.language)].filter(Boolean).join(' · ')),
+					h('div', {class: 'check-name-line'},
+						h('h3', {class: 'check-name', id: headingId, tabindex: '-1'}, h('a', {'data-link': info.route, href: BASE + info.route}, info.name)),
+						starButton(group, info)),
+					languageNode(group.language),
+					h('span', {class: 'check-meta'}, [info.number ? `#${info.number}` : null, info.setName].filter(Boolean).join(' · ')),
 					h('span', {class: group.free ? 'check-count is-free' : 'check-count'}, freeText(group.copies, group.free)))),
+			// One line per finish, adding up to the count above (Eric,
+			// 2026-11-27: which copies are free, and why).
+			h('ul', {class: 'check-lines'}, ...finishLines(group.rows, (entry) => finishText(entry, variantsOf(entry))).map((line) => h('li', {class: 'check-line'}, finishLineText(line, group.language)))),
 			h('ul', {class: 'check-copies'}, ...piles(group.rows).map((rows) => (rows.length > 1
-				? pileItem(rows.map((row) => ({...row, groupKey: group.key})), info)
-				: copyItem({...rows[0], groupKey: group.key}, info)))),
+				? pileItem(rows.map((row) => ({...row, groupKey: group.key, language: group.language})), info)
+				: copyItem({...rows[0], groupKey: group.key, language: group.language}, info)))),
 			...(bar ? [checkedButton(group, info)] : []));
 	}
 
@@ -650,7 +839,7 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		// sheet gives the focus back to Finish when it closes.
 		const was = list.contains(document.activeElement) ? document.activeElement : null;
 		const wasCopy = was && was.closest('[data-entry]') ? was.closest('[data-entry]').dataset.entry : null;
-		const wasClass = was ? ['check-finish', 'check-gone'].find((name) => was.classList.contains(name)) : null;
+		const wasClass = was ? ['check-finish', 'check-gone', 'check-keep', 'check-offer', 'check-price-save', 'check-price-input'].find((name) => was.classList.contains(name)) : null;
 
 		list.replaceChildren(...visible.map(groupNode), ...(moreButton ? [moreButton] : []));
 
@@ -731,6 +920,59 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 
 	const check = (doc) => spareCheck(doc, {codeOf: printedCode, only: one});
 
+	// "3 new copies waiting · Publish changes" (Eric, 2026-11-27): since
+	// v128 a copy goes on HOTARU for the first time only from the Shop's
+	// Publish changes, so a price saved here waits. Counted as the Shop
+	// counts its button: the free, priced copies the listing invariant
+	// allows that HOTARU does not hold yet (js/store-publish.js
+	// listingStatus). Only for the shop owner, online; else hidden.
+	let waitingRun = 0;
+	let waitingTimer = null;
+
+	function drawWaiting(doc) {
+		if (!waiting) {
+			return;
+		}
+
+		clearTimeout(waitingTimer);
+		waitingTimer = setTimeout(() => countWaiting(doc).catch(() => {
+			waiting.hidden = true;
+		}), 400);
+	}
+
+	async function countWaiting(doc) {
+		const run = ++waitingRun;
+
+		if (!currentUser() || !navigator.onLine) {
+			waiting.hidden = true;
+
+			return;
+		}
+
+		const owner = shopOwnerKnown() ?? await checkShopOwner();
+
+		if (owner !== true) {
+			waiting.hidden = true;
+
+			return;
+		}
+
+		const ids = [...sellableIds(doc)];
+		const problems = listingProblems(doc, ids, []);
+		const wanted = ids.filter((id) => !problems.has(id));
+		const status = await listingStatus(wanted);
+		const count = wanted.filter((id) => !['available', 'reserved'].includes(status[id])).length;
+
+		if (!alive || run !== waitingRun) {
+			return;
+		}
+
+		waiting.hidden = !count;
+		waiting.replaceChildren(...(count
+			? [`${plural(count, 'new copy', 'new copies')} waiting. `, h('a', {'data-link': 'shop', href: `${BASE}shop`, id: 'check-publish-link', onclick: () => setShopTab('prices')}, 'Publish changes in the Shop')]
+			: []));
+	}
+
 	// The full records this phone has saved for the cards, with no request
 	// (My Cards and the card page save them), so each copy's finish is
 	// named; a card with none says its finish as its word.
@@ -742,6 +984,20 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		const entries = groups.flatMap((group) => group.rows.map((row) => row.entry));
 		// Each international card's English record too (variantsOf, above).
 		const english = entries.filter((entry) => (entry.catalog || 'international') === 'international' && entry.language && entry.language !== 'en').map((entry) => ({...entry, language: 'en'}));
+
+		savedCardRecords(entries).then((found) => {
+			if (!alive || run !== reading) {
+				return;
+			}
+
+			const changed = [...found.keys()].some((key) => !saleRecords.has(key));
+
+			saleRecords = new Map([...saleRecords, ...found]);
+
+			if (changed) {
+				redraw();
+			}
+		}).catch(() => {});
 
 		savedOwnRecords([...entries, ...english]).then((found) => {
 			if (!alive || run !== reading) {
@@ -766,6 +1022,7 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		}
 
 		index = found;
+		lastDoc = doc;
 		// A card with one printing counts an unset copy as it (js/wishlist.js
 		// noteOnePrintings), so the index is read into it before the groups.
 		noteOnePrintings(found.values());
@@ -785,6 +1042,7 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 
 		redraw();
 		readPrintings();
+		drawWaiting(doc);
 	})().catch((err) => {
 		if (alive) {
 			summary.textContent = '';
@@ -794,14 +1052,17 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 
 	const stop = onChange((doc) => {
 		if (alive && doc && Array.isArray(doc.cards)) {
+			lastDoc = doc;
 			groups = check(doc);
 			redraw();
 			readPrintings();
+			drawWaiting(doc);
 		}
 	});
 
 	return () => {
 		alive = false;
+		clearTimeout(waitingTimer);
 		stop();
 		closeCopySheet();
 

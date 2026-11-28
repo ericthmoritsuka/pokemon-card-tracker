@@ -4793,6 +4793,42 @@ Two screens under Check spares, each reached by one line under its heading with 
   minimum commission leaves the consignor nothing. *Default chosen 2026-11-27, Eric to confirm:*
   said, not refused.
 
+### v129 Check Spares as One Stop (Eric, 2026-11-27)
+
+Eric wants to finish each spare on Check spares without going to the Shop or the card page.
+
+- **Language on every row.** Each card's heading and each copy and pile row lead with the copy's
+  flag and language name (js/flags.js flagBadge, the flag decorative beside the name, in the text
+  color so it reads in light and dark). One copy is kept per card, language, and finish
+  (js/wishlist.js finishGroupKey), and the finish lines below name the language. Eric, 2026-11-27.
+- **Each block explains itself.** Under the count ("4 copies, 2 free"), one line per finish adds
+  up to it: "Normal, Portuguese: 1 kept, 1 free", "Reverse Holo, Portuguese: 1 kept (in Kalos),
+  1 free" (js/spare-check.js finishLines). Each copy's tag is a plain status (rowStatus): Free,
+  Free, priced R$ 2,00, Kept, Kept: in Kalos, page 3, Kept extra (the off-sale mark), Favorite.
+  A pile says "1 kept, 1 free, free ones priced R$ 2,00". Nothing on this screen hides behind a
+  tap: one line per fact. Eric, 2026-11-27 (his Binacle).
+- **Price in the row.** Each free copy and each pile with a free copy shows its finish's saved
+  price, or a bordered "No price", with a field and Save price. The save goes through
+  js/price-save.js, which is the Shop's own parsing and R$ 99.999,99 cap (parseSalePrice), its
+  patches on every copy of the finish (pricePatches) with Undo, and its suggestion words, which
+  the Shop's rows now read too. Show gains No price. Eric, 2026-11-27.
+- **Nothing publishes from here.** A copy still goes on HOTARU for the first time only from the
+  Shop's Publish changes (v128). For the shop owner online, the top line says "N new copies
+  waiting" with a link to Publish changes, counted as the Shop counts its button: free, priced
+  copies the listing invariant allows that HOTARU does not hold (listingStatus). A price changed
+  on a copy already live reaches HOTARU at the Shop's next automatic publish; a price cleared is
+  withdrawn at once by the listing guard. Eric, 2026-11-27.
+- **The star in the heading,** with Undo on the toast. A favorite is never a spare, and the
+  listing guard withdraws any listed copy at once. Starring marks this language's copies;
+  unstarring clears every copy of the card, since the star covers all languages. Eric, 2026-11-27.
+- **Keep this one too is the existing off-sale mark.** A spare with for_sale false already stays
+  home: it is not listed (js/shop.js listed), not free (copyState), and the keeper rule ignores
+  the mark, so no new field is needed. A spare row offers Keep this one too, a copy kept too offers
+  Offer it again (back to null, today's rule), and a pile offers Keep one more and Offer one again.
+  The tag reads "Kept extra" (was "Not for sale"), and a copy kept too piles with the others, so the
+  pile says "2 kept, 3 free". Check spares, the badge, Trade, and the Shop agree
+  (tests/held-free.test.mjs). Eric, 2026-11-27.
+
 ## 12. Open Questions
 
 - **Trade matching: built as Trade Ideas in v100** (Eric, 2026-11-23; deferred on 2026-10-01),

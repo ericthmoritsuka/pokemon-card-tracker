@@ -70,7 +70,7 @@ after(async () => {
 
 // routes: more fakes, set up after the others so they win, before the app
 // opens and saves any record.
-async function phone({colorScheme = 'light', copies = COPIES, routes = null} = {}) {
+async function phone({binders = BINDERS, colorScheme = 'light', copies = COPIES, routes = null} = {}) {
 	const context = await browser.newContext({colorScheme, serviceWorkers: 'block', viewport: {height: 844, width: 390}});
 
 	await fakeServices(context);
@@ -85,7 +85,7 @@ async function phone({colorScheme = 'light', copies = COPIES, routes = null} = {
 	const errors = [];
 
 	page.on('pageerror', (err) => errors.push(err.message));
-	await seed(page, server.origin, {binders: BINDERS, copies});
+	await seed(page, server.origin, {binders, copies});
 	await page.locator('.card-grid .tile').first().waitFor(TIMEOUT);
 
 	return {context, errors, page};
@@ -210,8 +210,9 @@ describe('Check spares', () => {
 		assert.deepEqual(await charmander.locator('.check-copy-where').allTextContents(), ['Loose', 'Region, page 1, pocket 1', '30 anos, page 1, pocket 1']);
 		// Each pocket links to its page, opening that pocket (?pocket=N).
 		assert.deepEqual(await charmander.locator('.check-copy-where a.check-copy-pocket').evaluateAll((links) => links.map((link) => link.getAttribute('href').replace(/^.*\/binders\//, 'binders/'))), ['binders/b-1/1?pocket=1', 'binders/b-2/1?pocket=1']);
-		assert.deepEqual(await charmander.locator('.check-tag').allTextContents(), ['Spare', 'In a pocket', 'In a pocket']);
-		assert.deepEqual(await page.locator('.check-group', {hasText: 'Charizard ex'}).locator('.check-tag').allTextContents(), ['Not for sale', 'Kept']);
+		assert.deepEqual(await charmander.locator('.check-tag').allTextContents(), ['Free', 'Kept: in Region, page 1', 'Kept: in 30 anos, page 1']);
+		// The spare taken off sale piles with the copy kept (Eric, 2026-11-27).
+		assert.deepEqual(await page.locator('.check-group', {hasText: 'Charizard ex'}).locator('.check-copy-why').allTextContents(), ['2 kept']);
 		assert.doesNotMatch(await page.locator('#check-list').textContent(), /null/);
 		await page.screenshot({fullPage: true, path: `${SHOTS}/spare-check-screen.png`});
 
@@ -564,7 +565,7 @@ describe('Check spares: Checked', () => {
 		// Kept on the phone; Show: Checked lists them, each with Not checked.
 		await page.reload();
 		await summaryIs(page, 'Every card is checked. Show: Checked lists them.');
-		assert.deepEqual(await page.locator('#check-show option').allTextContents(), ['All cards', 'With free copies', 'None free', 'Favorites', 'Checked']);
+		assert.deepEqual(await page.locator('#check-show option').allTextContents(), ['All cards', 'With free copies', 'None free', 'No price', 'Favorites', 'Checked']);
 		await page.selectOption('#check-show', 'checked');
 		await summaryIs(page, '3 of 3 cards with more than one copy: 7 copies, 2 free.');
 		assert.deepEqual(await page.locator('.check-done').allTextContents(), ['Not checked', 'Not checked', 'Not checked']);
@@ -693,6 +694,109 @@ describe('Check spares: Finish', () => {
 
 			return Boolean(active && active.classList.contains('check-finish') && active.closest('[data-entry="c-04"]'));
 		}, null, TIMEOUT);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+// One stop (Eric, 2026-11-27): language on every row, price in the row
+// saved the Shop's way, the star with Undo, and Keep this one too.
+describe('Check spares: one stop', () => {
+	const open = async (page) => {
+		await page.goto(`${server.origin}${BASE}trade/check`);
+		await page.locator('.check-group').first().waitFor(TIMEOUT);
+	};
+	const pikachu = (page, lang) => page.locator('.check-group', {has: page.locator('.check-head .check-lang', {hasText: lang})}).filter({hasText: 'Pikachu'});
+
+	test('two languages of one card: each row names its language and each has its own kept copy', async () => {
+		const copies = [...COPIES, copy('c-20', 'tsb2-025', {language: 'en'}), copy('c-21', 'tsb2-025', {language: 'en'})];
+		const {context, errors, page} = await phone({copies});
+
+		await open(page);
+		assert.deepEqual(await pikachu(page, 'Portuguese').locator('.check-copy-head .check-lang').allTextContents(), ['Portuguese']);
+		assert.match((await pikachu(page, 'Portuguese').locator('.check-copy-why').allTextContents()).join('|'), /1 kept, 1 free/);
+		assert.match((await pikachu(page, 'English').locator('.check-copy-why').allTextContents()).join('|'), /1 kept, 1 free/);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a price saved in the row goes on the finish; No price filters; Keep this one too and Undo; the star and Undo', async () => {
+		const {context, errors, page} = await phone();
+
+		await open(page);
+		await page.selectOption('#check-show', 'noprice');
+		await page.waitForFunction(() => document.querySelectorAll('.check-group').length === 2, null, TIMEOUT);
+
+		const charmander = page.locator('.check-group', {hasText: 'Charmander'});
+
+		assert.equal(await charmander.locator('.check-price-tag').textContent(), 'No price');
+		await charmander.locator('.check-price-input').fill('100.000,00');
+		await charmander.locator('.check-price-save').click();
+		await charmander.locator('.form-error', {hasText: 'at most'}).waitFor(TIMEOUT);
+		await charmander.locator('.check-price-input').fill('3,50');
+		await charmander.locator('.check-price-save').click();
+		await page.locator('.toast', {hasText: 'R$'}).waitFor(TIMEOUT);
+		await page.waitForFunction(() => document.querySelectorAll('.check-group').length === 1, null, TIMEOUT);
+
+		let doc = await saved(page);
+
+		assert.deepEqual(doc.cards.filter((entry) => ['c-02', 'c-04'].includes(entry.id)).map((entry) => entry.sale_price), [3.5, 3.5]);
+
+		await page.selectOption('#check-show', 'all');
+		await page.locator('.check-group', {hasText: 'Charmander'}).locator('.check-keep').click();
+		const keptToast = page.locator('.toast', {hasText: 'kept, not offered'});
+
+		await keptToast.waitFor(TIMEOUT);
+		await page.waitForFunction(() => [...document.querySelectorAll('.check-group')].find((node) => node.textContent.includes('Charmander')).querySelector('.check-count').textContent === '3 copies, none free', null, TIMEOUT);
+		doc = await saved(page);
+		assert.equal(doc.cards.find((entry) => entry.id === 'c-04').for_sale, false);
+		await keptToast.locator('button', {hasText: 'Undo'}).click();
+		await page.waitForFunction(() => [...document.querySelectorAll('.check-group')].find((node) => node.textContent.includes('Charmander')).querySelector('.check-count').textContent === '3 copies, 1 free', null, TIMEOUT);
+
+		await page.locator('.check-group', {hasText: 'Charmander'}).locator('.check-star').click();
+		const starToast = page.locator('.toast', {hasText: 'is a favorite'});
+
+		await starToast.waitFor(TIMEOUT);
+		await page.waitForFunction(() => [...document.querySelectorAll('.check-group')].find((node) => node.textContent.includes('Charmander')).querySelector('.check-star').getAttribute('aria-pressed') === 'true', null, TIMEOUT);
+		await starToast.locator('button', {hasText: 'Undo'}).click();
+		await page.waitForFunction(() => [...document.querySelectorAll('.check-group')].find((node) => node.textContent.includes('Charmander')).querySelector('.check-star').getAttribute('aria-pressed') === 'false', null, TIMEOUT);
+		assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+// Eric's Binacle (2026-11-27): two Normal loose, a Reverse Holo loose, and
+// a Reverse Holo in a binder pocket. The block says which are free and why.
+describe('Check spares: each block explains itself', () => {
+	test('one line per finish adds up to the count, and each copy says its status', async () => {
+		const copies = [
+			copy('b-1', 'tsb2-025', {language: 'pt'}),
+			copy('b-2', 'tsb2-025', {language: 'pt', sale_price: 2}),
+			copy('b-3', 'tsb2-025', {finish_raw: 'Reverse Holofoil', language: 'pt'}),
+			copy('b-4', 'tsb2-025', {finish_raw: 'Reverse Holofoil', language: 'pt'}),
+		];
+		const {context, errors, page} = await phone({binders: [binder('b-1', 'Region', 'b-4')], copies});
+
+		await page.goto(`${server.origin}${BASE}trade/check`);
+
+		const block = page.locator('.check-group', {hasText: 'Pikachu'});
+
+		await block.waitFor(TIMEOUT);
+		assert.equal(await block.locator('.check-count').textContent(), '4 copies, 2 free');
+
+		const lines = await block.locator('.check-line').allTextContents();
+
+		assert.equal(lines.length, 2);
+		assert.ok(lines.some((line) => /^No finish set, Portuguese: 1 kept, 1 free$/.test(line)), lines.join(' | '));
+		assert.ok(lines.some((line) => /Portuguese: 1 kept \(in Region\), 1 free$/.test(line)), lines.join(' | '));
+
+		// The two Normals are one pile, which says its own status.
+		const statuses = await block.locator('.check-tag').allTextContents();
+
+		assert.deepEqual([...statuses].sort(), ['Free', 'Kept: in Region, page 1']);
+		assert.equal((await block.locator('.check-pile .check-copy-why').textContent()).replace(/\s/g, ' '), '1 kept, 1 free, free ones priced R$ 2,00');
+		await page.screenshot({fullPage: true, path: `${SHOTS}/spare-check-binacle.png`});
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
