@@ -86,6 +86,8 @@ export function ruleSection({binder = null, doc, index, onChange = () => {}, sta
 		return Number.isInteger(n) && n > 0 ? n : 0;
 	};
 	let counted = null;
+	// The card index as the last count left it, with the Pokédex numbers it read.
+	let known = index;
 	let asked = 0;
 	let pending = null;
 	// An order picked by hand stays; until then a new binder starts on the
@@ -262,7 +264,16 @@ export function ruleSection({binder = null, doc, index, onChange = () => {}, sta
 
 		count.className = 'muted';
 		count.textContent = 'Counting the pockets…';
-		pending = loadRuleItems(checked, doc, {index}).then((result) => {
+		// A binder in Pokédex order reads the numbers its cards lack first
+		// (loadRuleItems readDex), and says so.
+		pending = loadRuleItems(checked, doc, {index: known, onReading: () => {
+			if (ticket === asked) {
+				count.className = 'muted';
+				count.textContent = 'Reading Pokédex numbers…';
+			}
+		}, readDex: true}).then((result) => {
+			known = result.index || known;
+
 			if (ticket === asked) {
 				counted = result;
 

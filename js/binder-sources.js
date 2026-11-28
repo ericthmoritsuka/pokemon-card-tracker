@@ -23,7 +23,7 @@
 // asks (and keeps): the Pokédex numbers of owned cards, Pokémon names, a
 // goal's card list, and card details for a rule.
 
-import {cardIndex, catalogLanguage, catalogFor, indexKey, priceRecords, setIdOfCard, viewingLanguage} from './catalog.js';
+import {cardIndex, catalogLanguage, catalogFor, detailRecords, indexKey, priceRecords, saveToCardIndex, setDetails, setIdOfCard, setsNeedingDetails, viewingLanguage} from './catalog.js';
 import {checklistDex, dexLabel, isChecklist, listByDex, nameOf, pokemonNames, resolveOwned, sortChecklists, spriteUrl} from './checklists.js';
 import {collectionEntries, fillDetails, itemFor, ruleMatches, sortCollections} from './collections.js';
 import {isLive, placeFold, storedPlaces} from './collection.js';
@@ -31,6 +31,7 @@ import {customRecord} from './custom-card.js';
 import {computeGoal, describeGoal, isGoal, sortGoals} from './goals.js';
 import {cleanListLanguages, namesListLanguages} from './languages.js';
 import {copyValue, savedRates} from './prices.js';
+import {pool} from './tcgdex.js';
 import {FILTER_FIELDS, cardKey, cleanBinderRule, dexKey, parseKey, sortRuleItems} from './binder-rules.js';
 
 const KIND_WORDS = {checklist: 'Checklist', collection: 'Collection', filter: 'Filter', goal: 'Goal'};
@@ -257,6 +258,51 @@ export function listLanguagesKey(goal) {
 	return namesListLanguages(goal) ? cleanListLanguages(goal.languages).join(',') : null;
 }
 
+// How long a binder waits for the Pokédex numbers of the cards it sorts by
+// them, before it says they could not be read (QA-3, 2026-11-27).
+export const DEX_WAIT_MS = 15000;
+
+// Reads the Pokédex numbers the copies' cards lack, one set at a time as
+// the card index's details come (js/catalog.js setDetails), and saves them
+// to the card index. Resolves {index, unread}: the index with them, and
+// the sets whose details could not be had in time (offline, TCGdex failing,
+// or later than waitMs). A set TCGdex answered for but left a card out of
+// is read: the card has no number to wait for. A read still running at
+// waitMs goes on and saves when it ends, so the next look finds it.
+// onReading is called once when there is something to ask for.
+export async function readDexNumbers(copies, index, {isAlive = () => true, onReading = () => {}, waitMs = DEX_WAIT_MS} = {}) {
+	const sets = setsNeedingDetails(copies, index);
+
+	if (!sets.length) {
+		return {index, unread: 0};
+	}
+
+	onReading();
+
+	const records = [];
+	let read = 0;
+	let timer = null;
+	const saving = pool(sets, 2, async (set) => {
+		const details = await setDetails(set).catch(() => null);
+
+		if (details) {
+			read++;
+			records.push(...detailRecords(set, details));
+		}
+	}).then(() => (records.length && isAlive() ? saveToCardIndex(records) : null));
+	const late = new Promise((resolve) => {
+		timer = setTimeout(() => resolve(null), waitMs);
+	});
+
+	saving.catch(() => {});
+
+	const saved = await Promise.race([saving, late]).catch(() => null);
+
+	clearTimeout(timer);
+
+	return {index: saved || index, unread: sets.length - read};
+}
+
 // The source's items, in the rule's order: {items, error, partial, gone},
 // and for a checklist, anyItems and languages (checklistAnyItems,
 // listLanguagesKey). gone: the list was deleted. partial: some copies could not be told
@@ -269,7 +315,17 @@ export function listLanguagesKey(goal) {
 // order, whose refresh keeps the stored pockets in place and adds new ones
 // at the end (POKEMON_GOAL_ORDER). force asks again what a failed download
 // put off (Refresh).
-export async function loadRuleItems(rule, doc, {force = false, index = null, isAlive = () => true} = {}) {
+//
+// readDex: the cards of a goal or a hand-picked collection in Pokédex order
+// get their numbers from the card index, which has them only once their
+// sets' details are read, so a layout made before then would sort them by
+// collector number and move them when the details came (QA-3, 2026-11-27).
+// With readDex the details are read first (readDexNumbers, onReading says
+// when, dexWaitMs how long to wait), and when some cannot be, the list is
+// incomplete with a gap of kind 'dex': the binder waits for them as it
+// waits for a goal's missing sets (layoutWaits), and keeps its pockets. A
+// card with numbers in its own facts (a Pokémon goal's prints) needs none.
+export async function loadRuleItems(rule, doc, {dexWaitMs = DEX_WAIT_MS, force = false, index = null, isAlive = () => true, onReading = () => {}, readDex = false} = {}) {
 	const clean = cleanBinderRule(rule);
 
 	if (!clean) {
@@ -287,6 +343,8 @@ export async function loadRuleItems(rule, doc, {force = false, index = null, isA
 	let incomplete = false;
 	let gaps = [];
 	let keepOrder = false;
+	// Items again from an index, for the kinds that read Pokédex numbers.
+	let build = null;
 
 	if (kind === 'checklist') {
 		const goal = sourceEntry(clean, doc);
@@ -314,7 +372,8 @@ export async function loadRuleItems(rule, doc, {force = false, index = null, isA
 			known = (await fillDetails(cards, known, isAlive).catch(() => null)) || known;
 		}
 
-		items = cardItems(collectionEntries(collection, doc.cards, known), known);
+		build = (from) => cardItems(collectionEntries(collection, doc.cards, from), from);
+		items = build(known);
 	}
 	else if (kind === 'goal') {
 		const goal = sourceEntry(clean, doc);
@@ -331,7 +390,8 @@ export async function loadRuleItems(rule, doc, {force = false, index = null, isA
 		// Sets not read leave cards undated, never their copies unknown.
 		partial = Boolean(result.missingList) || (incomplete && !gaps.every((gap) => gap.kind === 'sets'));
 		keepOrder = goal.kind === 'pokemon' && clean.order === POKEMON_GOAL_ORDER;
-		items = result.states.map((state) => cardItem(cardKey(state.card.catalog, state.card.cardId), known, {copies: state.copies, facts: state.card}));
+		build = (from) => result.states.map((state) => cardItem(cardKey(state.card.catalog, state.card.cardId), from, {copies: state.copies, facts: state.card}));
+		items = build(known);
 	}
 	else {
 		known = (await fillDetails(cards, known, isAlive).catch(() => null)) || known;
@@ -340,6 +400,22 @@ export async function loadRuleItems(rule, doc, {force = false, index = null, isA
 		const fits = cards.filter((entry) => ruleMatches(rule, itemFor(entry, known.get(indexKey(entry.catalog || 'international', entry.card_id)) || null)));
 
 		items = cardItems(fits, known);
+	}
+
+	if (readDex && build && clean.order === 'dex') {
+		// The copies of cards that name no Pokédex number themselves.
+		const copies = items.filter((item) => item.kind === 'card' && item.catalog !== 'custom' && !item.dexIds.length).flatMap((item) => item.copies);
+		const read = await readDexNumbers(copies, known, {isAlive, onReading, waitMs: dexWaitMs});
+
+		if (read.index !== known) {
+			known = read.index;
+			items = build(known);
+		}
+
+		if (read.unread) {
+			incomplete = true;
+			gaps = [...gaps, {count: read.unread, kind: 'dex'}];
+		}
 	}
 
 	return {
