@@ -17,6 +17,21 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-27
 
+- **v129:** Check spares explains every copy, and binder order holds. `a3850af`
+  - Changed (Eric: he could not tell which copies were free, or an English copy from a Portuguese one): every row
+    in Check spares starts with its language; each card has one line per language and finish that adds up to its
+    count ("Reverse holo, Portuguese: 1 kept (in Kalos), 1 free"); each copy says Free, Free with its price, Kept,
+    Kept in a named binder page, Kept extra, or Favorite.
+  - Added (Eric): price a spare in its row through the Shop's own save path (`js/price-save.js`, same cap and
+    suggestion), a No price filter, the favorite star in each card's heading, and Keep this one too / Offer it again,
+    which use the existing Not for sale mark, now called Kept extra. The top line counts copies waiting for Publish
+    changes.
+  - Fixed: a binder in Pokédex order made before the details loaded saved collector order and reordered later; Create
+    now waits for the numbers, and only a failed TCGdex read holds a binder (a set TCGdex lacks, a Trainer, or a card
+    with no number never does). Two devices editing different details of a copy never edited before kept only one
+    edit; both survive now.
+  - Suite: 180 files, 2,673 pass; two browser tests that failed under load pass alone.
+
 - **v128:** the Shop publishes only on request, and wrong cards stay off HOTARU. `1ccb2d5`
   - Changed (Eric, after opening the Shop re-listed 56 withdrawn cards on 2026-11-26): opening the Shop or saving a price
     never lists a new copy. **Publish changes** does, saying how many copies go out, and a batch of more than 10 shows
