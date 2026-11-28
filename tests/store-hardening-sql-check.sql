@@ -339,7 +339,7 @@ select t.ok((select status from public.store_listings where id = 'pair-1') = 'av
 select t.ok(t.sync(array['pair-1', 'flip-a'], true) -> 'flip-a' ->> 'status' = 'available', 'H2: relist true (Publish changes) revives it');
 reset role;
 select t.ok(to_regprocedure('public.store_sync(jsonb)') is null, 'H2: the one-argument store_sync is gone, so a v127 client fails closed');
-select t.ok(private.store_hardening_version() = 3, 'M6: the guard is at version 3');
+select t.ok(private.store_hardening_version() = 4, 'M6: the guard is at version 4');
 
 -- QA shop 5: a card an expired or cancelled order puts back passes the
 -- invariant first. flip-a is on sale; flip-b comes back from an order.
@@ -386,6 +386,50 @@ reset role;
 insert into public.documents (user_id, doc) select (j ->> 'user_id')::uuid, j -> 'doc' from t.v where k = 'doc';
 reset request.jwt.claim.sub;
 
+-- =================================================== M3 (developer review)
+
+-- A checkout retried after a lost response. Rolled back, from a shop with
+-- no pending orders, so the H1 counts above do not interfere.
+begin;
+update public.store_listings set status = 'available', order_id = null where status = 'reserved';
+update public.store_orders set status = 'cancelled' where status = 'pending';
+create function t.reserved() returns bigint language sql stable security definer as
+	$$ select count(*) from public.store_listings where status = 'reserved' $$;
+grant execute on function t.reserved() to anon;
+create function t.pending() returns bigint language sql stable security definer as
+	$$ select count(*) from public.store_orders where status = 'pending' $$;
+grant execute on function t.pending() to anon;
+-- Four cards back on sale (the checks above withdrew some), c071 to c074.
+update public.store_listings set status = 'available', order_id = null where id = any (t.cards(71, 74));
+create function t.m3(i int) returns text language sql immutable as
+	$$ select 'c0' || (70 + i)::text $$;
+grant execute on function t.m3(int) to anon;
+set local role anon;
+set local request.headers = '{"x-forwarded-for": "198.51.100.3"}';
+delete from t.v where k like 'm3%';
+
+insert into t.v select 'm3a', public.place_order(array[t.m3(1), t.m3(2)], 'Rita', 'r1', null, '{}', 'a3a3a3a3-0000-4000-8000-000000000001');
+select t.ok((select j ? 'code' and j ? 'receipt_token' from t.v where k = 'm3a') and t.reserved() = 2, 'M3: an order with a request_id goes through');
+
+-- The response was lost: the same attempt again gets the same order.
+insert into t.v select 'm3b', public.place_order(array[t.m3(1), t.m3(2)], 'Rita', 'r1', null, '{}', 'a3a3a3a3-0000-4000-8000-000000000001');
+select t.ok((select a.j = b.j from t.v a, t.v b where a.k = 'm3a' and b.k = 'm3b'), 'M3: a repeat call returns the same code, token, hold, and total');
+select t.ok(t.reserved() = 2, 'M3: a repeat call reserves nothing more');
+select t.ok(t.pending() = 1, 'M3: a repeat call makes no second order');
+
+-- Another attempt for the same cards is someone else: taken.
+insert into t.v select 'm3c', public.place_order(array[t.m3(1), t.m3(2)], 'Rui', 'r2', null, '{}', 'a3a3a3a3-0000-4000-8000-000000000002');
+select t.ok((select not (j ? 'code') and j -> 'unavailable' ?& array[t.m3(1), t.m3(2)] from t.v where k = 'm3c'), 'M3: a different request_id with the same cards gets taken');
+
+reset request.headers;
+-- No request_id: as before, the same cards are taken and new ones order.
+insert into t.v select 'm3d', public.place_order(array[t.m3(1)], 'Rui', 'r2');
+select t.ok((select j -> 'unavailable' ? t.m3(1) from t.v where k = 'm3d'), 'M3: without a request_id, a taken card is still taken');
+insert into t.v select 'm3e', public.place_order(array[t.m3(3)], 'Rui', 'r2');
+insert into t.v select 'm3f', public.place_order(array[t.m3(4)], 'Rui', 'r3');
+select t.ok((select count(distinct j ->> 'code') = 2 from t.v where k in ('m3e', 'm3f')) and t.reserved() = 4, 'M3: without a request_id, every call is a new order');
+rollback;
+
 -- =================================================================== M6
 
 -- An older script refuses to run over the hardening, and nothing changes.
@@ -396,7 +440,7 @@ begin;
 rollback;
 \o /dev/null
 \set ON_ERROR_STOP on
-select t.ok(to_regprocedure('public.place_order(text[],text,text,text,uuid[])') is not null and private.store_verify() = 'store ok', 'M6: store-orders.sql refused, the hardening stands');
+select t.ok(to_regprocedure('public.place_order(text[],text,text,text,uuid[],uuid)') is not null and private.store_verify() = 'store ok', 'M6: store-orders.sql refused, the hardening stands');
 
 -- On purpose, it runs, and store_verify says loudly what it undid.
 set store.allow_rerun = on;

@@ -1,12 +1,14 @@
 -- Card Tracker: hardening for the HOTARU shop (principal engineer review of
--- HOTARU at 042d50f, findings H1, H2, H3, M4, M5, and M6).
+-- HOTARU at 042d50f, findings H1, H2, H3, M4, M5, and M6; and the HOTARU
+-- developer review's M3, an idempotent checkout).
 --
 -- What it does: bounds what an anonymous visitor can reserve (H1), makes
 -- order codes that never truncate or collide and stops failed orders from
 -- using up numbers (H2), lets the sealed admin form send the quantity it
 -- loaded so a stale save cannot bring back sold or reserved units (H3), keeps
 -- an order with a receipt from expiring under the buyer (M4), caps receipt
--- uploads per order (M5), refuses to let an older store script run over
+-- uploads per order (M5), lets a checkout retried after a lost response get
+-- its own order back instead of a second one or "taken" (M3), refuses to let an older store script run over
 -- these fixes without saying so (M6), and makes store_sync skip a copy that
 -- breaks the listing invariant (missing, in a binder, or the last of its
 -- finish) instead of publishing it.
@@ -30,7 +32,8 @@
 
 do $$
 begin
-	if to_regprocedure('public.place_order(text[],text,text,text,uuid[])') is null
+	if (to_regprocedure('public.place_order(text[],text,text,text,uuid[])') is null
+			and to_regprocedure('public.place_order(text[],text,text,text,uuid[],uuid)') is null)
 		or to_regclass('public.store_payouts') is null
 		or not exists (select 1 from pg_proc where proname = 'store_order_checks')
 	then
@@ -52,13 +55,15 @@ $$;
 -- with store_sync(jsonb, boolean), which revives a withdrawn listing only
 -- when asked; release_expired and cancel_order (store-orders.sql) check a
 -- released card against the invariant before it goes back on sale.
+-- Version 4 (HOTARU developer review M3) replaces place_order(text[], text,
+-- text, text, uuid[]) with place_order(..., request_id uuid default null).
 create or replace function private.store_hardening_version()
 returns int
 language sql
 immutable
 set search_path = ''
 as $$
-	select 3;
+	select 4;
 $$;
 
 revoke all on function private.store_hardening_version() from public, anon, authenticated;
@@ -113,6 +118,14 @@ where phone_key is null;
 
 create index if not exists store_orders_pending_phone on public.store_orders (phone_key) where status = 'pending';
 create index if not exists store_orders_pending_client on public.store_orders (client_key) where status = 'pending';
+
+-- M3 (developer review): the checkout attempt that made the order. HOTARU
+-- makes one per attempt and sends it again on a retry, so a retry after a
+-- lost response finds this order. Null for orders from before, from the old
+-- page, and from the SQL Editor; unique otherwise.
+alter table public.store_orders add column if not exists request_id uuid;
+
+create unique index if not exists store_orders_request_id on public.store_orders (request_id) where request_id is not null;
 
 create or replace function private.client_key()
 returns text
@@ -184,7 +197,16 @@ revoke all on function private.next_order_code() from public, anon, authenticate
 --       its number, is made only after every card was won, so an order that
 --       fails (a card taken, an ID that does not exist) uses no number.
 --   H2: the code comes from private.next_order_code().
-create or replace function public.place_order(items text[], buyer_name text, buyer_phone text, buyer_note text default null, bundles uuid[] default '{}')
+--   M3 (developer review): an optional last argument, request_id. A call
+--       whose request_id already made an order returns that order's code,
+--       receipt token, hold, and total, and reserves nothing. Without it, a
+--       call behaves as before. PostgREST picks a function by the names of
+--       the arguments sent, and request_id has a default, so the old page
+--       (which never sends it) still finds this one. The five-argument
+--       function is dropped so a call without request_id is not ambiguous.
+drop function if exists public.place_order(text[], text, text, text, uuid[]);
+
+create or replace function public.place_order(items text[], buyer_name text, buyer_phone text, buyer_note text default null, bundles uuid[] default '{}', request_id uuid default null)
 returns jsonb
 language plpgsql
 security definer
@@ -257,6 +279,17 @@ begin
 	-- pass the counts below. A shop this size closes a few orders a day.
 	perform pg_advisory_xact_lock(hashtext('store:place_order'));
 
+	-- M3: a retry of an attempt that already made an order gets that order
+	-- back, before any limit counts it against itself. Under the lock, so a
+	-- second call racing the first waits and then finds its order.
+	if place_order.request_id is not null then
+		select * into order_row from public.store_orders o where o.request_id = place_order.request_id;
+
+		if found then
+			return jsonb_build_object('code', order_row.code, 'receipt_token', order_row.receipt_token, 'reserved_until', order_row.reserved_until, 'total', order_row.total);
+		end if;
+	end if;
+
 	if (select count(*) from public.store_orders o where o.status = 'pending' and o.phone_key = key_phone) >= private.store_limit('orders_per_phone') then
 		raise exception 'This phone already has orders waiting for payment. Pay one of them first.' using errcode = '22023';
 	end if;
@@ -302,8 +335,8 @@ begin
 		end if;
 
 		-- Every card won: only now is a number taken (H2).
-		insert into public.store_orders (id, code, name, phone, note, total, reserved_until, phone_key, client_key)
-		values (new_id, private.next_order_code(), clean_name, clean_phone, clean_note, 0.01, now() + private.store_hold(), key_phone, key_client)
+		insert into public.store_orders (id, code, name, phone, note, total, reserved_until, phone_key, client_key, request_id)
+		values (new_id, private.next_order_code(), clean_name, clean_phone, clean_note, 0.01, now() + private.store_hold(), key_phone, key_client, place_order.request_id)
 		returning * into order_row;
 
 		-- Singles at their own price; a kit's price split over its cards in
@@ -345,8 +378,8 @@ begin
 end;
 $$;
 
-revoke all on function public.place_order(text[], text, text, text, uuid[]) from public;
-grant execute on function public.place_order(text[], text, text, text, uuid[]) to anon, authenticated;
+revoke all on function public.place_order(text[], text, text, text, uuid[], uuid) from public;
+grant execute on function public.place_order(text[], text, text, text, uuid[], uuid) to anon, authenticated;
 
 -- --------------------------------------------------------------- receipts
 
@@ -1054,8 +1087,11 @@ declare
 	missing text[] := '{}';
 	body text;
 begin
-	body := (select pg_get_functiondef(p.oid) from pg_proc p where p.oid = to_regprocedure('public.place_order(text[],text,text,text,uuid[])'));
-	if body is null or body not like '%store_limit%' or body not like '%next_order_code%' then
+	body := (select pg_get_functiondef(p.oid) from pg_proc p where p.oid = to_regprocedure('public.place_order(text[],text,text,text,uuid[],uuid)'));
+	if body is null or body not like '%store_limit%' or body not like '%next_order_code%' or body not like '%request_id%'
+		or to_regprocedure('public.place_order(text[],text,text,text,uuid[])') is not null
+		or to_regprocedure('public.place_order(text[],text,text,text)') is not null
+	then
 		missing := array_append(missing, 'place_order (store-bundles.sql, then store-hardening.sql)');
 	end if;
 

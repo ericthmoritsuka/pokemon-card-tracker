@@ -4697,6 +4697,16 @@ store-hardening. The decisions:
   three. There is no app-version gate: `supabase/min-client.sql` refuses saves from apps older than
   merge_version 2, which v127 is not, so it cannot force v127 devices to update; dropping the old
   signature is what stops them publishing, and each device updates on its next reload.
+- **Version 4 of the guard** (2026-11-27, HOTARU developer review M3, an idempotent checkout).
+  `place_order` takes an optional last argument, `request_id uuid default null`, stored in
+  `store_orders.request_id` (unique when set). HOTARU makes one per checkout attempt and sends it
+  again on a retry, so a retry after a lost response gets back the order it made (same code, receipt
+  token, hold, and total, nothing reserved again) instead of "taken" or a second order. The lookup
+  runs under the H1 lock, before the limits count the order against itself. Without `request_id` a
+  call behaves as before. The five-argument function is dropped, because PostgREST picks a function
+  by the names sent and both would match a call without `request_id`; the old page still finds the
+  six-argument one through the default. The new page, before this runs, gets PostgREST's "no such
+  function" (PGRST202) for the unknown argument and calls again without it.
 
 ### Stats
 

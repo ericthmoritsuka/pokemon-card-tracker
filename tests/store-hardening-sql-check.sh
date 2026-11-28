@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs every store script in the order Eric ran them, then
 # supabase/store-hardening.sql twice, against a throwaway Postgres container,
-# and checks each review fix (H1, H2, H3, M4, M5, M6) failing before and
+# and checks each review fix (H1, H2, H3, M4, M5, M6, and the developer review M3) failing before and
 # passing after (tests/store-hardening-sql-check.sql). Needs Docker or
 # Podman. Nothing touches the real Supabase project. The errors it prints
 # from store-orders.sql ("store-hardening.sql has run") are the refusal it
@@ -46,30 +46,41 @@ run_check() {
 
 run_check supabase/store-hardening.sql
 
-# Mutation check (v128 review H1): with the reserved and sold copies no
-# longer counted as leaving, the checks must fail on the H1 line, so they
-# do test the fix.
 mutant="$(mktemp)"
 trap 'rm -f "${mutant}"' EXIT
-sed 's/and live ? l\.id;/and false;/' supabase/store-hardening.sql >"${mutant}"
 
-if cmp --silent supabase/store-hardening.sql "${mutant}"
-then
-	echo "mutation check: the line to mutate was not found" >&2
-	exit 1
-fi
+# mutation_check <label> <sed expression>: with the fix taken out, the
+# checks must fail on that label's line, so they do test the fix.
+mutation_check() {
+	local label="$1"
+	local output
 
-if output="$(run_check "${mutant}" 2>&1)"
-then
-	echo "mutation check: the checks passed without the H1 fix" >&2
-	exit 1
-fi
+	sed "$2" supabase/store-hardening.sql >"${mutant}"
 
-if ! grep --quiet "FAIL: H1" <<<"${output}"
-then
-	echo "mutation check: failed, but not on H1:" >&2
-	echo "${output}" | tail -n 5 >&2
-	exit 1
-fi
+	if cmp --silent supabase/store-hardening.sql "${mutant}"
+	then
+		echo "mutation check ${label}: the line to mutate was not found" >&2
+		exit 1
+	fi
 
-echo 'store-hardening: the mutation check failed on H1, as it should'
+	if output="$(run_check "${mutant}" 2>&1)"
+	then
+		echo "mutation check ${label}: the checks passed without the fix" >&2
+		exit 1
+	fi
+
+	if ! grep --quiet "FAIL: ${label}" <<<"${output}"
+	then
+		echo "mutation check ${label}: failed, but not on ${label}:" >&2
+		echo "${output}" | tail -n 5 >&2
+		exit 1
+	fi
+
+	echo "store-hardening: the mutation check failed on ${label}, as it should"
+}
+
+# v128 review H1: reserved and sold copies no longer counted as leaving.
+mutation_check H1 's/and live ? l\.id;/and false;/'
+
+# Developer review M3: a repeat request_id no longer finds its order.
+mutation_check M3 's/where o\.request_id = place_order\.request_id;/where false;/'
