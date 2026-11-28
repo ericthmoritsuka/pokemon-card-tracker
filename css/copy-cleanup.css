@@ -18,7 +18,9 @@
 }
 
 .cleanup-link a {
+	display: inline-block;
 	font-weight: 600;
+	min-height: 24px;
 }
 
 .import-finish {

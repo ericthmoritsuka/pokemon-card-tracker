@@ -241,6 +241,22 @@ describe('Check spares', () => {
 		await context.close();
 	});
 
+	test('every link on the list is a 24 px target at least', async () => {
+		const {context, errors, page} = await phone();
+
+		await page.setViewportSize({height: 740, width: 360});
+		await page.goto(`${server.origin}${BASE}trade/check`);
+		await page.locator('.check-group .check-name a').first().waitFor(TIMEOUT);
+
+		const small = await page.evaluate(() => [...document.querySelectorAll('.check-name a, .cleanup-link a')]
+			.map((link) => ({height: link.getBoundingClientRect().height, text: link.textContent.trim()}))
+			.filter((link) => link.height && link.height < 24));
+
+		assert.deepEqual(small, [], 'the card names and the two clean-up links');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('from a card page: that card only, and the way back', async () => {
 		const {context, errors, page} = await phone();
 
@@ -256,6 +272,7 @@ describe('Check spares', () => {
 
 		assert.ok(link.y + link.height <= row.y + row.height + 0.5, 'inside the head row');
 		assert.ok(row.height <= add.height + 0.5, `the head row is ${row.height} px, Add a copy ${add.height} px`);
+		assert.ok(link.height >= 24 && link.width >= 24, `Check is a ${link.width} x ${link.height} px target, at least 24 x 24 (WCAG 2.5.8)`);
 		assert.equal(await page.locator('#copies-check').getAttribute('aria-label'), 'Check where each copy is');
 		await page.click('#copies-check');
 		await page.waitForFunction(() => document.getElementById('check-summary').textContent === '3 copies, 1 free', null, TIMEOUT);
