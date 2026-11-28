@@ -92,12 +92,18 @@
 	margin-left: calc(-1 * var(--space-2));
 }
 
+/* Each link is a whole touch target (tests/stats-browser.test.mjs); the
+   negative margins keep the count line as short as its text, so the strip
+   stays right under the search (tests/my-cards-browser.test.mjs). */
 .cards-summary-links .link-button {
+	align-items: center;
+	margin-block: -6px;
 	color: var(--link);
-	display: inline;
+	display: inline-flex;
 	text-decoration: underline;
-	min-height: 32px;
+	min-height: var(--target);
 	padding: 0 2px;
+	vertical-align: middle;
 	width: auto;
 }
 

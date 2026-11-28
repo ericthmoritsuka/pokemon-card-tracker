@@ -271,8 +271,8 @@ test('a trade with one card out and one card in', async () => {
 	await page.selectOption('#move-in-condition', 'Near Mint');
 	// The same finishes as the copy sheet's Add: this record lists no
 	// printings, so all three plain ones are offered as not listed.
-	assert.deepEqual(await page.locator('#move-in-finish option').allTextContents(), ['Not set', 'Normal (not listed)', 'Holo (not listed)', 'Reverse holo (not listed)']);
-	await page.selectOption('#move-in-finish', {label: 'Holo (not listed)'});
+	assert.deepEqual(await page.locator('#move-in-finish option').allTextContents(), ['No finish set', 'Normal (not in the catalog)', 'Holo (not in the catalog)', 'Reverse holo (not in the catalog)']);
+	await page.selectOption('#move-in-finish', {label: 'Holo (not in the catalog)'});
 	await page.click('#move-in-add');
 	await page.waitForSelector('#move-in-list [data-card="tsb2-090"]');
 	await page.screenshot({fullPage: true, path: `${SHOTS}/moves-trade-form.png`});

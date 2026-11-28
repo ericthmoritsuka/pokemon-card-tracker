@@ -3,7 +3,7 @@
 // normal or as 1st edition, but they are normal, or reverse holo, or holo,
 // or not 1st edition"; "Sometimes I have a holo and a non holo copy"). The
 // copy sheet (js/copy-sheet.js) offers Normal, Holo, and Reverse holo beside
-// the catalog's printings, marked "(not listed)", and stores them as an
+// the catalog's printings, marked "(not in the catalog)", and stores them as an
 // unmatched monprice import does (finish_raw, no variant_id). Headless
 // Chromium at 360 x 740 against tests/pages-server.mjs, signed out.
 //
@@ -130,7 +130,7 @@ const sheetFits = (page) => page.evaluate(() => {
 });
 
 describe('a finish the catalog does not list', () => {
-	test('a copy shown as 1st Edition is set to Holo (not listed), saved on close, and loses its 1st corner and gets HOLO', async () => {
+	test('a copy shown as 1st Edition is set to Holo (not in the catalog), saved on close, and loses its 1st corner and gets HOLO', async () => {
 		const {done, page} = await phone();
 
 		// As an import of a monprice 1st Edition row stores it, matched to
@@ -148,17 +148,17 @@ describe('a finish the catalog does not list', () => {
 
 		await page.click('.copies .copy-row');
 		await page.waitForSelector('#copy-sheet[open]');
-		assert.deepEqual(await page.locator('#copy-finish option').allTextContents(), ['Not set', 'Holo, 1st Edition stamp', 'Normal (not listed)', 'Holo (not listed)', 'Reverse holo (not listed)']);
+		assert.deepEqual(await page.locator('#copy-finish option').allTextContents(), ['No finish set', 'Holo, 1st Edition stamp', 'Normal (not in the catalog)', 'Holo (not in the catalog)', 'Reverse holo (not in the catalog)']);
 		assert.equal(await page.locator('#copy-finish').inputValue(), 'v-first');
 		assert.equal(await page.locator('#copy-scope-hint').count(), 0, 'one copy: no scope to choose');
-		await page.selectOption('#copy-finish', {label: 'Holo (not listed)'});
+		await page.selectOption('#copy-finish', {label: 'Holo (not in the catalog)'});
 		await page.screenshot({path: '/tmp/finish-edit-not-listed.png'});
 
 		// Close, not Save: it is kept (v73).
 		await page.click('#copy-sheet-close');
 		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
-		await page.waitForSelector('.copies .copy-text:has-text("Holo (not listed)")');
-		assert.deepEqual(await rowTexts(page), ['Holo (not listed)']);
+		await page.waitForSelector('.copies .copy-text:has-text("Holo (not in the catalog)")');
+		assert.deepEqual(await rowTexts(page), ['Holo (not in the catalog)']);
 		await page.waitForSelector('.toast:has-text("Copy saved.")');
 
 		const [entry] = await entries(page);
@@ -166,11 +166,11 @@ describe('a finish the catalog does not list', () => {
 		assert.equal(entry.variant_id, null);
 		assert.equal(entry.finish_raw, 'HOLOFOIL');
 
-		// It opens again as Holo (not listed), and a sheet only opened and
+		// It opens again as Holo (not in the catalog), and a sheet only opened and
 		// closed writes nothing.
 		await page.click('.copies .copy-row');
 		await page.waitForSelector('#copy-sheet[open]');
-		assert.equal(await page.locator('#copy-finish option:checked').textContent(), 'Holo (not listed)');
+		assert.equal(await page.locator('#copy-finish option:checked').textContent(), 'Holo (not in the catalog)');
 		await page.click('#copy-sheet-close');
 		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
 		assert.equal((await entries(page))[0].updated_at, entry.updated_at);
@@ -205,9 +205,9 @@ describe('a finish the catalog does not list', () => {
 		await page.waitForSelector('#copy-add');
 		await page.click('#copy-add');
 		await page.waitForSelector('#copy-sheet[open]');
-		await page.selectOption('#copy-finish', {label: 'Normal (not listed)'});
+		await page.selectOption('#copy-finish', {label: 'Normal (not in the catalog)'});
 		await page.click('#copy-add-save');
-		await page.waitForSelector('.copies .copy-text:has-text("Normal (not listed)")');
+		await page.waitForSelector('.copies .copy-text:has-text("Normal (not in the catalog)")');
 
 		const [entry] = await entries(page);
 
@@ -251,10 +251,10 @@ describe('a finish the catalog does not list', () => {
 		await page.screenshot({path: '/tmp/finish-edit-scope.png'});
 		await page.evaluate(() => document.documentElement.style.removeProperty('font-size'));
 
-		await page.selectOption('#copy-finish', {label: 'Holo (not listed)'});
+		await page.selectOption('#copy-finish', {label: 'Holo (not in the catalog)'});
 		await page.click('#copy-sheet-close');
 		await page.waitForFunction(() => document.querySelectorAll('.copies .copy-row').length === 2);
-		assert.deepEqual((await rowTexts(page)).sort(), ['Holo (not listed)', 'Normal']);
+		assert.deepEqual((await rowTexts(page)).sort(), ['Holo (not in the catalog)', 'Normal']);
 		assert.deepEqual(await rowCounts(page), ['1', '1']);
 
 		const saved = await entries(page);

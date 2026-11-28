@@ -21,7 +21,7 @@ export const INTEGRATION = {
 		// After the last import line.
 		import: [
 			'import {WISHLIST_ACCOUNT_VIEWS, WISHLIST_ROUTES} from \'./js/wishlist-view.js\';',
-			'import {keepFamilyWishlistsCached, loadOnePrintings} from \'./js/wishlist.js\';',
+			'import {keepFamilyWishlistsCached, printingsReady} from \'./js/wishlist.js\';',
 		],
 		// An element of ROUTES.
 		routes: '\t...WISHLIST_ROUTES,',
