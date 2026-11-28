@@ -277,6 +277,37 @@ describe('Collections', () => {
 		await context.close();
 	});
 
+	test('counts say cards where they mean cards and copies where they mean copies, as My Cards does', async () => {
+		// A second English copy of the Special illustration rare Charizard: two
+		// cards fit the Star rule, held as three copies.
+		const copies = [...COPIES_PLUS, star('c-13', 'tsa1-199')];
+		const {context, errors, page} = await phone({copies});
+
+		await openCollections(page);
+		await page.click('#collections-new');
+		await page.locator('#collection-editor[open]').waitFor(TIMEOUT);
+		await page.fill('#col-name', 'Star');
+		await page.check('#col-kind-rule');
+		await page.locator('#col-rule').waitFor({state: 'visible'});
+
+		// The picker counts cards, as the Filters sheet on My Cards does.
+		const rarities = await page.locator('#col-group-rarity .fb-check label').allTextContents();
+
+		assert.ok(rarities.includes('Special illustration rare (1)'), rarities.join(', '));
+		await page.click('#col-star');
+		await page.waitForFunction(() => /2 cards match now \(3 copies\)\./.test(document.getElementById('col-preview').textContent), null, TIMEOUT);
+		await page.click('#col-save');
+		await page.locator('.card-grid .tile').first().waitFor(TIMEOUT);
+		assert.equal(await page.locator('#cards-summary').textContent(), '3 copies · 2 cards');
+		await openCollections(page);
+		await page.locator('.col-row').waitFor(TIMEOUT);
+		assert.equal(await page.locator('.col-row .col-count').textContent(), '3 copies · 2 cards');
+		await page.screenshot({path: `${SHOTS}/collections-counts.png`});
+
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('a card is left out of a rule collection from its card sheet, and put back from "left out"', async () => {
 		const {context, errors, page} = await phone();
 

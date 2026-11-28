@@ -1514,7 +1514,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		// binder".
 		await page.goto(url('binders'));
 		await page.waitForSelector('#unplaced-link');
-		assert.equal(await page.locator('#unplaced-link').textContent(), '6 owned cards not in any binder');
+		assert.equal(await page.locator('#unplaced-link').textContent(), '6 owned copies not in any binder');
 		assert.equal(await page.locator('.binder-cover .binder-from').textContent(), 'From a list');
 		assert.equal(await page.locator('.binder-fill').textContent(), '3 / 4');
 

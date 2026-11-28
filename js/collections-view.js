@@ -16,6 +16,7 @@
 import {currentUser} from './auth.js';
 import {filterItems} from './binder-sources.js';
 import {cardImage, cardIndex, indexKey, savedCardRecords} from './catalog.js';
+import {tileKey} from './bulk-edit.js';
 import {cardsScreen} from './cards-view.js';
 import {
 	NAME_MAX,
@@ -84,6 +85,19 @@ function ruleLabels(options) {
 // What the filter bar reads of each live copy, set name and release date
 // included, so the rule's Set choices read as names and not as "<catalog>|<set id>".
 const itemsOf = (cards, index) => filterItems(cards, index);
+
+// One item per card, not per copy, for the rule picker's counts: the Filters
+// sheet on My Cards counts cards (a card once per language), and "Common (8)"
+// there should read the same here.
+const cardItemsOf = (cards, index) => [...new Map(itemsOf(cards, index).map((item) => [item.tile, item])).values()];
+
+// How many cards a set of copies is, in My Cards' words: "4 copies · 3 cards"
+// where the two differ, "3 cards" where each card is one copy.
+function countWords(entries) {
+	const cards = new Set(entries.map(tileKey)).size;
+
+	return entries.length === cards ? plural(cards, 'card', 'cards') : `${plural(entries.length, 'copy', 'copies')} · ${plural(cards, 'card', 'cards')}`;
+}
 
 // ----------------------------------------------------------------- value
 
@@ -181,7 +195,7 @@ export function openCollectionEditor({cards, collection = null, index, onDeleted
 	const editing = Boolean(collection);
 	const id = 'collection-editor';
 	const opener = document.activeElement;
-	const options = filterOptions(itemsOf(cards, index));
+	const options = filterOptions(cardItemsOf(cards, index));
 	const labels = ruleLabels(options);
 	const items = itemsOf(cards, index);
 	const rule = (collection && collection.rule) || {};
@@ -245,9 +259,11 @@ export function openCollectionEditor({cards, collection = null, index, onDeleted
 
 		try {
 			const clean = cleanRule(ruleNow());
-			const count = items.filter((item) => ruleMatches(clean, item)).length;
+			const matches = items.filter((item) => ruleMatches(clean, item));
+			const cards = new Set(matches.map((item) => item.tile)).size;
+			const copies = matches.length === cards ? '' : ` (${plural(matches.length, 'copy', 'copies')})`;
 
-			text = `${plural(count, 'card matches', 'cards match')} now. ${ruleText(clean, labels)}`;
+			text = `${plural(cards, 'card matches', 'cards match')} now${copies}. ${ruleText(clean, labels)}`;
 		}
 		catch (err) {
 			text = err.message;
@@ -410,7 +426,7 @@ function rowsFor(collections, {cards, index, saved, userId}) {
 				h('span', {class: 'col-name'}, collection.name),
 				h('span', {class: 'col-kind-tag'}, kindText(collection)),
 				h('span', {class: 'col-meta'},
-					h('span', {class: 'col-count'}, plural(entries.length, 'card', 'cards')),
+					h('span', {class: 'col-count'}, countWords(entries)),
 					entries.length ? h('span', {class: 'col-value'}, value || 'Value loading') : null
 				)
 			)
@@ -873,7 +889,8 @@ function collectionScreen(root, {id, userId = null}) {
 
 		if (leave) {
 			const rule = Boolean(collection) && collection.kind === 'rule';
-			const out = rule ? leftOut(collection, allCards, index).size : 0;
+			const gone = rule ? leftOut(collection, allCards, index) : new Map();
+			const out = new Set(allCards.filter((entry) => entry && gone.has(entry.id)).map(tileKey)).size;
 
 			leave.hidden = !rule;
 			leftLine.hidden = !out;

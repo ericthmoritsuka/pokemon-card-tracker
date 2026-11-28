@@ -2,7 +2,7 @@
 // binder (js/binders.js). Each binder screen is also shown read only for a
 // family member:
 //   binders                                 the person's binders, as covers
-//   binders/unplaced                        owned cards not in any binder
+//   binders/unplaced                        owned copies not in any binder
 //   binders/<id>[/<page>]                   one binder, open as a spread
 //   family/<userId>/binders                 a family member's, view only
 //   family/<userId>/binders/<id>[/<page>]   one of theirs, view only
@@ -139,7 +139,7 @@ const LIST_PAGE = 120;
 
 const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route, href: BASE + route}, ...children);
 
-// "N owned cards not in any binder": My Cards with its Not in a binder
+// "N owned copies not in any binder": My Cards with its Not in a binder
 // filter on and every other filter off, so the count matches, with the
 // whole bar to narrow it further (design review 2, 2026-11-20: it opened a
 // bare grid). The route carries the filter, for that visit only
@@ -1009,7 +1009,7 @@ function bindersScreen(root, source) {
 		const loose = unplaced(live, data.binders).length;
 		const unplacedLink = source.readOnly || !live.length
 			? null
-			: looseCardsLink(`${plural(loose, 'owned card', 'owned cards')} not in any binder`);
+			: looseCardsLink(`${plural(loose, 'owned copy', 'owned copies')} not in any binder`);
 
 		if (!binders.length) {
 			body.replaceChildren(h('div', {class: 'card empty-state'},
@@ -1189,7 +1189,7 @@ function binderScreen(root, source, id, pageParam) {
 
 	valueOpen.className = 'value-open value-line';
 	const onVisible = () => document.visibilityState === 'visible' && drawValue();
-	const unplacedLink = source.readOnly ? null : looseCardsLink('Owned cards not in any binder');
+	const unplacedLink = source.readOnly ? null : looseCardsLink('Owned copies not in any binder');
 	// Many cards into the tray at once; a binder made from a list has none.
 	const addTrayButton = source.readOnly ? null : h('button', {id: 'binder-add-tray', onclick: () => openTrayPicker(), type: 'button'}, 'Add cards to the tray');
 	// Fill this binder's placeholders with cards you own (js/fill-view.js).
@@ -1593,7 +1593,7 @@ function binderScreen(root, source, id, pageParam) {
 		if (!source.readOnly) {
 			const loose = unplaced(data.cards.filter(isLive), data.binders).length;
 
-			unplacedLink.textContent = `${plural(loose, 'owned card', 'owned cards')} not in any binder`;
+			unplacedLink.textContent = `${plural(loose, 'owned copy', 'owned copies')} not in any binder`;
 			unplacedLink.hidden = listMode;
 			addTrayButton.hidden = listMode;
 			layoutButton.hidden = listMode;
