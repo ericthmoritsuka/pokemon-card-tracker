@@ -23,6 +23,16 @@ export const RELEASES = [
 	{
 		date: '2026-11-27',
 		items: [
+			'Check spares says what each copy is: its language, a line per finish such as "Reverse holo, Portuguese: 1 kept (in Kalos), 1 free", and a status on each copy.',
+			'Price a spare right there, with the suggestion beside it, and filter to No price. Star a card from its heading.',
+			'Keep this one too keeps an extra copy home without offering it; Offer it again undoes it.',
+			'A binder in Pokédex order waits for the numbers before it is made, so its pockets no longer reorder, and two devices editing different details of one copy keep both edits.',
+		],
+		version: 'v129',
+	},
+	{
+		date: '2026-11-27',
+		items: [
 			'Opening the Shop no longer puts new cards on HOTARU. Tap Publish changes, which says how many copies go out, and a batch of more than 10 shows them first.',
 			'A copy held in a binder, in an open order, or the last of its finish is never listed, and a copy you sell, delete, star, or put in a pocket leaves HOTARU at once.',
 			'Check live listings in the Shop shows any listing that breaks those rules. Check spares adds the import check for duplicate copies and a screen to set missing finishes in bulk.',
