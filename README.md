@@ -171,9 +171,13 @@ dashboard and they are saved on the next sync.
 
 ### Optional: Google Sign-In
 
-The **Continue with Google** button shows only when Google is turned on in the project: the app
-reads the project's public auth settings (`/auth/v1/settings`, `external.google`) and hides the
-button when that is off or cannot be read. The email link stays the default.
+The app reads the project's public auth settings (`/auth/v1/settings`, `external.google`) to know
+whether Google is turned on. The **Continue with Google** button on the sign-in screen (`/signin`)
+shows only when Google is on, and stays hidden when it is off or the settings cannot be read. On
+Profile, signed out, the button shows at once and the settings are read only when it is tapped, so
+browsing Profile contacts no one: if Google is off, the tap says "Google sign-in is not available.
+Use your email instead." and hides the button; if the settings cannot be read, it says so and the
+button stays for another try. The email link stays the default.
 
 1. In the [Google Cloud console](https://console.cloud.google.com/), open **APIs & Services**, set
    up the **OAuth consent screen** (External, app name Card Tracker), then open **Credentials**,
