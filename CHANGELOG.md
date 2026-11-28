@@ -17,6 +17,29 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-27
 
+- **v128:** the Shop publishes only on request, and wrong cards stay off HOTARU. `1ccb2d5`
+  - Changed (Eric, after opening the Shop re-listed 56 withdrawn cards on 2026-11-26): opening the Shop or saving a price
+    never lists a new copy. **Publish changes** does, saying how many copies go out, and a batch of more than 10 shows
+    them first. Withdrawals and price changes to live copies still sync by themselves. Every publish plans from the
+    latest merged document, so a star, an off-sale mark, or a price set on another device is never overridden.
+  - Added: the listing invariant, checked before every publish in the app and again in `store_sync` on the server
+    (`js/listing-invariant.js`, `supabase/store-hardening.sql`): a copy held in a binder pocket, in an open order, or the
+    last of its card, language, and finish is never listed, one copy of each always stays home, and an explicit For
+    sale mark is the only exemption. A copy sold, deleted, starred, set Not for sale, or put in a pocket leaves HOTARU at
+    once (`js/listing-guard.js`). An expired or cancelled order puts a card back on sale only if it passes the rule.
+  - Added: Check live listings (`shop/audit`), a read-only list of live listings that break the rule; one source for
+    held and free (`js/held-free.js`) that Trade, Check spares, the badge, the binders, and the Shop share (Trade now
+    lists only free copies, Eric 2026-11-27); in Check spares, the Monprice import check and Copies with no finish
+    (bulk Set finish in batches of 60); identical copies piled into one row.
+  - Changed: Delivered asks first when cards are not checked; Orders says Separated; an unset finish has one name, No
+    finish set; prices are capped at R$ 99.999,99; My Cards puts the search alone on its first line.
+  - Server (`supabase/store-hardening.sql`, Eric runs it after every other store script; its last row says "store ok"):
+    `store_sync` takes `relist`, so a device still on v127 fails closed instead of re-listing; order codes past
+    HTR-9999; limits on unpaid orders per phone, per connection, and in all; a stale sealed-product save no longer
+    resurrects units; receipt limits; older store scripts refuse to rerun over it.
+  - Reviewed before release by a principal designer, a principal engineer, and two QA passes; suite 178 files on a
+    clean export.
+
 - **v127:** a checked order moves to Ready on its own, and a check not saved says so. `3049516`, `c0f2d2c`
   - Changed (Eric: after checking an order's last card he had to refresh to see it leave Separating): an order a
     check or a payment moves to another stage now leaves its filter five seconds later, where v123 kept it until the
