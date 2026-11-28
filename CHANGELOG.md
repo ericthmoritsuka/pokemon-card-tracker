@@ -17,6 +17,13 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-27
 
+- **v130:** My Cards keeps its tools in sight on a computer screen. `b8efc1b`
+  - Fixed (Eric, with a screenshot from his personal computer at about 1250 px): from 600 px wide, the count line
+    shared a row with the tools strip and squeezed it to about 400 px, so View was cut and Spares, Trades, and Add by
+    hand were hidden, with no fade or scrollbar to say the strip scrolled. Now the strip takes its own row and wraps,
+    and the count line sits under it. Phones are unchanged. Stale cache ruled out.
+  - Suite: 180 files, 2,678 pass; one shop-publish-browser case that flakes under load passes alone.
+
 - **v129:** Check spares explains every copy, and binder order holds. `a3850af`
   - Changed (Eric: he could not tell which copies were free, or an English copy from a Portuguese one): every row
     in Check spares starts with its language; each card has one line per language and finish that adds up to its
