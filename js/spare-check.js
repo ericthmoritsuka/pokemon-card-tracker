@@ -20,19 +20,93 @@
 import {copyClaims, heldCopies, liveBinders, pageOfPocket, placements, stagedOf} from './binders.js';
 import {cardGroups, cardLanguageKey} from './binder-rules.js';
 import {isLive} from './collection.js';
-import {freeText} from './format.js';
+import {formatCount, freeText} from './format.js';
 import {copyState} from './held-free.js';
+import {languageLabel} from './languages.js';
 import {favoriteCards, favoriteKey} from './wishlist.js';
 
 // Why a copy counts as it does, in the order the screen explains them.
 export const REASONS = {
 	spare: {free: true, label: 'Spare', text: 'Free to trade or sell.'},
 	forSale: {free: true, label: 'For sale', text: 'Marked For sale, so it is offered wherever it is.'},
-	offSale: {free: false, label: 'Not for sale', text: 'A spare you took off sale, so it stays yours.'},
+	// The copy's off-sale mark (for_sale false): a spare that stays home,
+	// is not listed, and is not counted free, which is what Keep this one
+	// too sets (Eric, 2026-11-27).
+	offSale: {free: false, label: 'Kept extra', text: 'A spare you chose to keep, so it stays home and is not offered.'},
 	pocket: {free: false, label: 'In a pocket', text: 'In a binder pocket, so it is not a spare.'},
 	favorite: {free: false, label: 'Favorite', text: 'A favorite card: no copy is a spare.'},
 	kept: {free: false, label: 'Kept', text: 'The one copy kept in this finish and language.'},
 };
+
+// A copy's plain status (Eric, 2026-11-27: "which copies are free, and
+// why"): "Free", "Free, priced R$ 2,00", "Free, marked For sale", "Kept",
+// "Kept: in Kalos, page 3", "Kept extra" (the off-sale mark), or
+// "Favorite". money: a price formatter (js/prices.js formatBrl).
+export function rowStatus(row, money = (value) => String(value)) {
+	const pocket = (row.places || []).find((place) => place.kind === 'pocket');
+
+	switch (row.reason) {
+	case 'spare':
+		return row.price === null || row.price === undefined ? 'Free' : `Free, priced ${money(row.price)}`;
+	case 'forSale':
+		return row.price === null || row.price === undefined ? 'Free, marked For sale' : `Free, marked For sale, priced ${money(row.price)}`;
+	case 'offSale':
+		return 'Kept extra';
+	case 'pocket':
+		return pocket ? `Kept: in ${pocket.binder_name}, page ${pocket.page}` : 'Kept: in a binder';
+	case 'favorite':
+		return 'Favorite';
+	default:
+		return 'Kept';
+	}
+}
+
+// One line per finish of a group: [{finish, kept, free, where}], where
+// naming the binders the kept copies are in. finishOf(entry): the finish's
+// name. The kept and free add up to the group's copies and free.
+export function finishLines(rows, finishOf) {
+	const lines = new Map();
+
+	for (const row of rows) {
+		const finish = finishOf(row.entry);
+		const line = lines.get(finish) || {finish, free: 0, kept: 0, where: []};
+
+		if (row.free) {
+			line.free++;
+		}
+		else {
+			line.kept++;
+
+			for (const place of row.places || []) {
+				if (place.kind === 'pocket' && !line.where.includes(place.binder_name)) {
+					line.where.push(place.binder_name);
+				}
+			}
+		}
+
+		lines.set(finish, line);
+	}
+
+	return [...lines.values()];
+}
+
+// "Reverse Holo, Portuguese: 1 kept (in Kalos), 1 free".
+export function finishLineText(line, language) {
+	const name = [line.finish, language ? languageLabel(language) : null].filter(Boolean).join(', ');
+	const kept = line.kept ? `${formatCount(line.kept)} kept${line.where.length ? ` (in ${line.where.join(', ')})` : ''}` : null;
+	const free = line.free ? `${formatCount(line.free)} free` : null;
+
+	return `${name}: ${[kept, free].filter(Boolean).join(', ')}`;
+}
+
+// A pile's count, the copies kept first: "2 kept, 3 free", "3 free", or
+// "2 kept" (Eric, 2026-11-27).
+export function pileText(rows) {
+	const free = rows.filter((row) => row.free).length;
+	const kept = rows.length - free;
+
+	return [kept ? `${formatCount(kept)} kept` : null, free ? `${formatCount(free)} free` : null].filter(Boolean).join(', ');
+}
 
 // "Hoenn, page 3, pocket 4", "Tray of Hoenn", or "Loose".
 export function placeLabel(place) {
@@ -88,10 +162,14 @@ export function placesOf(doc) {
 	return out;
 }
 
-// The copies of a card and language: [{entry, free, places, reason}], the
-// free ones first, then the order REASONS lists, then the oldest first.
-// ids: {free, held, spare} Sets; favorites: favoriteCards' Set.
-function copyRows(entries, {favorites, ids, places}) {
+// The copies of a card and language: [{entry, free, places, reason, shop,
+// price}], the free ones first, then the order REASONS lists, then the
+// oldest first. shop: the Shop's row for the copy's finish (js/shop.js
+// shopGroups), which its price is saved through, or null when the finish
+// has no spare; price: that row's sale price or null.
+// ids: {free, held, spare} Sets; favorites: favoriteCards' Set; shops: the
+// Shop rows by copy id.
+function copyRows(entries, {favorites, ids, places, shops}) {
 	const order = Object.keys(REASONS);
 	const rows = entries.map((entry) => {
 		let reason = 'kept';
@@ -109,7 +187,9 @@ function copyRows(entries, {favorites, ids, places}) {
 			reason = 'favorite';
 		}
 
-		return {entry, free: REASONS[reason].free, places: places.get(entry.id) || [], reason};
+		const shop = shops.get(entry.id) || null;
+
+		return {entry, free: REASONS[reason].free, places: places.get(entry.id) || [], price: shop ? shop.price : null, reason, shop};
 	});
 
 	return rows.sort((a, b) => (order.indexOf(a.reason) - order.indexOf(b.reason))
@@ -129,9 +209,17 @@ export function spareCheck(doc, {codeOf, only = null} = {}) {
 	const cards = ((doc && doc.cards) || []).filter((entry) => entry && isLive(entry));
 	// Held, spare, and free from the one place every screen reads them
 	// (js/held-free.js copyState).
-	const {free, held, spare} = copyState(doc, codeOf ? {codeOf} : {});
+	const {free, groups: shopRows, held, spare} = copyState(doc, codeOf ? {codeOf} : {});
 	const ids = {free, held, spare};
-	const context = {favorites: favoriteCards(cards), ids, places: placesOf(doc)};
+	const shops = new Map();
+
+	for (const row of shopRows) {
+		for (const entry of [...row.copies, ...row.marked]) {
+			shops.set(entry.id, row);
+		}
+	}
+
+	const context = {favorites: favoriteCards(cards), ids, places: placesOf(doc), shops};
 	const wanted = only ? cards.filter((entry) => only.card_id === entry.card_id && (only.catalog || 'international') === (entry.catalog || 'international')) : cards;
 
 	// One card in one language, as a binder pocket counts cards
@@ -153,6 +241,8 @@ export function spareCheck(doc, {codeOf, only = null} = {}) {
 				key: cardLanguageKey(entries[0]),
 				language: entries[0].language || null,
 				rows,
+				// The free copies with no sale price, for Show: No price.
+				unpriced: rows.filter((row) => row.free && row.price === null).length,
 			};
 		})
 		.sort((a, b) => (b.free - a.free) || (b.copies - a.copies) || a.key.localeCompare(b.key));
@@ -221,12 +311,14 @@ export function whereOptions(groups) {
 }
 
 // Show: every group, the ones with a free copy, the ones with none, the
+// ones with a free copy that has no sale price (Eric, 2026-11-27), the
 // favorite cards, whose copies all stay (they are never spares), or the
 // cards marked Checked, which every other choice leaves out.
 export const SHOWS = [
 	{label: 'All cards', value: 'all'},
 	{label: 'With free copies', value: 'free'},
 	{label: 'None free', value: 'nofree'},
+	{label: 'No price', value: 'noprice'},
 	{label: 'Favorites', value: 'favorite'},
 	{label: 'Checked', value: 'checked'},
 ];
@@ -237,6 +329,7 @@ const showMatches = {
 	favorite: (group) => group.favorite === true,
 	free: (group) => group.free > 0,
 	nofree: (group) => group.free === 0,
+	noprice: (group) => group.unpriced > 0,
 };
 
 // ------------------------------------------------------------- Checked

@@ -893,3 +893,34 @@ describe('Shop publishing', () => {
 		await context.close();
 	});
 });
+
+// Check spares (Eric, 2026-11-27): a price saved in a spare's row waits for
+// Publish changes, and the screen's top line says so, with a link there.
+describe('Check spares and Publish changes', () => {
+	test('a price saved on Check spares counts as a new copy waiting until the Shop publishes it', async () => {
+		const {context, errors, page, store} = await ownerPhone();
+
+		await page.goto(`${server.origin}${BASE}trade/check`);
+
+		const charmander = page.locator('.check-group', {has: page.locator('.check-head .check-lang', {hasText: 'English'})}).filter({hasText: 'Charmander'});
+
+		await charmander.first().waitFor(TIMEOUT);
+		await charmander.locator('.check-copy', {hasText: 'Near Mint'}).locator('.check-price-input').fill('2,30');
+		await charmander.locator('.check-copy', {hasText: 'Near Mint'}).locator('.check-price-save').click();
+		await page.locator('#check-waiting:not([hidden])').waitFor(TIMEOUT);
+		assert.equal(plain(await page.locator('#check-waiting').textContent()), '1 new copy waiting. Publish changes in the Shop');
+		assert.equal(store.calls(), 0, 'nothing goes on HOTARU from Check spares');
+
+		await page.click('#check-publish-link');
+		await publishNew(page);
+		await waitLine(page, /^On HOTARU: 1 card, 1 copy\.$/);
+		assert.deepEqual([...store.listings.keys()], ['c-04']);
+
+		await page.goto(`${server.origin}${BASE}trade/check`);
+		await charmander.first().waitFor(TIMEOUT);
+		await page.waitForTimeout(1500);
+		assert.equal(await page.locator('#check-waiting').isHidden(), true);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});

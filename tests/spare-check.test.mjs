@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {freeCopyIds} from '../js/shop.js';
-import {ANY, CHECK_SORTS, LOOSE, REASONS, SHOWS, checkedPool, checkedSignature, freeText, goneFields, isChecked, keepChecked, narrowChecks, placeLabel, placesOf, rowWheres, spareCheck, whereOptions} from '../js/spare-check.js';
+import {ANY, CHECK_SORTS, LOOSE, REASONS, SHOWS, checkedPool, checkedSignature, freeText, goneFields, isChecked, keepChecked, narrowChecks, pileText, placeLabel, placesOf, finishLineText, finishLines, rowStatus, rowWheres, spareCheck, whereOptions} from '../js/spare-check.js';
 
 const at = (minute) => `2026-11-25T10:${String(minute).padStart(2, '0')}:00.000Z`;
 
@@ -217,7 +217,7 @@ describe('narrowChecks', () => {
 		narrowChecks(items(), {sort: 'bogus', sortItems});
 		assert.deepEqual(seen, ['setOld']);
 		assert.deepEqual(CHECK_SORTS.map((option) => option.value), ['free', 'where', 'setOld', 'set', 'name', 'dex']);
-		assert.deepEqual(SHOWS.map((option) => option.value), ['all', 'free', 'nofree', 'favorite', 'checked']);
+		assert.deepEqual(SHOWS.map((option) => option.value), ['all', 'free', 'nofree', 'noprice', 'favorite', 'checked']);
 	});
 
 	test('rowWheres: a copy with no place is loose', () => {
@@ -414,3 +414,65 @@ describe('words', () => {
 		assert.deepEqual(goneFields('c3', {date: '2026-11-25'}), {date: '2026-11-25', kind: 'gift', note: 'Not found in Check spares', out: ['c3'], who: null});
 	});
 });
+
+// Eric, 2026-11-27: one stop for each spare, language, price, and Keep this
+// one too.
+describe('one stop', () => {
+	test('one card in two languages and the same finish: two kept copies, each naming its language', () => {
+		const doc = {binders: [], cards: [card('p1'), card('p2'), card('e1', {language: 'en'}), card('e2', {language: 'en'})]};
+		const groups = spareCheck(doc);
+		const lines = groups.flatMap((group) => finishLines(group.rows, () => 'Normal').map((line) => finishLineText(line, group.language)));
+
+		assert.equal(groups.length, 2);
+		assert.deepEqual(groups.map((group) => group.rows.filter((row) => row.reason === 'kept').map((row) => row.entry.id)).flat().sort(), ['e1', 'p1']);
+		assert.deepEqual(lines.sort(), ['Normal, English: 1 kept, 1 free', 'Normal, Portuguese: 1 kept, 1 free']);
+	});
+
+	test('each row carries its finish\'s Shop row and price; No price counts the free copies without one', () => {
+		const doc = {binders: [], cards: [card('c1', {sale_price: 4.5}), card('c2', {sale_price: 4.5}), card('c3', {finish_raw: 'Reverse Holofoil'}), card('c4', {finish_raw: 'Reverse Holofoil'})]};
+		const [group] = spareCheck(doc);
+		const byId = Object.fromEntries(group.rows.map((row) => [row.entry.id, row]));
+
+		assert.equal(byId.c2.price, 4.5);
+		assert.equal(byId.c4.price, null);
+		assert.equal(byId.c2.shop.key, byId.c1.shop.key);
+		assert.notEqual(byId.c2.shop.key, byId.c4.shop.key);
+		assert.equal(group.unpriced, 1);
+		assert.deepEqual(narrowChecks([{group}], {show: 'noprice'}).length, 1);
+
+		doc.cards[3].sale_price = 3;
+		doc.cards[2].sale_price = 3;
+		assert.deepEqual(narrowChecks([{group: spareCheck(doc)[0]}], {show: 'noprice'}).length, 0);
+	});
+
+	test('Keep this one too is the off-sale mark: the copy stays home, not free, and the pile says 2 kept, 3 free', () => {
+		const cards = ['c1', 'c2', 'c3', 'c4', 'c5'].map((id) => card(id));
+
+		cards[4].for_sale = false;
+
+		const [group] = spareCheck({binders: [], cards});
+
+		assert.deepEqual(group.rows.map((row) => row.reason), ['spare', 'spare', 'spare', 'offSale', 'kept']);
+		assert.equal(group.free, 3);
+		assert.equal(pileText(group.rows), '2 kept, 3 free');
+		assert.equal(pileText(group.rows.slice(0, 3)), '3 free');
+		assert.equal(REASONS.offSale.label, 'Kept extra');
+	});
+});
+
+// Eric's Binacle (2026-11-27): each block says which copies are free and why.
+describe('statuses and finish lines', () => {
+	test('Binacle: 2 Normal loose, a Reverse Holo loose and one in Kalos', () => {
+		const doc = {binders: [binderOf('Kalos', {slots: [pocket('r2', 3, 1)]})], cards: [card('n1'), card('n2', {sale_price: 2}), card('r1', {finish_raw: 'Reverse Holofoil'}), card('r2', {finish_raw: 'Reverse Holofoil'})]};
+		const [group] = spareCheck(doc);
+		const lines = finishLines(group.rows, (entry) => (entry.finish_raw ? 'Reverse Holo' : 'Normal')).map((line) => finishLineText(line, 'pt'));
+		const money = (value) => `R$ ${value.toFixed(2).replace('.', ',')}`;
+
+		assert.equal(freeText(group.copies, group.free), '4 copies, 2 free');
+		assert.deepEqual(lines.sort(), ['Normal, Portuguese: 1 kept, 1 free', 'Reverse Holo, Portuguese: 1 kept (in Kalos), 1 free']);
+		assert.deepEqual(Object.fromEntries(group.rows.map((row) => [row.entry.id, rowStatus(row, money)])), {n1: 'Kept', n2: 'Free, priced R$ 2,00', r1: 'Free', r2: 'Kept: in Kalos, page 3'});
+		assert.equal(rowStatus({reason: 'offSale'}), 'Kept extra');
+		assert.equal(rowStatus({reason: 'favorite'}), 'Favorite');
+	});
+});
+

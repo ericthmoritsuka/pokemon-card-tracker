@@ -85,6 +85,25 @@ describe('held and free on the collection shape', () => {
 		assert.ok(!held.has('k1') && !held.has('k2'), 'Keep the placeholder holds nothing');
 	});
 
+	// Keep this one too on Check spares (Eric, 2026-11-27) is the copy's
+	// off-sale mark, so every consumer drops it from free at once.
+	test('a spare kept too on Check spares leaves free on every consumer', () => {
+		const doc = collectionShape();
+		const before = copyState(doc).free;
+		const id = [...before].find((one) => {
+			const entry = doc.cards.find((card) => card.id === one);
+
+			return entry && entry.for_sale !== true;
+		});
+
+		doc.cards.find((card) => card.id === id).for_sale = false;
+
+		for (const [name, sets] of Object.entries(consumers(doc))) {
+			assert.ok(!sets.free.has(id), `${name} still counts it free`);
+			assert.equal(sets.free.size, before.size - 1, `${name} lost or gained another copy`);
+		}
+	});
+
 	test('every screen reads held and free through js/held-free.js', () => {
 		assert.match(source('js/trade-view.js'), /const docSpares = \(doc\) => freeEntries\(doc\);/);
 		assert.match(source('js/cards-view.js'), /import \{copyState as heldAndFree\} from '\.\/held-free\.js';/);

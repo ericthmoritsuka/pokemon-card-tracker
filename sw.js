@@ -183,6 +183,7 @@ const SHELL = [
 	'js/set-check.js',
 	'js/pokemon-cards-view.js',
 	'js/pokemon-cards.js',
+	'js/price-save.js',
 	'js/price-view.js',
 	'js/prices.js',
 	'js/photos/adjust.js',
