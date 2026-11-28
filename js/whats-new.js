@@ -23,6 +23,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-27',
 		items: [
+			'On a computer screen, My Cards no longer hides its buttons: the tools wrap onto a second row instead of scrolling, so View, Spares, Trades, and Add by hand are always in sight.',
+			'The count with Stats and Value sits under the buttons and no longer covers them.',
+		],
+		version: 'v130',
+	},
+	{
+		date: '2026-11-27',
+		items: [
 			'Check spares says what each copy is: its language, a line per finish such as "Reverse holo, Portuguese: 1 kept (in Kalos), 1 free", and a status on each copy.',
 			'Price a spare right there, with the suggestion beside it, and filter to No price. Star a card from its heading.',
 			'Keep this one too keeps an extra copy home without offering it; Offer it again undoes it.',
