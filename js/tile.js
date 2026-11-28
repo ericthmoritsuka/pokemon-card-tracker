@@ -124,8 +124,14 @@ function imageStatus(missing) {
 
 // A card-back style tile, so a missing image still says which card it is.
 function cardBack({name, number, setName}, missing) {
+	const title = h('span', {class: 'card-back-name'}, name);
+
+	// The longest word's length, for Mini (style.css): the name shrinks
+	// until that word fits the tile, so no word breaks mid-name.
+	title.style.setProperty('--name-chars', String(Math.max(1, ...String(name || '').split(/[\s-]+/).map((word) => word.length))));
+
 	return h('div', {class: 'card-back'},
-		h('span', {class: 'card-back-name'}, name),
+		title,
 		number ? h('span', null, `#${number}`) : null,
 		setName ? h('span', {class: 'card-back-set'}, setName) : null,
 		h('span', {class: 'card-back-status'}, imageStatus(missing))

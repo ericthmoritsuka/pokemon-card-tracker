@@ -89,12 +89,12 @@ async function phone(viewport = PHONE, {cards = CARDS} = {}) {
 }
 
 // The collection, with Pikachu's full record saved so its finish is known.
-async function open(page, view = null, {copies = COPIES_TWO} = {}) {
+async function open(page, view = null, {copies = COPIES_TWO, index = indexWithImages()} = {}) {
 	const pikachu = CARDS.find((card) => card.id === 'tsb2-025');
 
 	await seed(page, server.origin, {
 		copies,
-		index: indexWithImages(),
+		index,
 		local: view ? {[VIEW_KEY]: view} : {},
 		records: {[`card:en:${pikachu.id}`]: {at: Date.now(), data: fullRecord(pikachu)}},
 	});
@@ -262,6 +262,61 @@ describe('the View switch', () => {
 		}
 		finally {
 			await context.close();
+		}
+	});
+
+	test('Mini keeps a name whole on a card back, shrinking it instead of breaking a word', async () => {
+		for (const viewport of [PHONE, {height: 740, width: 360}]) {
+			const {context, errors, page} = await phone(viewport);
+
+			try {
+				// Bulbasaur and Sprigatito lose their images, so Mini draws their card backs.
+				const index = indexWithImages();
+
+				for (const key of ['international|tsa1-001', 'international|tsb2-090']) {
+					for (const localization of Object.values(index[key].localizations)) {
+						localization.image = null;
+					}
+				}
+
+				await open(page, 'mini', {index});
+				await page.locator('.card-grid[data-view="mini"] .card-back-name').first().waitFor(TIMEOUT);
+
+				const names = await page.evaluate(() => [...document.querySelectorAll('.card-grid[data-view="mini"] .card-back-name')].map((element) => {
+					const text = element.firstChild;
+					const broken = [];
+					let at = 0;
+
+					for (const word of element.textContent.split(/(\s+)/)) {
+						if (word.trim()) {
+							const range = document.createRange();
+
+							range.setStart(text, at);
+							range.setEnd(text, at + word.length);
+
+							if (range.getClientRects().length > 1) {
+								broken.push(word);
+							}
+						}
+
+						at += word.length;
+					}
+
+					return {broken, name: element.textContent, size: parseFloat(getComputedStyle(element).fontSize)};
+				}));
+
+				assert.ok(names.some((item) => item.name === 'Sprigatito') && names.some((item) => item.name === 'Bulbasaur'), `both card backs show (${viewport.width}): ${names.map((item) => item.name)}`);
+				assert.deepEqual(names.filter((item) => item.broken.length), [], `no word breaks mid-name at ${viewport.width} px`);
+
+				const sprigatito = names.find((item) => item.name === 'Sprigatito');
+
+				assert.ok(sprigatito.size >= 6 && sprigatito.size < 10, `a ten-letter name shrinks (${sprigatito.size} px)`);
+				await page.screenshot({path: `${SHOTS}/card-views-mini-names-${viewport.width}.png`});
+				assert.deepEqual(errors, []);
+			}
+			finally {
+				await context.close();
+			}
 		}
 	});
 

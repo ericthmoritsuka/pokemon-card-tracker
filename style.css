@@ -3121,6 +3121,20 @@ progress {
 	}
 }
 
+/* Mini's card back (a card with no image) keeps every word whole: the name
+   shrinks, down to 6 px, until its longest word fits the tile (js/tile.js
+   sets --name-chars), where it used to break "Bulbasaur" after its eighth
+   letter. A word still longer than the tile breaks only as a last resort. */
+.card-grid[data-view="mini"] .tile .card-back {
+	hyphens: manual;
+	overflow-wrap: break-word;
+}
+
+.card-grid[data-view="mini"] .tile .card-back-name {
+	font-size: clamp(6px, calc((100cqw - 8px) / (0.85 * var(--name-chars, 8))), 10px);
+	letter-spacing: 0;
+}
+
 /* The small corner of a binder pocket and the Mini view: an 18 x 13 px
    flag, and the finish as tall beside it. */
 .pocket .badge-corner,
