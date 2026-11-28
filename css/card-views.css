@@ -228,6 +228,22 @@
 	}
 }
 
+/* A desktop or tablet: the strip takes the whole line under the search and
+   wraps, so Sort, View, Spares, Trades, and Add by hand are never cut off
+   (v129 shared the line with the count, left the strip 397 px of its 787,
+   and clipped View and everything after it with no fade or scrollbar to
+   show more). The count is under it. A phone held sideways (500 px tall or
+   less) keeps the shared line, which it needs the height for. */
+@media (min-width: 600px) and (min-height: 501px) {
+	.fb-lines > .cards-tools {
+		flex: 1 0 100%;
+		flex-wrap: wrap;
+		margin: 0;
+		overflow: visible;
+		padding: 0;
+	}
+}
+
 /* A phone held sideways: the header scrolls away with the page, as on a
    binder (css/binder-spread.css), so the cards fill the height under the
    tab bar's top once the bar is passed. */

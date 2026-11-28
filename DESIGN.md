@@ -398,6 +398,9 @@ line wraps to two with its text buttons):
   list, **Clear all** and **Set storage for these N copies** are text buttons at the end of the
   same line instead of a chip and a button on lines of their own; the filter chips stay under it.
   The Trade view and a family member's cards have the same count line under their bar.
+- **From 600 px and over 500 px tall** (a desktop or tablet), the strip takes its own line under the
+  search and wraps rather than scrolls, so no tool is ever cut off, and the count is under it (v130:
+  sharing the line gave the strip 397 px of its 787, so the count covered View and the rest were clipped).
 - **From 600 px**, as a phone held sideways, the search line and Sort and View share a line, and
   so do the tools and the count. Held sideways (no more than 500 px tall), the app's header
   scrolls away with the page instead of staying at the top, as on a binder.

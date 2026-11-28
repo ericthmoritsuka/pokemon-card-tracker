@@ -984,6 +984,52 @@ describe('held sideways', () => {
 	});
 });
 
+describe('a desktop', () => {
+	// v129 on a desktop: the count shared the strip's line, left the strip
+	// 397 px of its 787, and covered View, with Spares, Trades, and Add by
+	// hand cut off behind it and nothing to show they scroll.
+	for (const [width, height] of [[1248, 900], [1366, 768], [1920, 1080], [768, 1024]]) {
+		test(`at ${width} x ${height} the strip shows every tool and the count is under it`, async () => {
+			const {context, errors, page} = await phone({viewport: {height, width}});
+
+			await seed(page, server.origin);
+			await page.locator('.tile').first().waitFor();
+			await noSideways(page, `My Cards at ${width}`);
+
+			const layout = await page.evaluate(() => {
+				const box = (element) => {
+					const {bottom, left, right, top} = element.getBoundingClientRect();
+
+					return {bottom, left, right, top};
+				};
+				const tools = document.getElementById('cards-tools');
+				const strip = box(tools);
+
+				return {
+					count: box(document.getElementById('cards-summary-line')),
+					scrolls: tools.scrollWidth > tools.clientWidth,
+					strip,
+					tools: [...tools.children].map((element) => ({id: element.id || element.className, ...box(element)})),
+				};
+			});
+
+			for (const tool of layout.tools) {
+				assert.ok(tool.left >= layout.strip.left - 1 && tool.right <= layout.strip.right + 1, `${tool.id} inside the strip, not cut off (${JSON.stringify(layout)})`);
+				assert.ok(tool.bottom - tool.top >= 44 || tool.id.includes('select-wrap'), `${tool.id} a whole touch target`);
+			}
+
+			assert.ok(!layout.scrolls, 'nothing in the strip is scrolled out of sight');
+			assert.ok(layout.count.top >= layout.strip.bottom, `the count under the strip, not beside it (${JSON.stringify(layout)})`);
+
+			const overlap = layout.tools.filter((tool) => tool.right > layout.count.left && tool.left < layout.count.right && tool.bottom > layout.count.top && tool.top < layout.count.bottom);
+
+			assert.deepEqual(overlap, [], 'the count covers no tool');
+			assert.deepEqual(errors, []);
+			await context.close();
+		});
+	}
+});
+
 describe('a family member\'s cards', () => {
 	test('read only, with the same bar', async () => {
 		const {context, errors, page} = await phone();
