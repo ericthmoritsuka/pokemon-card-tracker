@@ -21,6 +21,15 @@ import {toast} from './shell.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-28',
+		items: [
+			'Star a card from its row in the Shop: it leaves sale at once, with Undo. A copy you marked For sale still goes on sale.',
+			'Collections and Binders count cards as cards and copies as copies, as My Cards does.',
+			'The small links on the card page and in Check spares are easier to tap.',
+		],
+		version: 'v131',
+	},
+	{
 		date: '2026-11-27',
 		items: [
 			'On a computer screen, My Cards no longer hides its buttons: the tools wrap onto a second row instead of scrolling, so View, Spares, Trades, and Add by hand are always in sight.',
