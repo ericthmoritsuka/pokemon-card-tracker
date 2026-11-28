@@ -903,7 +903,19 @@ export async function setDetails({catalog, ids = new Set(), setId}, {now = Date.
 
 		return details;
 	}
-	catch {
+	catch (err) {
+		// TCGdex answered that it has no such set (a 404, or another refusal
+		// a later try would not change): that is an answer, with no card in it,
+		// not a failed read. It is kept like any answer, and asked again after
+		// a week (above). A failed read (no connection, a server error, a 429)
+		// gives the saved answer, else null; so does a 408 or a 429, which a
+		// later try would change.
+		if (!hit && err && Number.isInteger(err.status) && err.status >= 400 && err.status < 500 && err.status !== 408 && err.status !== 429 && !err.network) {
+			await cachePut(key, {});
+
+			return {};
+		}
+
 		return hit ? hit.data : null;
 	}
 }

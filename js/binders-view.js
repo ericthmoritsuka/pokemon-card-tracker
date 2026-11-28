@@ -2202,7 +2202,7 @@ function binderScreen(root, source, id, pageParam) {
 
 		try {
 			const doc = await loadDocument();
-			let loaded = await loadRuleItems(binder.rule, doc, {force, index, isAlive: () => alive});
+			let loaded = await loadRuleItems(binder.rule, doc, {force, index, isAlive: () => alive, readDex: true});
 
 			if (!alive || !binder || binder.id !== binderId) {
 				return;
