@@ -1266,7 +1266,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.equal(new URL(page.url()).pathname, `${BASE}binders`);
 		assert.equal(await page.locator('.tabs a[data-tab="binders"]').getAttribute('aria-current'), 'page');
 		assert.match(await page.locator('.empty-state').textContent(), /No binders yet/);
-		assert.equal(await page.locator('#unplaced-link').textContent(), '3 owned cards not in any binder');
+		assert.equal(await page.locator('#unplaced-link').textContent(), '3 owned copies not in any binder');
 		await page.screenshot({path: '/tmp/binders-empty.png'});
 
 		// Create "Generations 1 and 2" with a black cover, 3 x 3, 3 pages.
@@ -1472,7 +1472,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.equal(await coverEl.locator('.binder-notes').textContent(), 'Kanto and Johto in Dex order');
 		assert.equal(await coverEl.locator('.binder-fill').textContent(), '2 / 27');
 		assert.match(await coverEl.textContent(), /3 × 3 · 3 pages/);
-		assert.equal(await page.locator('#unplaced-link').textContent(), '1 owned card not in any binder');
+		assert.equal(await page.locator('#unplaced-link').textContent(), '1 owned copy not in any binder');
 		await page.screenshot({path: '/tmp/binders-list.png'});
 
 		// Owned cards in no binder: My Cards with its Not in a binder filter
@@ -1641,7 +1641,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.click('#delete-binder');
 		await page.waitForURL(/\/binders$/);
 		await page.waitForSelector('.empty-state');
-		assert.equal(await page.locator('#unplaced-link').textContent(), '3 owned cards not in any binder');
+		assert.equal(await page.locator('#unplaced-link').textContent(), '3 owned copies not in any binder');
 		doc = await localDoc(page);
 		assert.equal(doc.binders.length, 1);
 		assert.ok(doc.binders[0].deleted_at, 'deleted softly');

@@ -141,14 +141,15 @@ export function sourceText(rule, doc, labels = {}) {
 }
 
 // What the filter bar reads of each live copy, for the filter's options
-// (js/filter-bar.js filterOptions): one item per copy.
+// (js/filter-bar.js filterOptions): one item per copy, with its tile (a card
+// in one language, js/bulk-edit.js tileKey) for counting cards.
 export function filterItems(cards, index) {
 	return (cards || []).filter((entry) => entry && isLive(entry)).map((entry) => {
 		const key = indexKey(entry.catalog || 'international', entry.card_id);
 		const record = index.get(key) || customRecord(entry);
 		const local = display(record, entry);
 
-		return {...itemFor(entry, record), key: entry.id, releaseDate: (record && record.release_date) || '', setName: (local && local.set_name) || null};
+		return {...itemFor(entry, record), key: entry.id, releaseDate: (record && record.release_date) || '', setName: (local && local.set_name) || null, tile: `${entry.catalog || 'international'}|${entry.card_id}|${entry.language}`};
 	});
 }
 
