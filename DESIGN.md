@@ -3143,14 +3143,21 @@ partial numbers and freezing it, would have needed Pokédex order to stop follow
 named for (`keepOrder` is for Set and number only), and left a second phone with an empty index free
 to reorder it. So `loadRuleItems` with `readDex` (`js/binder-sources.js` `readDexNumbers`) reads the
 details of the sets its owned cards lack, up to `DEX_WAIT_MS` (15 seconds), and sorts with them. The
-form says "Reading Pokédex numbers…" in its count line meanwhile. A set TCGdex could not answer
-for, offline, failing, or later than the wait, leaves the list `incomplete` with a gap of kind
-`dex` (`gapText`): the form refuses to create or save the layout with that sentence, as it does for
-sets not read, and a binder already made keeps its pockets on opening and on Refresh until the
-numbers are read, so a phone that has not read them never saves it back into collector order. Set
-and number order, a checklist (its pockets are the numbers), and a Pokémon goal (its prints carry
-their numbers) read nothing extra. Refresh is otherwise as before: it fills new pockets, updates
-only defaults never picked by hand, and leaves hand picks and Keep the placeholder where they are
+form says "Reading Pokédex numbers…" in its count line meanwhile. A failed read is told from a
+card with no number. Failed: no answer from TCGdex (offline, a server error, a 429, or later than the
+wait) leaves the list `incomplete` with a gap of kind `dex` (`gapText`); the form refuses to create
+or save the layout with that sentence, as it does for sets not read, and a binder already made keeps
+its pockets on opening and on Refresh, saying so in its list note, so a phone that has not read the
+numbers never saves it back into collector order. A set that failed is not asked again for five
+minutes on an opening (`DEX_RETRY_MS`), so one failing set does not make every opening wait; a form
+being filled and Refresh ask again. Succeeded but no number never holds anything: a set TCGdex does
+not have (a 404, kept as an empty answer for a week in `setDetails`), a card with a null `dexId`, a
+Trainer or Energy. An Asian print takes the numbers its name gives where the checklists already read
+them (`js/names.js` `dexFromName`, `namedDexItems`); every other card without one sorts after the
+numbered ones, in the stable order of set and key (`firstDex`). Set and number order, a checklist
+(its pockets are the numbers), and a Pokémon goal (its prints carry their numbers) read nothing
+extra. Refresh is otherwise as before: it fills new pockets, updates only defaults never picked by
+hand, and leaves hand picks and Keep the placeholder where they are
 (`tests/binder-order-stable-browser.test.mjs`).
 
 ### Binders

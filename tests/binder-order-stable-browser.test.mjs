@@ -47,6 +47,16 @@ const DEX = [
 	{category: 'Pokemon', dexId: [4], id: 'tst1-010', illustrator: 'Rina Testa', rarity: 'Common', types: ['Fire']},
 ];
 
+// Cards that never have a number from TCGdex: a Pokémon with a null dexId,
+// a Trainer, and a Korean print with a null dexId (its name, 리자몽, is
+// Charizard, #6). A tenth-set card whose set TCGdex does not have (404).
+DEX.push(
+	{category: 'Pokemon', dexId: null, id: 'tst1-013', illustrator: 'Rina Testa', rarity: 'Common', types: ['Colorless']},
+	{category: 'Trainer', dexId: null, id: 'tst1-090', illustrator: 'Rina Testa', rarity: 'Common', types: []}
+);
+
+const DETAILS_KO = [{category: 'Pokemon', dexId: null, id: 'm6-005', illustrator: null, rarity: 'Common', types: ['Water']}];
+
 const BY_DEX = ['tst1-004', 'tst1-010', 'tst1-007', 'tst1-001'];
 const BY_NUMBER = ['tst1-001', 'tst1-004', 'tst1-007', 'tst1-010'];
 
@@ -59,12 +69,29 @@ const RECORDS = SET_CARDS.map((item) => ({
 	set_id: 'tst1',
 }));
 
+const MORE_RECORDS = [
+	{catalog: 'international', collector_number: '013', id: 'tst1-013', localizations: {en: {image: null, lang: 'en', name: 'Test Mystery', set_name: 'Test set one'}}, set_id: 'tst1'},
+	{catalog: 'international', collector_number: '090', id: 'tst1-090', localizations: {en: {image: null, lang: 'en', name: 'Test Potion', set_name: 'Test set one'}}, set_id: 'tst1'},
+	{catalog: 'international', collector_number: '003', id: 'tst9-003', localizations: {en: {image: null, lang: 'en', name: 'Test Lost', set_name: 'Test set nine'}}, set_id: 'tst9'},
+	{catalog: 'ko', collector_number: '005', id: 'm6-005', localizations: {ko: {image: null, lang: 'ko', name: '리자몽', set_name: '테스트 세트'}}, set_id: 'm6'},
+];
+
+const MIXED_CARDS = [
+	...CARDS,
+	{...card('c5', 'tst9-003')},
+	{...card('c6', 'tst1-013')},
+	{...card('c7', 'tst1-090')},
+	{...card('c8', 'm6-005'), catalog: 'ko', language: 'ko'},
+];
+
+const MIXED = {created_at: AT, deleted_at: null, entry_ids: Object.fromEntries(['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8'].map((id) => [id, AT])), id: 'col-1', kind: 'hand', name: 'Mixed picks', rule: null, updated_at: AT};
+
 const SET_GOAL = {catalog: 'international', created_at: AT, deleted_at: null, id: 'goal-1', kind: 'set', level: 'secrets', name: 'Test set one', target: 'tst1', updated_at: AT};
 
-const documentWith = (binders = []) => ({
+const documentWith = (binders = [], {cards = CARDS, collections = []} = {}) => ({
 	binders,
-	cards: CARDS,
-	collections: [],
+	cards,
+	collections,
 	goals: [SET_GOAL],
 	openings: [],
 	person: 'local',
@@ -110,7 +137,14 @@ async function device(net) {
 
 				await new Promise((resolve) => setTimeout(resolve, net.delay));
 
-				return json({data: {cards: DEX}});
+				const setId = /id: "([^"]+)-"/.exec(query)[1];
+
+				// A set TCGdex does not have answers 404.
+				if (setId === 'tst9') {
+					return route.fulfill({body: '{}', contentType: 'application/json', status: 404});
+				}
+
+				return json({data: {cards: setId === 'm6' ? DETAILS_KO : DEX}});
 			}
 
 			if (query.includes('"tst1-"')) {
@@ -140,7 +174,7 @@ async function device(net) {
 	return {context, errors, page};
 }
 
-async function seedLocal(page, doc) {
+async function seedLocal(page, doc, records = RECORDS) {
 	await page.goto(url('cards'));
 	await page.evaluate(async ({cards, stored}) => {
 		await new Promise((resolve, reject) => {
@@ -160,7 +194,7 @@ async function seedLocal(page, doc) {
 			open.onerror = () => reject(open.error);
 		});
 		await (await import('/pokemon-card-tracker/js/catalog.js')).saveToCardIndex(cards);
-	}, {cards: RECORDS, stored: doc});
+	}, {cards: records, stored: doc});
 	await page.reload();
 }
 
@@ -297,6 +331,73 @@ describe('a binder from a list keeps its order (QA-3, 2026-11-27)', {skip: chrom
 		assert.equal(result.incomplete, true);
 		assert.deepEqual(result.gaps, ['dex']);
 		assert.ok(result.elapsed < 8000, `it did not wait for ever: ${result.elapsed} ms`);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a set TCGdex does not have, a null dexId, a Trainer, and a Korean print are never waited on: the names that can are read, the rest follow the numbered ones', async () => {
+		const net = {asked: 0, delay: 0, details: 'answer'};
+		const {context, errors, page} = await device(net);
+
+		await seedLocal(page, documentWith([], {cards: MIXED_CARDS, collections: [MIXED]}), [...RECORDS, ...MORE_RECORDS]);
+		await page.goto(url('binders/new/collection/col-1'));
+		await page.waitForSelector('#rule-section');
+		await page.selectOption('#rule-order', 'dex');
+		await page.waitForFunction(() => /^8 pockets \(8 with a card you own\)/.test((document.getElementById('rule-count') || {}).textContent), null, {timeout: 15000});
+		assert.doesNotMatch(await page.locator('#rule-count').textContent(), /could not be read/);
+		await page.fill('#binder-name', 'Mixed binder');
+		await page.click('#binder-save');
+		await page.waitForSelector('#binder-spread .bs-page');
+
+		const first = storedOrder((await localDoc(page)).binders[0]);
+
+		// 1 Sprout, 4 Ember, the Korean 리자몽 (6, read from its name), 7 Splash,
+		// 25 Spark; then no number.
+		assert.deepEqual(first.slice(0, 5), ['tst1-004', 'tst1-010', 'm6-005', 'tst1-007', 'tst1-001']);
+		assert.deepEqual(first.slice(5), ['tst1-013', 'tst1-090', 'tst9-003'], 'no number: after the numbered ones, in a stable order');
+
+		// Opened again, and refreshed: the same, and nothing waits.
+		await page.goto(url('binders/' + (await localDoc(page)).binders[0].id));
+		await page.waitForSelector('#binder-spread .bs-page');
+		await page.waitForTimeout(1500);
+		assert.deepEqual(storedOrder((await localDoc(page)).binders[0]), first);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a failing set is waited for once, then left alone on later openings, and asked again by a form or Refresh', async () => {
+		const net = {asked: 0, delay: 0, details: 'hang'};
+		const {context, errors, page} = await device(net);
+
+		await seedLocal(page, documentWith());
+		await page.goto(url('goals'));
+
+		const look = (options) => page.evaluate(async (opts) => {
+			const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
+			const {loadRuleItems} = await import('/pokemon-card-tracker/js/binder-sources.js');
+			const started = Date.now();
+			const loaded = await loadRuleItems({order: 'dex', source: {id: 'goal-1', kind: 'goal'}}, await loadDocument(), {readDex: true, ...opts});
+
+			return {elapsed: Date.now() - started, gaps: loaded.gaps.map((gap) => gap.kind), incomplete: loaded.incomplete};
+		}, options);
+
+		const one = await look({dexWaitMs: 500});
+
+		assert.deepEqual(one.gaps, ['dex']);
+		assert.ok(one.elapsed >= 450, `waited for the answer: ${one.elapsed} ms`);
+
+		const asked = net.asked;
+		const two = await look({dexWaitMs: 5000});
+
+		assert.deepEqual(two.gaps, ['dex'], 'still held');
+		assert.ok(two.elapsed < 2500, `not waited for again: ${two.elapsed} ms`);
+		assert.equal(net.asked, asked, 'not asked again');
+
+		const three = await look({dexWaitMs: 500, force: true});
+
+		assert.deepEqual(three.gaps, ['dex']);
+		assert.ok(three.elapsed >= 450, `Refresh asks again: ${three.elapsed} ms`);
+		assert.ok(net.asked > asked, 'asked again');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

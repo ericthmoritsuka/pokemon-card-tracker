@@ -570,7 +570,7 @@ export const setGoalLevel = (id, level) => changeGoal(id, (goal) => {
 // for sets whose details could not be read, {kind: 'index', catalog:
 // 'international'} for the set index, and {kind: 'dex', count} for the sets
 // of owned cards whose Pokédex numbers a binder sorting by them could not
-// read (js/binder-sources.js loadRuleItems readDex). With a gap the cards are not all
+// read (a failed read, not a card TCGdex gives none) (js/binder-sources.js loadRuleItems readDex). With a gap the cards are not all
 // there or not all dated, so a binder keeps its pages as they were
 // (js/binder-sources.js loadRuleItems incomplete), unless it keeps its
 // pockets in place and only undated cards already in it are concerned
@@ -586,11 +586,9 @@ export function gapText(gaps, {online = true} = {}) {
 		// Pokédex numbers of cards owned (js/binder-sources.js readDexNumbers):
 		// no catalog, so no name of prints either.
 		if (gap.kind === 'dex') {
-			const sets = gap.count === 1 ? '1 set' : `${gap.count} sets`;
-
 			return online
-				? `The Pokédex numbers of the cards in ${sets} could not be read in time, so Pokédex order is not settled yet.`
-				: `The Pokédex numbers of the cards in ${sets} are not on this phone yet, so Pokédex order is not settled.`;
+				? 'Some Pokédex numbers could not be read in time, so Pokédex order is not settled yet.'
+				: 'Some Pokédex numbers are not on this phone yet, so Pokédex order is not settled.';
 		}
 
 		const name = printsName(gap.catalog);

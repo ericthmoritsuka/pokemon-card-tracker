@@ -266,7 +266,7 @@ export function ruleSection({binder = null, doc, index, onChange = () => {}, sta
 		count.textContent = 'Counting the pockets…';
 		// A binder in Pokédex order reads the numbers its cards lack first
 		// (loadRuleItems readDex), and says so.
-		pending = loadRuleItems(checked, doc, {index: known, onReading: () => {
+		pending = loadRuleItems(checked, doc, {dexRetryMs: 0, index: known, onReading: () => {
 			if (ticket === asked) {
 				count.className = 'muted';
 				count.textContent = 'Reading Pokédex numbers…';

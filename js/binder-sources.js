@@ -24,12 +24,13 @@
 // goal's card list, and card details for a rule.
 
 import {cardIndex, catalogLanguage, catalogFor, detailRecords, indexKey, priceRecords, saveToCardIndex, setDetails, setIdOfCard, setsNeedingDetails, viewingLanguage} from './catalog.js';
-import {checklistDex, dexLabel, isChecklist, listByDex, nameOf, pokemonNames, resolveOwned, sortChecklists, spriteUrl} from './checklists.js';
+import {checklistDex, dexLabel, isChecklist, listByDex, nameOf, pokemonNames, resolveOwned, sortChecklists, speciesNames, spriteUrl, validDex} from './checklists.js';
 import {collectionEntries, fillDetails, itemFor, ruleMatches, sortCollections} from './collections.js';
 import {isLive, placeFold, storedPlaces} from './collection.js';
 import {customRecord} from './custom-card.js';
 import {computeGoal, describeGoal, isGoal, sortGoals} from './goals.js';
 import {cleanListLanguages, namesListLanguages} from './languages.js';
+import {dexFromName} from './names.js';
 import {copyValue, savedRates} from './prices.js';
 import {pool} from './tcgdex.js';
 import {FILTER_FIELDS, cardKey, cleanBinderRule, dexKey, parseKey, sortRuleItems} from './binder-rules.js';
@@ -259,35 +260,63 @@ export function listLanguagesKey(goal) {
 }
 
 // How long a binder waits for the Pokédex numbers of the cards it sorts by
-// them, before it says they could not be read (QA-3, 2026-11-27).
+// them, before it says they could not be read (QA-3, 2026-11-27), and how
+// long a set that failed or was not answered in time is then left alone, so
+// one failing set does not make every opening wait again.
 export const DEX_WAIT_MS = 15000;
+
+export const DEX_RETRY_MS = 5 * 60 * 1000;
+
+// The sets that failed, by 'catalog|setId', and when (this visit only).
+const failedSets = new Map();
 
 // Reads the Pokédex numbers the copies' cards lack, one set at a time as
 // the card index's details come (js/catalog.js setDetails), and saves them
 // to the card index. Resolves {index, unread}: the index with them, and
-// the sets whose details could not be had in time (offline, TCGdex failing,
-// or later than waitMs). A set TCGdex answered for but left a card out of
-// is read: the card has no number to wait for. A read still running at
-// waitMs goes on and saves when it ends, so the next look finds it.
-// onReading is called once when there is something to ask for.
-export async function readDexNumbers(copies, index, {isAlive = () => true, onReading = () => {}, waitMs = DEX_WAIT_MS} = {}) {
+// how many sets could not be read: no answer from TCGdex (offline, a server
+// error, or later than waitMs), or one failed within retryMs. A set TCGdex
+// answered for is read even when it has no such set (a 404) or leaves a
+// card out or gives it no number (dexId null): the card has no number to
+// wait for, and sorts after the numbered ones (js/binder-rules.js firstDex).
+// A read still running at waitMs goes on and saves when it ends, so the
+// next look finds it. onReading is called once when there is something to
+// ask for.
+export async function readDexNumbers(copies, index, {isAlive = () => true, onReading = () => {}, retryMs = DEX_RETRY_MS, waitMs = DEX_WAIT_MS} = {}) {
 	const sets = setsNeedingDetails(copies, index);
 
 	if (!sets.length) {
 		return {index, unread: 0};
 	}
 
+	const keyOf = (set) => `${set.catalog}|${set.setId}`;
+	const recent = (set) => failedSets.has(keyOf(set)) && Date.now() - failedSets.get(keyOf(set)) < retryMs;
+	const asking = sets.filter((set) => !recent(set));
+
+	if (!asking.length) {
+		return {index, unread: sets.length};
+	}
+
 	onReading();
 
 	const records = [];
+	const started = new Set();
+	const finished = new Set();
 	let read = 0;
 	let timer = null;
-	const saving = pool(sets, 2, async (set) => {
+	const saving = pool(asking, 2, async (set) => {
+		started.add(keyOf(set));
+
 		const details = await setDetails(set).catch(() => null);
+
+		finished.add(keyOf(set));
 
 		if (details) {
 			read++;
+			failedSets.delete(keyOf(set));
 			records.push(...detailRecords(set, details));
+		}
+		else {
+			failedSets.set(keyOf(set), Date.now());
 		}
 	}).then(() => (records.length && isAlive() ? saveToCardIndex(records) : null));
 	const late = new Promise((resolve) => {
@@ -300,7 +329,49 @@ export async function readDexNumbers(copies, index, {isAlive = () => true, onRea
 
 	clearTimeout(timer);
 
+	// A set asked and not answered in time waits out the retry too.
+	for (const set of asking) {
+		if (started.has(keyOf(set)) && !finished.has(keyOf(set))) {
+			failedSets.set(keyOf(set), Date.now());
+		}
+	}
+
 	return {index: saved || index, unread: sets.length - read};
+}
+
+// An Asian print whose record has no Pokédex number takes the numbers its
+// printed name gives (js/names.js dexFromName), as a checklist reads it
+// (js/checklists.js recordDex), from the species names saved on the phone.
+// Resolves {items, unread}: unread when the names could not be had, which a
+// later look settles. Other prints are left as they are.
+async function namedDexItems(items, index) {
+	const wants = (item) => item.kind === 'card' && !item.dexIds.length && item.catalog !== 'international' && item.catalog !== 'custom'
+		&& (index.get(indexKey(item.catalog, item.cardId)) || {}).category === 'Pokemon';
+
+	if (!items.some(wants)) {
+		return {items, unread: false};
+	}
+
+	const tables = await speciesNames().catch(() => null);
+
+	if (!tables) {
+		return {items, unread: true};
+	}
+
+	return {
+		items: items.map((item) => {
+			if (!wants(item)) {
+				return item;
+			}
+
+			const lang = catalogLanguage(item.catalog);
+			const local = ((index.get(indexKey(item.catalog, item.cardId)) || {}).localizations || {})[lang];
+			const dexIds = local ? dexFromName({category: 'Pokemon', lang, name: local.name}, tables).filter(validDex) : [];
+
+			return dexIds.length ? {...item, dexIds} : item;
+		}),
+		unread: false,
+	};
 }
 
 // The source's items, in the rule's order: {items, error, partial, gone},
@@ -321,11 +392,18 @@ export async function readDexNumbers(copies, index, {isAlive = () => true, onRea
 // sets' details are read, so a layout made before then would sort them by
 // collector number and move them when the details came (QA-3, 2026-11-27).
 // With readDex the details are read first (readDexNumbers, onReading says
-// when, dexWaitMs how long to wait), and when some cannot be, the list is
-// incomplete with a gap of kind 'dex': the binder waits for them as it
-// waits for a goal's missing sets (layoutWaits), and keeps its pockets. A
-// card with numbers in its own facts (a Pokémon goal's prints) needs none.
-export async function loadRuleItems(rule, doc, {dexWaitMs = DEX_WAIT_MS, force = false, index = null, isAlive = () => true, onReading = () => {}, readDex = false} = {}) {
+// when, dexWaitMs how long to wait), and when some cannot be, because the
+// read failed or took too long, the list is incomplete with a gap of kind
+// 'dex': the binder waits for them as it waits for a goal's missing sets
+// (layoutWaits), and keeps its pockets. A read that succeeds never holds
+// it: a card TCGdex gives no number (a Trainer or Energy, a Korean print
+// with a null dexId, a set it does not have) takes the number its name
+// gives where the app already reads one (namedDexItems), else sorts after
+// the numbered cards. A set that failed is not asked again for DEX_RETRY_MS
+// on an opening (dexRetryMs), so one failing set does not make every opening
+// wait; Refresh (force) and a form a person is filling ask again. A card with numbers in its own facts (a Pokémon
+// goal's prints) needs none.
+export async function loadRuleItems(rule, doc, {dexRetryMs = null, dexWaitMs = DEX_WAIT_MS, force = false, index = null, isAlive = () => true, onReading = () => {}, readDex = false} = {}) {
 	const clean = cleanBinderRule(rule);
 
 	if (!clean) {
@@ -405,14 +483,18 @@ export async function loadRuleItems(rule, doc, {dexWaitMs = DEX_WAIT_MS, force =
 	if (readDex && build && clean.order === 'dex') {
 		// The copies of cards that name no Pokédex number themselves.
 		const copies = items.filter((item) => item.kind === 'card' && item.catalog !== 'custom' && !item.dexIds.length).flatMap((item) => item.copies);
-		const read = await readDexNumbers(copies, known, {isAlive, onReading, waitMs: dexWaitMs});
+		const read = await readDexNumbers(copies, known, {isAlive, onReading, retryMs: dexRetryMs === null ? (force ? 0 : DEX_RETRY_MS) : dexRetryMs, waitMs: dexWaitMs});
 
 		if (read.index !== known) {
 			known = read.index;
 			items = build(known);
 		}
 
-		if (read.unread) {
+		const named = await namedDexItems(items, known);
+
+		items = named.items;
+
+		if (read.unread || named.unread) {
 			incomplete = true;
 			gaps = [...gaps, {count: read.unread, kind: 'dex'}];
 		}
