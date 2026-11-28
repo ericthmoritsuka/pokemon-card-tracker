@@ -89,6 +89,15 @@
 	overflow-wrap: anywhere;
 }
 
+/* The card's name is a link: a 24 px target (WCAG 2.5.8), not the 23 px a
+   line of text makes. */
+.check-name a {
+	display: inline-block;
+	line-height: 24px;
+	max-width: 100%;
+	min-height: 24px;
+}
+
 .check-meta,
 .check-copy-where,
 .check-copy-why {
