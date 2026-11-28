@@ -47,11 +47,12 @@ import {catalogFor, catalogLanguage, cardIndex, printedCode, savedCardRecords, s
 import {copyFinishName, finishChoices} from './catalog-views.js';
 import {cleanupLinks} from './copy-cleanup.js';
 import {currentUser} from './auth.js';
-import {loadDocument, onChange, storedPlaces, updateCards} from './collection.js';
+import {loadDocument, onChange, storedPlaces} from './collection.js';
 import {closeCopySheet, languageName, openEditSheet, rawFinishes} from './copy-sheet.js';
 import {isCustomId} from './custom-card.js';
 import {BASE, backWords, errorText, h} from './dom.js';
 import {applyFilters, FILTERS, filterBar, filterOn, sortItems, storageOf} from './filter-bar.js';
+import {favoriteStar, patchCopies as changeCopies} from './favorite-star.js';
 import {flagBadge} from './flags.js';
 import {formatCount, freeText, plural} from './format.js';
 import {sellableIds} from './listing-guard.js';
@@ -67,7 +68,7 @@ import {checkShopOwner, setShopTab, shopOwnerKnown} from './shop-owner.js';
 import {ANY, CHECK_SORTS, REASONS, SHOWS, checkedPool, checkedSignature, goneFields, isChecked, keepChecked, finishLineText, finishLines, narrowChecks, pileText, placeLabel, rowStatus, spareCheck, whereOptions} from './spare-check.js';
 import {listingStatus, withdrawListings} from './store-publish.js';
 import {tileArt} from './tile.js';
-import {cardRecord, favoriteKey, noteOnePrintings} from './wishlist.js';
+import {cardRecord, noteOnePrintings} from './wishlist.js';
 
 const UNDO_MS = 8000;
 const PAGE = 30;
@@ -497,27 +498,11 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 		return h('span', {class: 'check-lang'}, flag, languageName(language));
 	};
 
-	// One undoable change to copies, with its toast.
-	async function patchCopies(patches, undo, text, focus) {
-		if (!patches.length) {
-			return;
-		}
-
-		try {
-			await updateCards(patches);
-		}
-		catch (err) {
-			toast(`Not saved. ${errorText(err)}`);
-
-			return;
-		}
-
-		focusKey = focus;
-		toast(text, {
-			action: () => updateCards(undo).catch((err) => toast(`Not undone. ${errorText(err)}`)),
-			actionLabel: 'Undo',
-			timeout: UNDO_MS,
-		});
+	// One undoable change to copies, with its toast (js/favorite-star.js).
+	function patchCopies(patches, undo, text, focus) {
+		return changeCopies(patches, undo, text, {onSaved: () => {
+			focusKey = focus;
+		}, toast});
 	}
 
 	// Keep this one too: the copy's off-sale mark (for_sale false), which
@@ -728,26 +713,25 @@ export function spareCheckView(root, {cardId = null, lang = null} = {}) {
 				...(offer ? [offer] : [])));
 	}
 
-	// The star (Eric, 2026-11-27): a favorite is never a spare, so starring
-	// keeps every copy and the listing guard (js/listing-guard.js) takes
-	// any listed one off HOTARU at once. The star covers the card in every
+	// The star (Eric, 2026-11-27): the control and helper the Shop's rows use
+	// too (js/favorite-star.js). A favorite is never a spare, so starring
+	// keeps every copy and the listing guard (js/listing-guard.js) takes any
+	// listed one off HOTARU at once. The star covers the card in every
 	// language (js/wishlist.js favoriteCards): on stars this language's
 	// copies, off clears it from every copy of the card. Undo on the toast.
 	function starButton(group, info) {
-		const on = group.favorite;
-		const button = h('button', {'aria-label': `Favorite: ${info.name}`, 'aria-pressed': String(on), class: 'small check-star favorite-toggle', title: on ? 'Remove from favorites' : 'Mark as a favorite (never a spare)', type: 'button'}, on ? '★' : '☆');
-
-		button.onclick = () => {
-			const key = favoriteKey(group.rows[0].entry);
-			const cards = ((lastDoc && lastDoc.cards) || []).filter((entry) => entry && !entry.deleted_at && favoriteKey(entry) === key);
-			const entries = on ? cards : group.rows.map((row) => row.entry);
-			const patches = entries.filter((entry) => (entry.is_favorite === true) !== !on).map((entry) => ({id: entry.id, patch: {is_favorite: !on}}));
-			const undo = patches.map(({id}) => ({id, patch: {is_favorite: entries.find((entry) => entry.id === id).is_favorite ?? null}}));
-
-			patchCopies(patches, undo, on ? `${info.name} is no longer a favorite.` : `${info.name} is a favorite: no copy is a spare.`, group.key);
-		};
-
-		return button;
+		return favoriteStar({
+			cards: () => (lastDoc && lastDoc.cards) || [],
+			copies: () => group.rows.map((row) => row.entry),
+			entry: group.rows[0].entry,
+			label: `Favorite: ${info.name}`,
+			name: info.name,
+			on: group.favorite,
+			onSaved: () => {
+				focusKey = group.key;
+			},
+			toast,
+		});
 	}
 
 	function groupNode(group) {

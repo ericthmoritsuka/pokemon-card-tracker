@@ -33,6 +33,7 @@ import {loadedSpeciesNames} from './catalog-views.js';
 import {cardIndex, compareNumbers, importApi, indexKey, pricesDue, printedCode, readPriceRecord, savedCardRecords, saveToCardIndex, setFacts, setIdOfCard, setList, shopSetMark, viewingLanguage} from './catalog.js';
 import {listCards, loadDocument, onChange, updateCards} from './collection.js';
 import {BASE, errorText, go, h, segmentCounts} from './dom.js';
+import {favoriteStar} from './favorite-star.js';
 import {formatCount, plural} from './format.js';
 import {catalogFor, languageLabel} from './languages.js';
 import {finishLabel, NO_FINISH as NO_FINISH_TEXT} from './monprice.js';
@@ -52,7 +53,7 @@ import {announceOrders, cancelOrder, DELIVERED_DAYS, deliveredErrorText, deliver
 import {PROBLEM_TEXT, keptByChoice, listingProblems} from './listing-invariant.js';
 import {listingStatus, publishErrorText, serverSkipped, syncListings, uploadOwnPicture, uploadPicture} from './store-publish.js';
 import {onSyncStatus, syncStatus} from './sync.js';
-import {loadOnePrintings} from './wishlist.js';
+import {favoriteCards, favoriteKey, loadOnePrintings} from './wishlist.js';
 
 const SHOW_KEY = 'cardTracker.shopShow';
 // HOTARU's admin page for sealed products (ericthmoritsuka/hotaru).
@@ -136,6 +137,9 @@ const toast = (message, options) => import('./shell.js').then((shell) => shell.t
 export function shopView(root) {
 	let alive = true;
 	let groups = [];
+	// Every live copy as last read, for the star (starNode), which covers
+	// the card in every language.
+	let docCards = [];
 	let index = new Map();
 	let saved = new Map();
 	let rates = savedRates();
@@ -796,6 +800,53 @@ export function shopView(root) {
 		return group.listed.length ? `For sale at ${formatBrl(group.price)} each` : `Priced at ${formatBrl(group.price)}, every copy kept: not offered`;
 	}
 
+	// The favorite star on a row (Eric, 2026-11-27: pull a card from sale where
+	// he prices it). The control and helper are Check spares' own
+	// (js/favorite-star.js): a favorite is never a spare, in every language and
+	// finish, so the row leaves the list, or says it is not offered when a copy
+	// marked For sale keeps it. The listing guard (js/listing-guard.js)
+	// withdraws any listed copy at once. This screen ignores its own saves, so
+	// it reads again after the star and after Undo.
+	function starNode(group) {
+		const entry = groupCopy(group);
+		const key = favoriteKey(entry);
+		// The row's neighbor takes the focus when it leaves the list, and the
+		// row's own star when Undo brings it back.
+		const redraw = (focus) => reload().then(() => {
+			const next = focus();
+
+			if (alive && next) {
+				next.focus();
+			}
+		}).then(publish).catch(() => {});
+		const taken = () => {
+			const place = [...list.children].findIndex((item) => item.dataset.key === group.key);
+
+			return redraw(() => list.querySelectorAll('.shop-star')[Math.max(0, place)] || search);
+		};
+		const back = () => redraw(() => list.querySelector(`[data-key="${CSS.escape(group.key)}"] .shop-star`));
+
+		const button = favoriteStar({
+			cards: () => loadDocument().then((doc) => doc.cards),
+			copies: async () => {
+				const every = (await loadDocument()).cards.filter((one) => one && !one.deleted_at && favoriteKey(one) === key);
+
+				return [...new Map([...every, ...group.copies].map((one) => [one.id, one])).values()];
+			},
+			entry,
+			label: `Mark ${group.info.name} as a favorite`,
+			name: group.info.name,
+			on: favoriteCards(docCards).has(key) || group.copies.some((one) => one.is_favorite === true),
+			onSaved: taken,
+			onUndone: back,
+			toast,
+		});
+
+		button.classList.add('shop-star');
+
+		return button;
+	}
+
 	function row(group) {
 		const {info} = group;
 		const id = rowId(group);
@@ -846,7 +897,9 @@ export function shopView(root) {
 			pick,
 			artNode(group),
 			h('div', {class: 'shop-body'},
-				h('a', {class: 'shop-name', 'data-link': info.route, href: BASE + info.route}, info.name),
+				h('div', {class: 'shop-name-line'},
+					h('a', {class: 'shop-name', 'data-link': info.route, href: BASE + info.route}, info.name),
+					starNode(group)),
 				// HOTARU reads an unset finish as Normal, a known limitation
 				// (design review F14), so the row says so.
 				h('p', {class: 'shop-finish-line'}, h('span', {class: `shop-finish${named ? '' : ' shop-finish-unset'}`}, finish), named ? null : h('span', {class: 'muted shop-finish-hotaru'}, ' · Shows as Normal on HOTARU')),
@@ -2590,6 +2643,7 @@ export function shopView(root) {
 		}
 
 		indexRead = read !== false;
+		docCards = doc.cards || [];
 		groups = shopGroups(cards, {away: awayIds, codeOf: printedCode, held: heldCopies(doc)});
 		groups.forEach(describe);
 		// Opened from its address, the Shop can draw before the species

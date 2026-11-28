@@ -230,6 +230,25 @@
 	overflow-wrap: anywhere;
 }
 
+/* The name and the favorite star share a line (Eric, 2026-11-27); the star
+   is Check spares' own control, 44 px square at least, in the text color so
+   it reads in light and dark. */
+.shop-name-line {
+	align-items: center;
+	display: flex;
+	gap: var(--space-2);
+	justify-content: space-between;
+	min-width: 0;
+}
+
+.shop-name-line .shop-name {
+	min-width: 0;
+}
+
+.shop-star {
+	color: inherit;
+}
+
 /* Each finish of a card is its own row and price, so every row names its
    finish in a small tag under the name. */
 .shop-finish {
