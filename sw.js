@@ -171,6 +171,7 @@ const SHELL = [
 	'js/corners.js',
 	'js/dom.js',
 	'js/family.js',
+	'js/favorite-star.js',
 	'js/flags.js',
 	'js/import-view.js',
 	'js/languages.js',

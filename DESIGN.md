@@ -169,6 +169,13 @@ Spares, Trade ideas, and the Shop. *(Eric, 2026-11-24; `favoriteCards`, `js/wish
   (`store_withdraw`, `supabase/store-withdraw.sql`), so no order can arrive for a favorite; a
   reserved or sold copy is left alone. Until that file is run, or offline, the card page says the
   card leaves HOTARU the next time the Shop opens online, whose publish withdraws it anyway.
+- *The star on each Shop price row* (Eric, 2026-11-27: pull a card from sale where he prices it).
+  The row's name line carries the same star as Check spares' heading, one control and one helper
+  (`js/favorite-star.js`), named "Mark Charmander as a favorite", 44 px. Tapping it stars every copy
+  of the card, so the card leaves the Prices list (a copy marked For sale beats the star: its row
+  stays, says "For sale", and the toast says so), the listing guard withdraws any live listing, and
+  Undo on the toast puts the flags and the rows back. Only Prices rows have it, never Kits, Orders,
+  or Consign. `tests/shop-star-browser.test.mjs`.
 - *Going out needs his yes.* The scanner's Trade or sale mode never chooses a copy of a favorite
   by itself: it asks, suggesting none. Picking a copy is not consent: Save in the trades log names
   each favorite going out, and nothing is logged unless he taps "Sell it anyway" (or Trade, Give);
