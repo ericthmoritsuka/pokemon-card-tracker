@@ -2709,6 +2709,13 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.equal(await page.locator('#edit-binder, #binder-cover-image, #delete-binder, #pocket-sheet').count(), 0);
 		assert.match(await pocket(page, 1, 1).getAttribute('aria-label'), /^Page 1, pocket 1: Test Charmander/);
 
+		// An empty pocket is a labelled picture, not a control or a bare box.
+		const empty = page.locator('#bs-zoom-sheet .bs-pocket .pocket-open').first();
+
+		assert.equal(await empty.evaluate((el) => el.tagName), 'DIV');
+		assert.equal(await empty.getAttribute('role'), 'img');
+		assert.match(await empty.getAttribute('aria-label'), /^Page 1, pocket \d+: Empty$/);
+
 		// Opened at full size it is still read only: the card comes out
 		// with Card page alone.
 		await openPage(page, 1);

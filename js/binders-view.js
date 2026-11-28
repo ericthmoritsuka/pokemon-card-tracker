@@ -1410,7 +1410,9 @@ function binderScreen(root, source, id, pageParam) {
 			return h('button', {...attrs, onclick: (event) => viewPocket(pg, position, event.currentTarget), type: 'button'}, content.node);
 		}
 
-		return h('div', attrs, content.node);
+		// Not a control, so not announced as one; role img gives the label
+		// ("Page 1, pocket 2: Empty") a role to be read under.
+		return h('div', {...attrs, role: 'img'}, content.node);
 	}
 
 	function drawPage() {
